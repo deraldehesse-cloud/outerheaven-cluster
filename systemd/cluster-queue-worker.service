@@ -1,0 +1,19 @@
+[Unit]
+Description=Outer Heaven Cluster Task Queue Worker
+After=network-online.target tailscaled.service ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/outerheaven/.hermes/.venv/bin/python /home/outerheaven/scripts/cluster_delegate.py queue-worker
+WorkingDirectory=/home/outerheaven/scripts
+Environment="PATH=/home/outerheaven/.hermes/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Restart=always
+RestartSec=5
+KillMode=process
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

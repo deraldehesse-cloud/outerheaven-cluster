@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-cluster_delegate.py - Bidirektionales Workload-Delegations-Tool für den Outer Heaven Cluster.
+cluster_delegate.py - Bidirektionales Workload-Delegations- & Queue-Tool für den Outer Heaven Cluster.
 
-Unterstützt zwei Richtungen:
+Unterstützt:
 1. Fox -> Outer Heaven (delegate_to_outerheaven):
    Fox prüft vor rechenintensiven Aufgaben (große Dateiabgleiche, schweres Reasoning),
    ob Outer Heaven (100.116.38.29) erreichbar ist und ComfyUI inaktiv ist (VRAM < 4 GB).
@@ -12,9 +12,10 @@ Unterstützt zwei Richtungen:
 2. Outer Heaven -> Fox (delegate_to_fox):
    Outer Heaven lagert bei aktiven Renderings / VRAM-Mangel Textaufgaben an Fox aus,
    sofern Fox nicht gerade neu startet (/tmp/fox_is_rebooting).
-
-Synchronisiert den Berechnungsstatus live mit dem Mission Control Dashboard
-("⚡ DELEGATED TO OH" / "🦊 DELEGATED TO FOX").
+3. Task-Handover-Queue (/mnt/storage-beta/cluster_tasks.json):
+   Wenn Fox einen Task nicht stemmen kann und Outer Heaven belegt ist, reiht Fox
+   den Job mit Status 'QUEUED_FOR_OH' in die persistente Queue ein.
+   Outer Heaven arbeitet die Queue via Daemon/Worker ab, sobald ComfyUI frei ist.
 """
 
 import os
@@ -22,11 +23,13 @@ import sys
 import time
 import json
 import socket
+import fcntl
+import secrets
 import urllib.request
 import urllib.error
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List
 
 # --- Netzwerk- und Node-Konfiguration ---
 OUTERHEAVEN_TS_IP = "100.116.38.29"
@@ -40,6 +43,10 @@ OH_MODEL = "deepseek-r1:14b"
 FOX_MODEL = "hermes-3-3b-q4:latest"
 
 FOX_REBOOT_FLAG = Path("/tmp/fox_is_rebooting")
+
+# Shared Cluster Task Queue
+QUEUE_FILE = Path("/mnt/storage-beta/cluster_tasks.json")
+LOCK_FILE = Path("/mnt/storage-beta/.cluster_tasks.lock")
 
 # Mögliche Pfade für den Cluster API Key
 KEY_PATHS = [
@@ -87,7 +94,7 @@ def report_mission_control_status(
 ) -> bool:
     """
     Sendet ein Status-Update an das Mission Control Dashboard auf Outer Heaven (:8080).
-    Zustände: 'running', 'completed', 'failed', 'idle'
+    Zustände: 'running', 'completed', 'failed', 'queued', 'idle'
     """
     url = f"http://{OUTERHEAVEN_TS_IP}:{MISSION_CONTROL_PORT}/api/delegation/update"
     payload = {
@@ -156,7 +163,6 @@ def check_outerheaven_comfyui_and_vram() -> Tuple[bool, float, str]:
         with urllib.request.urlopen(req, timeout=1.5) as resp:
             queue_data = json.loads(resp.read().decode("utf-8"))
     except Exception:
-        # ComfyUI läuft nicht -> Inaktiv!
         pass
 
     if queue_data:
@@ -199,7 +205,6 @@ def check_outerheaven_comfyui_and_vram() -> Tuple[bool, float, str]:
     except Exception:
         pass
 
-    # Wenn ComfyUI nicht läuft und Ollama erreichbar ist, ist VRAM frei
     return False, 0.0, "ComfyUI ist nicht aktiv (0 GB VRAM genutzt)"
 
 
@@ -233,6 +238,194 @@ def query_ollama(
         return res.get("response", "").strip()
 
 
+# ==============================================================================
+# Task-Handover-Queue (/mnt/storage-beta/cluster_tasks.json)
+# ==============================================================================
+
+def load_cluster_tasks() -> List[Dict[str, Any]]:
+    """Liest alle Tasks aus /mnt/storage-beta/cluster_tasks.json threadsicher ein."""
+    if not QUEUE_FILE.is_file():
+        return []
+    try:
+        with open(QUEUE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data.get("tasks", [])
+            elif isinstance(data, list):
+                return data
+            return []
+    except Exception:
+        return []
+
+
+def save_cluster_tasks(tasks: List[Dict[str, Any]]) -> bool:
+    """Schreibt Tasks atomar und flock-gesichert nach /mnt/storage-beta/cluster_tasks.json."""
+    tmp_file = Path(f"/mnt/storage-beta/cluster_tasks.json.{os.getpid()}_{secrets.token_hex(2)}.tmp")
+    data = {
+        "tasks": tasks,
+        "last_updated": time.time(),
+        "updated_by": detect_current_node()
+    }
+    try:
+        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOCK_FILE, "w") as lock_f:
+            try:
+                fcntl.flock(lock_f, fcntl.LOCK_EX)
+            except (BlockingIOError, OSError):
+                time.sleep(0.1)
+                fcntl.flock(lock_f, fcntl.LOCK_EX)
+
+            with open(tmp_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(tmp_file, QUEUE_FILE)
+            fcntl.flock(lock_f, fcntl.LOCK_UN)
+        return True
+    except Exception as e:
+        if tmp_file.is_file():
+            try:
+                tmp_file.unlink()
+            except Exception:
+                pass
+        return False
+
+
+def enqueue_task(
+    name: str,
+    prompt: str,
+    task_type: str = "reasoning",
+    command: str = ""
+) -> Dict[str, Any]:
+    """Reiht einen neuen Task mit Status 'QUEUED_FOR_OH' in die Handover-Queue ein."""
+    task_id = f"task_{int(time.time())}_{secrets.token_hex(4)}"
+    current_node = detect_current_node()
+    new_task = {
+        "id": task_id,
+        "name": name,
+        "type": task_type,
+        "prompt": prompt,
+        "command": command or "",
+        "status": "QUEUED_FOR_OH",
+        "origin": current_node,
+        "created_at": time.time(),
+        "started_at": None,
+        "finished_at": None,
+        "model": OH_MODEL,
+        "result": None,
+        "error": None
+    }
+    tasks = load_cluster_tasks()
+    tasks.append(new_task)
+    save_cluster_tasks(tasks)
+
+    report_mission_control_status(
+        task=f"QUEUED TASK: {name}",
+        state="queued",
+        delegated_to="OH",
+        origin_node=current_node,
+        target_node="outerheaven",
+        model=OH_MODEL,
+        reason=f"Task eingereiht in /mnt/storage-beta/cluster_tasks.json ({task_id})"
+    )
+    return new_task
+
+
+def process_queue_once() -> Optional[Dict[str, Any]]:
+    """
+    Prüft auf Outer Heaven, ob Aufgaben mit Status 'QUEUED_FOR_OH' anstehen.
+    Wird nur ausgeführt, wenn ComfyUI inaktiv ist (VRAM < 4.0 GB und queue == 0).
+    """
+    tasks = load_cluster_tasks()
+    queued = [t for t in tasks if t.get("status") == "QUEUED_FOR_OH"]
+    if not queued:
+        return None
+
+    # ComfyUI & VRAM prüfen
+    is_busy, vram_used, reason = check_outerheaven_comfyui_and_vram()
+    if is_busy or vram_used >= 4.0:
+        return None  # Outer Heaven belegt -> warten
+
+    target_task = queued[0]
+    target_id = target_task.get("id")
+    task_name = target_task.get("name", "Task")
+
+    # Status auf WORKING_ON_TASK setzen
+    for t in tasks:
+        if t.get("id") == target_id:
+            t["status"] = "WORKING_ON_TASK"
+            t["started_at"] = time.time()
+            break
+    save_cluster_tasks(tasks)
+
+    report_mission_control_status(
+        task=f"WORKING ON FOX TASK: {task_name}",
+        state="running",
+        delegated_to="OH",
+        origin_node="fox",
+        target_node="outerheaven",
+        model=OH_MODEL,
+        reason=f"Outer Heaven arbeitet Task ab (ComfyUI VRAM {vram_used} GB < 4 GB)"
+    )
+
+    result_text = None
+    error_text = None
+    try:
+        cmd = target_task.get("command", "").strip()
+        if cmd:
+            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
+            if proc.returncode == 0:
+                result_text = proc.stdout.strip()
+            else:
+                error_text = proc.stderr.strip() or f"Prozess mit Code {proc.returncode} beendet"
+        else:
+            prompt = target_task.get("prompt", "")
+            result_text = query_ollama("127.0.0.1", OH_MODEL, prompt, num_ctx=8192, timeout=300)
+    except Exception as e:
+        error_text = str(e)
+
+    # Status auf FINISHED / FAILED aktualisieren
+    for t in tasks:
+        if t.get("id") == target_id:
+            t["status"] = "FINISHED" if not error_text else "FAILED"
+            t["finished_at"] = time.time()
+            t["result"] = result_text
+            t["error"] = error_text
+            break
+    save_cluster_tasks(tasks)
+
+    report_mission_control_status(
+        task=f"FINISHED: {task_name}",
+        state="completed" if not error_text else "failed",
+        delegated_to="OH",
+        origin_node="fox",
+        target_node="outerheaven",
+        model=OH_MODEL,
+        reason="Abarbeitung erfolgreich abgeschlossen" if not error_text else f"Fehler: {error_text}"
+    )
+    return target_task
+
+
+def run_queue_worker(interval: float = 3.0):
+    """Worker-Daemon für Outer Heaven zur permanenten Abarbeitung der Queue."""
+    print(f"[{detect_current_node().upper()}] Starte Cluster Queue Worker...")
+    print(f"Überwache /mnt/storage-beta/cluster_tasks.json (Intervall: {interval}s)")
+    while True:
+        try:
+            task = process_queue_once()
+            if task:
+                status = task.get("status")
+                print(f"[WORKER] {status}: {task.get('name')} ({task.get('id')})")
+        except Exception as e:
+            print(f"[WORKER ERROR] {e}", file=sys.stderr)
+        time.sleep(interval)
+
+
+# ==============================================================================
+# Live-Delegation (Synchron)
+# ==============================================================================
+
 def delegate_to_outerheaven(
     task: str,
     system_prompt: str = "",
@@ -253,7 +446,6 @@ def delegate_to_outerheaven(
     is_busy, vram_used, reason = check_outerheaven_comfyui_and_vram()
 
     if not is_busy:
-        # Outer Heaven ist frei -> Delegation an Outer Heaven
         target_node = "outerheaven"
         delegated_to = "OH"
         active_model = OH_MODEL
@@ -280,7 +472,6 @@ def delegate_to_outerheaven(
             )
             success = True
         except Exception as e:
-            # Automatischer Fallback auf Fox, falls Netzwerk/Ollama während der Übertragung ausfällt
             report_reason = f"Fallback lokal auf Fox (Outer Heaven Inferenz-Fehler: {e})"
             target_node = "fox"
             delegated_to = "FOX"
@@ -310,7 +501,6 @@ def delegate_to_outerheaven(
                 response = f"Fehler bei Inferenz auf Fox: {local_err}"
                 success = False
     else:
-        # Outer Heaven ist belegt oder schläft -> Fox rechnet autonom mit Hermes-3
         target_node = "fox"
         delegated_to = "FOX"
         active_model = FOX_MODEL
@@ -340,7 +530,6 @@ def delegate_to_outerheaven(
             response = f"Fehler bei lokaler Inferenz auf Fox: {local_err}"
             success = False
 
-    # Status im Dashboard wieder freigeben / als abgeschlossen markieren
     report_mission_control_status(
         task=short_task,
         state="completed" if success else "failed",
@@ -375,7 +564,6 @@ def delegate_to_fox(
     current_node = detect_current_node()
 
     if is_fox_rebooting():
-        # Fox rebootet -> Zwingend lokal auf Outer Heaven
         target_node = "outerheaven"
         delegated_to = "OH"
         active_model = OH_MODEL
@@ -403,11 +591,9 @@ def delegate_to_fox(
         )
 
         try:
-            # Query Fox via Tailscale IP
             response = query_ollama(FOX_TS_IP, active_model, task, system_prompt, num_ctx=4096, timeout=120)
             success = True
         except Exception as e:
-            # Fallback lokal
             target_node = "outerheaven"
             delegated_to = "OH"
             active_model = OH_MODEL
@@ -441,12 +627,7 @@ def delegate_to_fox(
 
 
 def delegate_task(task: str, system_prompt: str = "") -> Dict[str, Any]:
-    """
-    Automatische bidirektionale Delegations-Erkennung:
-    - Wenn auf Fox ausgeführt: Ruft delegate_to_outerheaven(task) auf.
-    - Wenn auf Outer Heaven ausgeführt: Prüft ComfyUI und delegiert bei Bedarf an Fox.
-    - Wenn auf Big Boss ausgeführt: Prüft Cluster und nutzt optimalen Node.
-    """
+    """Automatische bidirektionale Delegations-Erkennung."""
     node = detect_current_node()
     if node == "fox":
         return delegate_to_outerheaven(task, system_prompt=system_prompt)
@@ -465,7 +646,6 @@ def delegate_task(task: str, system_prompt: str = "") -> Dict[str, Any]:
                 "task": task[:60]
             }
     else:
-        # Big Boss / Desktop
         is_busy, _, _ = check_outerheaven_comfyui_and_vram()
         if not is_busy and is_outerheaven_reachable():
             return delegate_to_outerheaven(task, system_prompt=system_prompt)
@@ -481,6 +661,10 @@ def main():
         print("  delegate-oh <prompt>  Lagert Task an Outer Heaven aus (Fallback: Fox)")
         print("  delegate-fox <prompt> Lagert Task an Fox aus (Fallback: Outer Heaven)")
         print("  run <prompt>          Automatische bidirektionale Lastverteilung")
+        print("  queue <name> <prompt> Reiht Job in /mnt/storage-beta/cluster_tasks.json ein")
+        print("  queue-list            Listet alle Jobs der Handover-Queue auf")
+        print("  queue-worker          Startet den Queue-Worker-Daemon auf Outer Heaven")
+        print("  queue-process         Führt genau einen anstehenden Queue-Task aus")
         sys.exit(0)
 
     cmd = sys.argv[1]
@@ -490,6 +674,9 @@ def main():
         oh_online = is_outerheaven_reachable(timeout=1.5)
         busy, vram_used, reason = check_outerheaven_comfyui_and_vram()
         fox_reb = is_fox_rebooting()
+        tasks = load_cluster_tasks()
+        queued_count = sum(1 for t in tasks if t.get("status") == "QUEUED_FOR_OH")
+        active_count = sum(1 for t in tasks if t.get("status") == "WORKING_ON_TASK")
 
         if current_node == "fox":
             recommended = "outerheaven (DeepSeek-R1)" if (not busy and oh_online) else "fox (Hermes-3B)"
@@ -510,6 +697,11 @@ def main():
                 "ip": FOX_TS_IP,
                 "rebooting": fox_reb,
                 "model": FOX_MODEL
+            },
+            "queue": {
+                "queued_count": queued_count,
+                "active_count": active_count,
+                "total_tasks": len(tasks)
             },
             "recommended_compute_node": recommended
         }
@@ -541,6 +733,29 @@ def main():
         res = delegate_task(prompt)
         prefix = f"[{res['delegated_to']}] ({res['node']} // {res['model']} - {res['reason']})"
         print(f"{prefix}\n\n{res['response']}")
+
+    elif cmd == "queue":
+        if len(sys.argv) < 4:
+            print("Verwendung: cluster_delegate.py queue <Task-Name> <Prompt/Anweisung>", file=sys.stderr)
+            sys.exit(1)
+        name = sys.argv[2].strip()
+        prompt = " ".join(sys.argv[3:]).strip()
+        task = enqueue_task(name, prompt)
+        print(f"[QUEUED] Job '{name}' mit ID {task['id']} eingereiht.")
+
+    elif cmd == "queue-list":
+        tasks = load_cluster_tasks()
+        print(json.dumps(tasks, indent=2, ensure_ascii=False))
+
+    elif cmd == "queue-worker":
+        run_queue_worker()
+
+    elif cmd == "queue-process":
+        task = process_queue_once()
+        if task:
+            print(f"[PROCESSED] {task.get('name')} -> {task.get('status')}")
+        else:
+            print("[IDLE] Keine Aufgaben anstehend oder Outer Heaven belegt.")
 
     else:
         print(f"Unbekannter Befehl: {cmd}. Nutze --help für Hilfe.", file=sys.stderr)

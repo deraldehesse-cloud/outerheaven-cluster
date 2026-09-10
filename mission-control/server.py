@@ -34,6 +34,7 @@ STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
 COMFYUI_OUTPUT_DIR = Path("/home/outerheaven/ComfyUI/output")
 SECRETS_DIR = Path("/mnt/storage-alpha/secrets")
+CLUSTER_TASKS_FILE = Path("/mnt/storage-beta/cluster_tasks.json")
 
 LOCAL_TS_IP = os.environ.get("OUTERHEAVEN_TS_IP", "100.116.38.29")
 FOX_TS_IP = os.environ.get("FOX_TS_IP", "100.93.184.87")
@@ -158,8 +159,53 @@ telemetry_cache = {
         "updated_at": 0,
         "history": []
     },
+    "queue": {
+        "queued_count": 0,
+        "active_count": 0,
+        "queued_tasks": [],
+        "active_tasks": [],
+        "latest_finished": [],
+        "total_tasks": 0
+    },
     "last_update": 0
 }
+
+def get_cluster_tasks_info() -> Dict[str, Any]:
+    if not CLUSTER_TASKS_FILE.is_file():
+        return {
+            "queued_count": 0,
+            "active_count": 0,
+            "queued_tasks": [],
+            "active_tasks": [],
+            "latest_finished": [],
+            "total_tasks": 0
+        }
+    try:
+        with open(CLUSTER_TASKS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            tasks = data.get("tasks", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+            queued = [t for t in tasks if t.get("status") == "QUEUED_FOR_OH"]
+            active = [t for t in tasks if t.get("status") == "WORKING_ON_TASK"]
+            finished = [t for t in tasks if t.get("status") in ("FINISHED", "FAILED")]
+            finished.sort(key=lambda x: x.get("finished_at") or 0, reverse=True)
+            return {
+                "queued_count": len(queued),
+                "active_count": len(active),
+                "queued_tasks": queued,
+                "active_tasks": active,
+                "latest_finished": finished[:5],
+                "total_tasks": len(tasks)
+            }
+    except Exception as e:
+        logger.debug(f"Error reading cluster_tasks.json: {e}")
+        return {
+            "queued_count": 0,
+            "active_count": 0,
+            "queued_tasks": [],
+            "active_tasks": [],
+            "latest_finished": [],
+            "total_tasks": 0
+        }
 
 # --- Telemetry Collector ---
 async def get_outerheaven_telemetry(session: aiohttp.ClientSession) -> Dict[str, Any]:
@@ -350,6 +396,7 @@ async def telemetry_background_loop():
                     telemetry_cache["outerheaven"] = oh_data
                 if not isinstance(fox_data, Exception):
                     telemetry_cache["fox"] = fox_data
+                telemetry_cache["queue"] = get_cluster_tasks_info()
                 telemetry_cache["last_update"] = time.time()
             except Exception as e:
                 logger.error(f"Telemetry loop error: {e}")
@@ -447,7 +494,7 @@ async def auth_middleware(request: web.Request, handler):
             except Exception:
                 pass
 
-    if not authenticated and path.startswith("/api/delegation/"):
+    if not authenticated and (path.startswith("/api/delegation/") or path in ("/api/status", "/api/telemetry")):
         peer = request.remote
         if peer in ("127.0.0.1", "::1", LOCAL_TS_IP, FOX_TS_IP):
             authenticated = True
@@ -584,6 +631,31 @@ async def handle_delegation_update(request: web.Request) -> web.Response:
 async def handle_delegation_status(request: web.Request) -> web.Response:
     return web.json_response(telemetry_cache.get("delegation", {}))
 
+async def handle_status(request: web.Request) -> web.Response:
+    queue_info = get_cluster_tasks_info()
+    oh_telemetry = telemetry_cache.get("outerheaven", {})
+    fox_telemetry = telemetry_cache.get("fox", {})
+    delegation = telemetry_cache.get("delegation", {})
+
+    status_payload = {
+        "success": True,
+        "timestamp": time.time(),
+        "queue": queue_info,
+        "delegation": delegation,
+        "outerheaven": {
+            "online": oh_telemetry.get("online", False),
+            "comfyui": oh_telemetry.get("services", {}).get("comfyui", "unknown"),
+            "vram": oh_telemetry.get("gpu", {}),
+            "load": oh_telemetry.get("load", [])
+        },
+        "fox": {
+            "online": fox_telemetry.get("online", False),
+            "rebooting": fox_telemetry.get("rebooting", False),
+            "load": fox_telemetry.get("load", [])
+        }
+    }
+    return web.json_response(status_payload)
+
 async def handle_service_control(request: web.Request) -> web.Response:
     try:
         body = await request.json()
@@ -597,14 +669,14 @@ async def handle_service_control(request: web.Request) -> web.Response:
     if action not in ["start", "stop", "restart", "status"]:
         return web.json_response({"error": "Invalid action"}, status=400)
 
-    valid_oh_services = ["comfyui", "hermes-telegram", "ollama", "ollama-model-watcher"]
+    valid_oh_services = ["comfyui", "hermes-telegram", "ollama", "ollama-model-watcher", "cluster-queue-worker"]
     valid_fox_services = ["hermes-gateway", "ollama", "ollama-tailscale-proxy"]
 
     if node == "outerheaven":
         if service not in valid_oh_services:
             return web.json_response({"error": f"Invalid service for outerheaven. Allowed: {valid_oh_services}"}, status=400)
 
-        is_user_svc = service in ["comfyui", "hermes-telegram"]
+        is_user_svc = service in ["comfyui", "hermes-telegram", "cluster-queue-worker"]
         if is_user_svc:
             cmd = ["systemctl", "--user", action, f"{service}.service"]
         else:
@@ -1006,6 +1078,7 @@ def create_app() -> web.Application:
 
     # API endpoints
     app.router.add_get("/api/telemetry", handle_telemetry)
+    app.router.add_get("/api/status", handle_status)
     app.router.add_post("/api/service", handle_service_control)
     app.router.add_post("/api/handover", handle_handover)
     app.router.add_post("/api/delegation/update", handle_delegation_update)

@@ -237,6 +237,23 @@
           <span class="text-[10px] text-slate-500 font-mono">HP Z620 • DUAL XEON • ARC A770</span>
         </div>
 
+        <!-- Tactical Handover Queue & Task Banners for OH -->
+        <div id="ohQueuedTaskBanner" class="hidden mb-3 p-2.5 rounded bg-amber-950/80 border border-amber-500/80 text-[11px] text-amber-300 font-mono flex items-center justify-between animate-pulse glow-amber">
+          <div class="flex items-center space-x-2 truncate">
+            <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+            <span class="font-bold text-amber-400">[QUEUED TASK: <span id="ohQueuedTaskName">Drive Asset Sync</span>]</span>
+          </div>
+          <span class="text-[10px] text-amber-200/70 shrink-0 ml-2">⏳ Wartet auf ComfyUI Leerlauf</span>
+        </div>
+
+        <div id="ohWorkingTaskBanner" class="hidden mb-3 p-2.5 rounded bg-cyan-950/90 border border-cyan-400 text-[11px] text-cyan-300 font-mono flex items-center justify-between animate-pulse glow-cyan">
+          <div class="flex items-center space-x-2 truncate">
+            <svg class="w-3.5 h-3.5 text-cyan-400 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+            <span class="font-bold text-cyan-300">⚡ WORKING ON FOX TASK: <span id="ohWorkingTaskName" class="text-slate-100"></span></span>
+          </div>
+          <span class="text-[10px] text-cyan-300/80 shrink-0 ml-2">DeepSeek-R1 Aktiv</span>
+        </div>
+
         <!-- Active Task Highlight for OH -->
         <div id="ohActiveTaskBadge" class="hidden mb-3 p-2 rounded bg-cyan-950/80 border border-cyan-500/80 text-[11px] text-cyan-300 font-mono flex items-center space-x-2 animate-pulse glow-cyan">
           <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
@@ -1049,6 +1066,37 @@
             if (delModelText) { delModelText.textContent = del.model || "--"; delModelText.className = "text-slate-400 font-bold"; }
             if (ohTaskBadge) ohTaskBadge.classList.add('hidden');
             if (foxTaskBadge) foxTaskBadge.classList.add('hidden');
+          }
+        }
+
+        // 4. Cluster Queue Banners (Handover Queue /mnt/storage-beta/cluster_tasks.json)
+        const qData = data.queue;
+        const ohQueuedBanner = document.getElementById('ohQueuedTaskBanner');
+        const ohQueuedName = document.getElementById('ohQueuedTaskName');
+        const ohWorkingBanner = document.getElementById('ohWorkingTaskBanner');
+        const ohWorkingName = document.getElementById('ohWorkingTaskName');
+
+        if (qData) {
+          // 1. Task currently actively processed by Outer Heaven
+          if (qData.active_count > 0 && qData.active_tasks && qData.active_tasks.length > 0) {
+            const actTask = qData.active_tasks[0];
+            if (ohWorkingBanner) {
+              ohWorkingBanner.classList.remove('hidden');
+              if (ohWorkingName) ohWorkingName.textContent = actTask.name || "Fox Task";
+            }
+          } else {
+            if (ohWorkingBanner) ohWorkingBanner.classList.add('hidden');
+          }
+
+          // 2. Tasks queued waiting for ComfyUI idle
+          if (qData.queued_count > 0 && qData.queued_tasks && qData.queued_tasks.length > 0) {
+            const qTask = qData.queued_tasks[0];
+            if (ohQueuedBanner) {
+              ohQueuedBanner.classList.remove('hidden');
+              if (ohQueuedName) ohQueuedName.textContent = qTask.name || "Handover Task";
+            }
+          } else {
+            if (ohQueuedBanner) ohQueuedBanner.classList.add('hidden');
           }
         }
 
