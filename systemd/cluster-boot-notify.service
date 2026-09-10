@@ -1,0 +1,12 @@
+[Unit]
+Description=Notify Outer Heaven that Fox is back online
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/fox/scripts/cluster-boot-notify.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

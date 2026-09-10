@@ -1,0 +1,22 @@
+[Unit]
+Description=Ollama Model Watcher & Hermes Telegram Synchronizer (Outer Heaven)
+After=network.target ollama.service
+Requires=ollama.service
+
+[Service]
+Type=simple
+User=outerheaven
+Group=outerheaven
+WorkingDirectory=/home/outerheaven/.hermes
+Environment="PATH=/home/outerheaven/.hermes/.venv/bin:/home/outerheaven/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
+ExecStart=/usr/local/bin/watch-ollama-model.sh
+Restart=always
+RestartSec=10
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

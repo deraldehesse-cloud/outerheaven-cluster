@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Outer Heaven // Tactical Clearance</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+  <meta name="theme-color" content="#00f3ff">
+  <style>
+    body {
+      background-color: #050811;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    .glow-cyan {
+      box-shadow: 0 0 20px rgba(0, 243, 255, 0.25);
+    }
+    .border-glow {
+      border-color: rgba(0, 243, 255, 0.4);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 text-slate-200">
+  <div class="w-full max-w-md bg-slate-950/90 border border-glow rounded-xl p-8 glow-cyan relative overflow-hidden backdrop-blur-md">
+    <!-- Sci-Fi Corner Decors -->
+    <div class="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-cyan-400"></div>
+    <div class="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-cyan-400"></div>
+    <div class="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-cyan-400"></div>
+    <div class="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-cyan-400"></div>
+
+    <div class="flex items-center space-x-3 mb-6">
+      <img src="/static/icon.svg" alt="OH" class="w-10 h-10 animate-pulse">
+      <div>
+        <h1 class="text-xl font-bold tracking-widest text-cyan-400">OUTER HEAVEN</h1>
+        <p class="text-xs text-slate-500 uppercase tracking-wider">Mission Control // Clearance</p>
+      </div>
+    </div>
+
+    <div class="bg-black/60 border border-slate-800 rounded p-3 mb-6 text-xs text-slate-400">
+      <div class="flex items-center space-x-2 text-cyan-300 mb-1">
+        <span class="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+        <span class="font-semibold">NODE LINK RESTRICTED</span>
+      </div>
+      <p>Verbindung über gesichertes Tailscale-VPN erfordert Autorisierung.</p>
+    </div>
+
+    <form id="loginForm" class="space-y-4">
+      <div>
+        <label class="block text-xs uppercase tracking-wider text-slate-400 mb-1">Zugangspasswort</label>
+        <div class="relative">
+          <input type="password" id="password" required autofocus
+            placeholder="••••••••••••••••"
+            class="w-full bg-black/80 border border-slate-700 rounded px-4 py-2.5 text-sm text-cyan-200 placeholder-slate-600 focus:outline-none focus:border-cyan-400 transition">
+        </div>
+      </div>
+
+      <div id="errorMsg" class="hidden text-xs text-rose-400 bg-rose-950/40 border border-rose-800/60 rounded p-2 text-center"></div>
+
+      <button type="submit" id="submitBtn"
+        class="w-full bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-slate-950 font-bold py-2.5 px-4 rounded transition tracking-wider uppercase text-sm shadow-lg shadow-cyan-900/40 flex items-center justify-center space-x-2">
+        <span>AUTHENTICATE</span>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+        </svg>
+      </button>
+    </form>
+
+    <div class="mt-6 pt-4 border-t border-slate-800/80 text-center text-[10px] text-slate-600">
+      OUTER HEAVEN CLUSTER • TAILSCALE PROTECTED • 2026
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const passwordInput = document.getElementById('password');
+    const errorMsg = document.getElementById('errorMsg');
+    const submitBtn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorMsg.classList.add('hidden');
+      submitBtn.disabled = true;
+      submitBtn.classList.add('opacity-70');
+
+      try {
+        const res = await fetch('/login/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: passwordInput.value })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          window.location.href = data.redirect || '/';
+        } else {
+          errorMsg.textContent = data.error || 'Ungültiges Zugangspasswort';
+          errorMsg.classList.remove('hidden');
+          passwordInput.value = '';
+          passwordInput.focus();
+        }
+      } catch (err) {
+        errorMsg.textContent = 'Netzwerkfehler: Authentifizierung fehlgeschlagen.';
+        errorMsg.classList.remove('hidden');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.classList.remove('opacity-70');
+      }
+    });
+  </script>
+</body>
+</html>

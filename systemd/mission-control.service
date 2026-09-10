@@ -1,0 +1,20 @@
+[Unit]
+Description=Outer Heaven Mission Control Dashboard (PWA)
+After=network-online.target tailscaled.service comfyui.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/outerheaven/.hermes/.venv/bin/python /home/outerheaven/mission-control/server.py
+WorkingDirectory=/home/outerheaven/mission-control
+Environment="PATH=/home/outerheaven/.hermes/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Restart=always
+RestartSec=3
+KillMode=process
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

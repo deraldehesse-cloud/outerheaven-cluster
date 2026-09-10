@@ -1,0 +1,12 @@
+[Unit]
+Description=Notify Outer Heaven before reboot/shutdown
+DefaultDependencies=no
+Before=shutdown.target exit.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/fox/scripts/cluster-pre-shutdown.sh
+TimeoutStartSec=10
+
+[Install]
+WantedBy=shutdown.target exit.target

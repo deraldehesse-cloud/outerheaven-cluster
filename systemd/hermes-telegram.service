@@ -1,0 +1,24 @@
+[Unit]
+Description=Hermes Telegram Bot Service (Bigbossheaven_bot) on Outer Heaven
+After=network-online.target comfyui.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/outerheaven/.hermes
+Environment="PATH=/home/outerheaven/.hermes/.venv/bin:/home/outerheaven/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="VIRTUAL_ENV=/home/outerheaven/.hermes/.venv"
+Environment="HERMES_HOME=/home/outerheaven/.hermes"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONPATH=/home/outerheaven/.hermes/scripts:/home/outerheaven/.hermes"
+ExecStart=/home/outerheaven/.hermes/.venv/bin/python /home/outerheaven/.hermes/scripts/hermes_telegram_service.py
+Restart=always
+RestartSec=5
+KillMode=mixed
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

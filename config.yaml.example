@@ -1,0 +1,161 @@
+# =============================================================================
+# SICHERHEITSHINWEIS: Diese Datei darf niemals ungefragt oder selbstständig
+# vom Agenten oder anderen Systemen überschrieben oder modifiziert werden!
+# =============================================================================
+# Hermes Agent - Radikal entschlackte und optimierte Multi-Node Konfiguration
+# Profile Name: Multi-Node-Basti-v3 (Optimiert & Feinjustiert)
+# Last Modified: 2026-09-10
+# =============================================================================
+
+_config_version: 40
+
+# =============================================================================
+# 1. LOCAL KERN-INFRASTRUKTUR (Ollama)
+# =============================================================================
+model:
+  default: "deepseek-r1:14b"
+  provider: "custom"
+  base_url: "http://127.0.0.1:11434/v1"
+  context_length: 8192
+
+# =============================================================================
+# 2. MULTI-NODE SPEZIFIKATIONEN & INFERENZ-TUNING
+# =============================================================================
+nodes:
+  # ---------------------------------------------------------------------------
+  # Node 1: outerheaven (Primäre Workstation - AVX1 / GPU-Offloading)
+  # ---------------------------------------------------------------------------
+  outerheaven:
+    hostname: "outerheaven"
+    role: "primary_workstation"
+    system:
+      os: "Ubuntu Studio"
+      kernel: "Low-Latency"
+    hardware:
+      model: "HP Z620 Workstation"
+      cpu:
+        family: "Intel Xeon"
+        avx: true
+        avx2: false        # CRITICAL: Kein nativer AVX2-Support!
+        threads: 12        # Multi-threaded Xeon CPU
+        compiler_flags: "-mno-avx2 -mavx" # Deaktiviert AVX2, aktiviert AVX1
+      ram_gb: 64
+      gpu:
+        enabled: true
+        vram_gb: 16         # Intel Sparkle ARC A770
+    ollama:
+      host: "http://127.0.0.1:11434"
+    inference_settings:
+      gpu_acceleration: true
+      gpu_vram_limit_gb: 15.0  # Reserviert ~1GB VRAM für System/Desktop
+      cpu_offload: false       # CRITICAL: Host-CPU ohne AVX2/ReBAR! 100% VRAM, kein CPU-Offload!
+      layers_on_gpu: "all"     # 100% der Layer zwingend auf Intel Arc A770 VRAM
+      cpu_threads: 8          # OPTIMIERT: 8 von 12 Threads nutzen (verhindert Overhead & System-Stalls)
+      compiler_flags: "-mno-avx2 -mavx"
+      context_window_limit: 8192
+
+  # ---------------------------------------------------------------------------
+  # Node 2: fox (Worker Node - AVX2 / Reiner CPU-Modus)
+  # ---------------------------------------------------------------------------
+  fox:
+    hostname: "fox"
+    role: "worker_agent"
+    system:
+      os: "Ubuntu Studio"
+    hardware:
+      model: "HP EliteDesk 800 G1 SFF"
+      cpu:
+        family: "Intel Haswell"
+        avx: true
+        avx2: true         # Natives AVX2 vorhanden
+        threads: 4         # Begrenzte physische Kerne
+        compiler_flags: "-mavx2"
+      ram_gb: 16           # Begrenzter Arbeitsspeicher
+      gpu:
+        enabled: false     # Reiner CPU-Modus
+        vram_gb: 0
+    ollama:
+      host: "http://127.0.0.1:11434"
+    inference_settings:
+      gpu_acceleration: false
+      cpu_offload: false
+      cpu_threads: 4          # Volle Nutzung aller 4 physikalischen CPU-Kerne für maximale Inferenz-Geschwindigkeit
+      compiler_flags: "-mavx2"
+      context_window_limit: 4096 # BEGRENZT: Auf 4096 wegen 16 GB RAM (verhindert Speicherüberlauf / OOM-Crashs)
+
+# =============================================================================
+# 3. GLOBAL AGENT CONFIGURATIONS (Lokale Standard-Einstellungen)
+# =============================================================================
+agent:
+  api_max_retries: 3
+  clarify_timeout: 600
+  disabled_toolsets: []
+  max_turns: 150
+  restart_drain_timeout: 180
+  tool_use_enforcement: auto
+
+approvals:
+  cron_mode: deny
+  destructive_slash_confirm: true
+  mode: manual
+  timeout: 60
+
+# =============================================================================
+# 4. RUNTIME, TERMINAL & LOCAL TOOLS
+# =============================================================================
+terminal:
+  backend: local
+  cwd: "."
+  timeout: 180
+
+code_execution:
+  mode: project
+
+platform_toolsets:
+  cli:
+    - code_execution
+    - cronjob
+    - file
+    - memory
+    - terminal
+    - skills
+  telegram:
+    - code_execution
+    - cronjob
+    - file
+    - memory
+    - terminal
+    - hermes-telegram
+    - skills
+    - web
+    
+# =============================================================================
+# 5. CONTEXT COMPRESSION & MEMORY LIMITS (Tuning für lokalen Betrieb)
+# =============================================================================
+compression:
+  enabled: true
+  threshold: 0.50         # Kompression erst bei 50% Auslastung
+  target_ratio: 0.20      # Behält 20% des Contexts als aktiven Verlauf nach Kompression
+  protect_first_n: 3      # Schützt System-Prompts und erste Nachricht
+  protect_last_n: 15       # Behält die letzten ~7-8 vollen Runden komplett im Klartext bei
+
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  memory_char_limit: 2500  # Leicht erhöht für detaillierteres lokales Wissen (~900 Tokens)
+  user_char_limit: 1500    # Leicht erhöht für präziseres User-Profil (~550 Tokens)
+
+# =============================================================================
+# 6. LOCAL INTERFACE & DISPLAY OPTIONS
+# =============================================================================
+display:
+  bell_on_complete: false
+  compact: false
+  language: de
+  skin: slate
+  streaming: true
+  tool_progress: all
+  show_reasoning: false
+
+web:
+  backend: ddgs

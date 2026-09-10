@@ -1,0 +1,22 @@
+[Unit]
+Description=ComfyUI AI Image Generation Service (Intel Arc A770 XPU)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/outerheaven/ComfyUI
+Environment="PATH=/home/outerheaven/ComfyUI/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="VIRTUAL_ENV=/home/outerheaven/ComfyUI/venv"
+Environment="LD_LIBRARY_PATH=/home/outerheaven/ComfyUI/venv/lib"
+Environment="ZES_ENABLE_SYSMAN=1"
+Environment="ZE_ENABLE_PCI_ID_DEVICE_ORDER=1"
+Environment="ONEAPI_DEVICE_SELECTOR=level_zero:0"
+Environment="SYCL_CACHE_PERSISTENT=1"
+Environment="UR_L0_ENABLE_RELAXED_ALLOCATION_LIMITS=1"
+Environment="ONEDNN_PRIMITIVE_CACHE_CAPACITY=1024"
+ExecStart=/home/outerheaven/ComfyUI/venv/bin/python /home/outerheaven/ComfyUI/main.py --listen 0.0.0.0 --port 8188 --gpu-only --use-pytorch-cross-attention --disable-pinned-memory
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

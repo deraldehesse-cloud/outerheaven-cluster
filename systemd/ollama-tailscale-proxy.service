@@ -1,0 +1,13 @@
+[Unit]
+Description=Ollama Tailscale Proxy (<FOX_IP>:11434 -> 127.0.0.1:11434)
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat TCP-LISTEN:11434,bind=<FOX_IP>,fork,reuseaddr TCP:127.0.0.1:11434
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
