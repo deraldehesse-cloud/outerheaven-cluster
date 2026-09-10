@@ -48,15 +48,85 @@
     .cursor-blink {
       animation: blink 1s infinite;
     }
+    .crt-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 40;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.22) 50%),
+                  linear-gradient(90deg, rgba(0, 243, 255, 0.02), rgba(0, 0, 0, 0.01), rgba(251, 191, 36, 0.02));
+      background-size: 100% 3px, 6px 100%;
+      opacity: 0.7;
+    }
+    @keyframes codec-pulse {
+      0%, 100% { height: 4px; }
+      50% { height: 18px; }
+    }
+    .codec-bar-1 { animation: codec-pulse 0.4s ease-in-out infinite; }
+    .codec-bar-2 { animation: codec-pulse 0.6s ease-in-out infinite 0.1s; }
+    .codec-bar-3 { animation: codec-pulse 0.35s ease-in-out infinite 0.2s; }
+    .codec-bar-4 { animation: codec-pulse 0.5s ease-in-out infinite 0.15s; }
+    .codec-bar-5 { animation: codec-pulse 0.45s ease-in-out infinite 0.05s; }
   </style>
 </head>
-<body class="min-h-screen text-slate-200 flex flex-col antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+<body class="min-h-screen text-slate-200 flex flex-col antialiased selection:bg-cyan-500/30 selection:text-cyan-200 relative">
+
+  <!-- Subtle Non-Blocking CRT Scanline Overlay -->
+  <div class="crt-overlay"></div>
+
+  <!-- Metal Gear Solid / Foxhound Watermark Emblem Background -->
+  <div class="fixed inset-0 flex items-center justify-center pointer-events-none z-0 overflow-hidden select-none">
+    <svg class="w-[540px] h-[540px] max-w-[85vw] max-h-[85vh] text-cyan-400 opacity-[0.07]" viewBox="0 0 200 200" fill="none" stroke="currentColor">
+      <!-- Outer Hexagon & HUD Rings -->
+      <polygon points="100,6 182,53 182,147 100,194 18,147 18,53" stroke="currentColor" stroke-width="2.5" />
+      <polygon points="100,14 174,57 174,143 100,186 26,143 26,57" stroke="currentColor" stroke-width="0.8" stroke-dasharray="6,4" />
+      <circle cx="100" cy="100" r="82" stroke="currentColor" stroke-width="1.2" stroke-dasharray="10,6" />
+      <circle cx="100" cy="100" r="72" stroke="currentColor" stroke-width="0.8" />
+      <!-- Tactical Skull Base -->
+      <path d="M64,72 C64,44 136,44 136,72 C136,88 132,102 125,110 L125,130 L112,130 L112,120 L88,120 L88,130 L75,130 L75,110 C68,102 64,88 64,72 Z" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="3" />
+      <!-- Eye Sockets -->
+      <circle cx="85" cy="80" r="9" fill="#040711" stroke="currentColor" stroke-width="2" />
+      <circle cx="115" cy="80" r="9" fill="#040711" stroke="currentColor" stroke-width="2" />
+      <!-- Big Boss Diagonal Eyepatch Band -->
+      <line x1="58" y1="58" x2="142" y2="102" stroke="currentColor" stroke-width="3.5" />
+      <!-- Tactical Combat Dagger -->
+      <line x1="38" y1="162" x2="162" y2="38" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" />
+      <polygon points="162,38 152,48 142,38 152,28" fill="currentColor" />
+      <line x1="42" y1="158" x2="56" y2="172" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+      <!-- Teeth Slits -->
+      <line x1="88" y1="123" x2="88" y2="130" stroke="currentColor" stroke-width="2" />
+      <line x1="100" y1="123" x2="100" y2="130" stroke="currentColor" stroke-width="2" />
+      <line x1="112" y1="123" x2="112" y2="130" stroke="currentColor" stroke-width="2" />
+      <!-- Tactical HUD Text -->
+      <text x="100" y="162" text-anchor="middle" font-size="8.5" font-family="monospace" font-weight="bold" letter-spacing="4" fill="currentColor">OUTER HEAVEN // FOXHOUND</text>
+      <text x="100" y="174" text-anchor="middle" font-size="6.5" font-family="monospace" letter-spacing="2" fill="currentColor">SPECIAL FORCES • COMMAND LINK</text>
+    </svg>
+  </div>
 
   <!-- Top Header Navigation -->
   <header class="border-b border-cyan-dim bg-slate-950/80 backdrop-blur sticky top-0 z-30 px-4 py-2.5">
     <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <!-- Left: Tactical Insignia & Title -->
       <div class="flex items-center space-x-3">
-        <img src="/static/icon.svg" alt="OH" class="w-8 h-8 filter drop-shadow">
+        <div class="relative flex items-center justify-center">
+          <svg class="w-8 h-8 text-cyan-400 filter drop-shadow hover:text-amber-400 transition cursor-pointer" viewBox="0 0 100 100" fill="none" stroke="currentColor" title="Outer Heaven / Foxhound Insignia">
+            <polygon points="50,4 92,26 92,74 50,96 8,74 8,26" stroke="currentColor" stroke-width="2.5" fill="#040711" />
+            <polygon points="50,10 86,29 86,71 50,90 14,71 14,29" stroke="currentColor" stroke-width="1" stroke-dasharray="3,2" opacity="0.4" />
+            <!-- Skull -->
+            <path d="M32,38 C32,24 68,24 68,38 C68,46 66,54 62,58 L62,68 L55,68 L55,62 L45,62 L45,68 L38,68 L38,58 C34,54 32,46 32,38 Z" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="2" />
+            <circle cx="43" cy="42" r="4" fill="currentColor" />
+            <circle cx="57" cy="42" r="4" fill="currentColor" />
+            <line x1="28" y1="30" x2="72" y2="52" stroke="#ffb700" stroke-width="2" />
+            <line x1="22" y1="78" x2="78" y2="22" stroke="#ffb700" stroke-width="2.5" stroke-linecap="round" />
+            <line x1="45" y1="64" x2="45" y2="68" stroke="currentColor" stroke-width="1.2" />
+            <line x1="50" y1="64" x2="50" y2="68" stroke="currentColor" stroke-width="1.2" />
+            <line x1="55" y1="64" x2="55" y2="68" stroke="currentColor" stroke-width="1.2" />
+          </svg>
+          <span class="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-cyan-400 animate-ping pointer-events-none"></span>
+        </div>
         <div>
           <div class="flex items-center space-x-2">
             <span class="text-sm font-black tracking-widest text-cyan-400">OUTER HEAVEN</span>
@@ -67,17 +137,43 @@
         </div>
       </div>
 
-      <!-- Quick Status Badges -->
-      <div class="flex items-center space-x-3 text-xs">
-        <div class="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded">
+      <!-- Center: Tactical Tool Launch Bar -->
+      <div class="flex items-center space-x-2 text-xs">
+        <span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider hidden lg:inline">TACTICAL DEPLOY:</span>
+        <a href="http://127.0.0.1:3000" target="_blank" rel="noopener noreferrer"
+           class="px-2.5 py-1 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-800/60 hover:border-cyan-400 text-cyan-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-cyan"
+           title="Anti-Gravity Web-Interface / Port öffnen">
+          <span>⚡ Anti-Gravity</span>
+        </a>
+        <a href="cursor://"
+           class="px-2.5 py-1 bg-slate-900/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-200 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition"
+           title="Cursor IDE auf Host öffnen (cursor://)">
+          <span>💻 Cursor / Dev</span>
+        </a>
+        <a href="http://{{ outerheaven_ip }}:8188" target="_blank" rel="noopener noreferrer"
+           class="px-2.5 py-1 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 hover:border-amber-400 text-amber-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-amber"
+           title="ComfyUI Studio auf Outer Heaven öffnen (:8188)">
+          <span>🎨 ComfyUI Studio</span>
+        </a>
+      </div>
+
+      <!-- Right: Quick Status Badges with IP Masking -->
+      <div class="flex items-center space-x-2 sm:space-x-3 text-xs">
+        <div id="badgeOhIp" class="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded cursor-pointer group hover:border-cyan-500/50 transition select-none"
+             onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)"
+             title="Hover / Klick zum Aufdecken der IP">
           <span id="headerOhDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
-          <span class="text-slate-400">OH:</span>
-          <span class="font-bold text-cyan-300">{{ outerheaven_ip }}</span>
+          <span class="text-slate-400 text-[11px]">OH:</span>
+          <span class="font-bold text-cyan-300 font-mono ip-text" data-full="{{ outerheaven_ip }}" data-masked="100.***.***.29">100.***.***.29</span>
+          <span class="text-[10px] text-slate-500 group-hover:text-cyan-400 transition">👁️</span>
         </div>
-        <div class="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded">
+        <div id="badgeFoxIp" class="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded cursor-pointer group hover:border-amber-500/50 transition select-none"
+             onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)"
+             title="Hover / Klick zum Aufdecken der IP">
           <span id="headerFoxDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
-          <span class="text-slate-400">FOX:</span>
-          <span class="font-bold text-amber-300">{{ fox_ip }}</span>
+          <span class="text-slate-400 text-[11px]">FOX:</span>
+          <span class="font-bold text-amber-300 font-mono ip-text" data-full="{{ fox_ip }}" data-masked="100.***.184.87">100.***.184.87</span>
+          <span class="text-[10px] text-slate-500 group-hover:text-amber-400 transition">👁️</span>
         </div>
         <form action="/logout" method="post" class="inline">
           <button type="submit" class="px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 text-xs rounded transition flex items-center space-x-1">
@@ -194,9 +290,16 @@
               <span class="text-amber-400 font-semibold">OLLAMA ENGINE (FOX):</span>
               <span id="foxModelText" class="text-slate-300">hermes-3-3b-q4</span>
             </div>
-            <div class="bg-slate-900 p-1.5 rounded border border-slate-800 text-[11px] text-slate-300 flex items-center justify-between">
+            <div class="bg-slate-900 p-1.5 rounded border border-slate-800 text-[11px] text-slate-300 flex items-center justify-between cursor-pointer group hover:border-amber-500/40 transition select-none"
+                 onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)"
+                 title="Hover / Klick zum Aufdecken der IP">
               <span class="text-slate-400">Tailscale API:</span>
-              <span class="text-amber-300 font-bold">http://{{ fox_ip }}:11434</span>
+              <div class="flex items-center space-x-1 font-mono">
+                <span class="text-slate-400">http://</span>
+                <span class="text-amber-300 font-bold ip-text" data-full="{{ fox_ip }}" data-masked="100.***.184.87">100.***.184.87</span>
+                <span class="text-slate-400">:11434</span>
+                <span class="text-[10px] text-slate-500 group-hover:text-amber-400 transition ml-1">👁️</span>
+              </div>
             </div>
           </div>
 
@@ -300,9 +403,33 @@
           <span>DeepSeek R1 reasoning in progress...</span>
         </div>
 
+        <!-- MGS Codec Frequency Voice Stream Indicator -->
+        <div id="codecVoiceIndicator" class="hidden px-4 py-1.5 bg-emerald-950/70 border-t border-emerald-700/60 text-[11px] text-emerald-400 flex items-center justify-between font-mono">
+          <div class="flex items-center space-x-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span class="font-bold tracking-wider">CODEC 140.85 MHz // AUDIO STREAM TRANSMITTING (de-DE)...</span>
+          </div>
+          <div class="flex items-end space-x-1 h-5">
+            <span class="inline-block w-1 bg-emerald-400 codec-bar-1 rounded-sm"></span>
+            <span class="inline-block w-1 bg-emerald-400 codec-bar-2 rounded-sm"></span>
+            <span class="inline-block w-1 bg-emerald-400 codec-bar-3 rounded-sm"></span>
+            <span class="inline-block w-1 bg-emerald-400 codec-bar-4 rounded-sm"></span>
+            <span class="inline-block w-1 bg-emerald-400 codec-bar-5 rounded-sm"></span>
+          </div>
+        </div>
+
         <!-- Chat Input Bar -->
         <div class="p-3 border-t border-slate-800 bg-slate-900/60">
           <form id="chatForm" class="flex items-center space-x-2">
+            <button type="button" id="micBtn" onclick="toggleSpeechRecognition()"
+              title="MGS Codec Sprachaufnahme (Web Speech API - de-DE)"
+              class="p-2 rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition flex items-center justify-center relative select-none">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+              </svg>
+              <span id="micPulseRing" class="hidden absolute inset-0 rounded border-2 border-emerald-400 animate-ping pointer-events-none"></span>
+            </button>
             <input type="text" id="chatInput" autocomplete="off"
               placeholder="Nachricht an ausgewählten Agenten..."
               class="flex-1 bg-black/70 border border-slate-700 rounded px-3.5 py-2 text-xs sm:text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition font-mono">
@@ -331,17 +458,36 @@
         </div>
 
         <!-- Render Form -->
-        <div class="p-3 border-b border-slate-800 bg-black/40 space-y-2 text-xs">
+        <div class="p-3 border-b border-slate-800 bg-black/40 space-y-2.5 text-xs">
           <div>
-            <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Prompt</label>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-[10px] uppercase text-slate-400 font-bold tracking-wider">Prompt</label>
+              <button type="button" id="btnMagicPrompt" onclick="enhancePrompt()"
+                title="Erweitert den Prompt via DeepSeek-R1 mit Licht, Framing & negativem Prompt"
+                class="text-[10px] font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 px-2 py-0.5 rounded flex items-center space-x-1.5 transition shadow glow-amber">
+                <span>✨ Magic Prompt (DeepSeek-R1)</span>
+                <span id="magicSpinner" class="hidden animate-spin">⏳</span>
+              </button>
+            </div>
             <textarea id="renderPrompt" rows="2"
-              placeholder="e.g. tactical cyborg soldier in dark rain, outer heaven logo, neon cyber, 8k..."
+              placeholder="z. B. tactical cyborg soldier in dark rain, outer heaven logo, neon cyber, 8k..."
               class="w-full bg-black/80 border border-slate-700 rounded p-2 text-xs text-cyan-200 placeholder-slate-600 focus:outline-none focus:border-cyan-400 transition font-mono"></textarea>
           </div>
-          <div class="flex items-center justify-between">
+
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-[10px] uppercase text-slate-500 font-bold tracking-wider">Negative Prompt</label>
+              <button type="button" onclick="resetNegativePrompt()" class="text-[9px] text-slate-500 hover:text-slate-400 transition">Standard wiederherstellen</button>
+            </div>
+            <input type="text" id="renderNegativePrompt"
+              value="ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark"
+              class="w-full bg-black/60 border border-slate-800 rounded px-2.5 py-1.5 text-[11px] text-slate-400 placeholder-slate-600 focus:outline-none focus:border-cyan-400/60 transition font-mono">
+          </div>
+
+          <div class="flex items-center justify-between pt-0.5">
             <button id="btnRender" onclick="submitRender()"
               class="w-full bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-slate-950 font-bold py-2 rounded text-xs tracking-wider uppercase transition shadow">
-              ✨ Render on Arc A770
+              🚀 Render on Arc A770 (LCM)
             </button>
           </div>
           <div id="renderStatus" class="hidden text-[11px] p-2 rounded text-center font-mono"></div>
@@ -523,8 +669,155 @@
       window.speechSynthesis.speak(utterance);
     }
 
+    // --- IP Masking & Privacy Functions ---
+    let ipRevealTimers = new Map();
+
+    function maskIpString(ip) {
+      if (!ip) return '***.***.***.***';
+      const parts = ip.split('.');
+      if (parts.length === 4) {
+        return `${parts[0]}.***.***.${parts[3]}`;
+      }
+      return ip.slice(0, 4) + '***' + ip.slice(-3);
+    }
+
+    function revealIp(element) {
+      const ipEl = element.querySelector('.ip-text');
+      if (!ipEl) return;
+      ipEl.textContent = ipEl.getAttribute('data-full') || ipEl.textContent;
+    }
+
+    function concealIp(element) {
+      const ipEl = element.querySelector('.ip-text');
+      if (!ipEl) return;
+      ipEl.textContent = ipEl.getAttribute('data-masked') || maskIpString(ipEl.getAttribute('data-full'));
+      if (ipRevealTimers.has(element)) {
+        clearTimeout(ipRevealTimers.get(element));
+        ipRevealTimers.delete(element);
+      }
+    }
+
+    function toggleIpMask(element) {
+      const ipEl = element.querySelector('.ip-text');
+      if (!ipEl) return;
+      const full = ipEl.getAttribute('data-full');
+      const masked = ipEl.getAttribute('data-masked') || maskIpString(full);
+
+      if (ipEl.textContent === masked) {
+        ipEl.textContent = full;
+        if (ipRevealTimers.has(element)) {
+          clearTimeout(ipRevealTimers.get(element));
+        }
+        const timer = setTimeout(() => {
+          concealIp(element);
+        }, 4000);
+        ipRevealTimers.set(element, timer);
+      } else {
+        concealIp(element);
+      }
+    }
+
+    // --- Codec-Style Speech-to-Text (Web Speech API de-DE) ---
+    let recognition = null;
+    let isRecording = false;
+
+    function initSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) return null;
+
+      const recog = new SpeechRecognition();
+      recog.continuous = true;
+      recog.interimResults = true;
+      recog.lang = 'de-DE';
+
+      recog.onstart = () => {
+        isRecording = true;
+        updateMicUI(true);
+      };
+
+      recog.onresult = (event) => {
+        const input = document.getElementById('chatInput');
+        let interimTranscript = '';
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        if (finalTranscript) {
+          input.value = (input.value ? input.value + ' ' : '') + finalTranscript.trim();
+        } else if (interimTranscript) {
+          input.setAttribute('placeholder', '🎙️ ' + interimTranscript);
+        }
+      };
+
+      recog.onerror = (event) => {
+        console.warn("Codec STT error:", event.error);
+        if (event.error !== 'no-speech') {
+          stopSpeechRecognition();
+        }
+      };
+
+      recog.onend = () => {
+        isRecording = false;
+        updateMicUI(false);
+      };
+
+      return recog;
+    }
+
+    function toggleSpeechRecognition() {
+      if (!recognition) {
+        recognition = initSpeechRecognition();
+        if (!recognition) {
+          alert("Web Speech API wird von diesem Browser nicht unterstützt. Bitte Chromium / Chrome verwenden.");
+          return;
+        }
+      }
+
+      if (isRecording) {
+        stopSpeechRecognition();
+      } else {
+        try {
+          recognition.start();
+        } catch (e) {
+          console.error("STT start error:", e);
+        }
+      }
+    }
+
+    function stopSpeechRecognition() {
+      if (recognition && isRecording) {
+        recognition.stop();
+      }
+      isRecording = false;
+      updateMicUI(false);
+    }
+
+    function updateMicUI(active) {
+      const btn = document.getElementById('micBtn');
+      const ring = document.getElementById('micPulseRing');
+      const indicator = document.getElementById('codecVoiceIndicator');
+      const input = document.getElementById('chatInput');
+
+      if (active) {
+        btn.className = "p-2 rounded border border-emerald-500 bg-emerald-950/80 text-emerald-300 transition flex items-center justify-center relative select-none shadow glow-cyan";
+        ring.classList.remove('hidden');
+        indicator.classList.remove('hidden');
+        input.setAttribute('placeholder', '🎙️ Sprich jetzt... Codec Link aktiv');
+      } else {
+        btn.className = "p-2 rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition flex items-center justify-center relative select-none";
+        ring.classList.add('hidden');
+        indicator.classList.add('hidden');
+        input.setAttribute('placeholder', 'Nachricht an ausgewählten Agenten...');
+      }
+    }
+
     // --- Send Chat Message ---
     document.getElementById('chatForm').addEventListener('submit', (e) => {
+      stopSpeechRecognition();
       e.preventDefault();
       const input = document.getElementById('chatInput');
       const text = input.value.trim();
@@ -682,10 +975,59 @@
       }
     }
 
+    // --- ComfyUI Magic Prompt Enhancer ---
+    const DEFAULT_NEGATIVE_PROMPT = "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark";
+
+    function resetNegativePrompt() {
+      const negInput = document.getElementById('renderNegativePrompt');
+      if (negInput) negInput.value = DEFAULT_NEGATIVE_PROMPT;
+    }
+
+    async function enhancePrompt() {
+      const promptInput = document.getElementById('renderPrompt');
+      const negInput = document.getElementById('renderNegativePrompt');
+      const spinner = document.getElementById('magicSpinner');
+      const btn = document.getElementById('btnMagicPrompt');
+      const rawPrompt = promptInput.value.trim();
+
+      if (!rawPrompt) {
+        alert("Bitte zuerst ein kurzes Prompt eingeben, das erweitert werden soll.");
+        promptInput.focus();
+        return;
+      }
+
+      btn.disabled = true;
+      spinner.classList.remove('hidden');
+
+      try {
+        const res = await fetch('/api/enhance_prompt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: rawPrompt })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          promptInput.value = data.enhanced_prompt;
+          if (data.negative_prompt && negInput) {
+            negInput.value = data.negative_prompt;
+          }
+        } else {
+          alert("Fehler bei Prompt-Anreicherung: " + (data.error || "Unbekannter Fehler"));
+        }
+      } catch (err) {
+        alert("Netzwerkfehler bei Prompt-Anreicherung: " + err.message);
+      } finally {
+        btn.disabled = false;
+        spinner.classList.add('hidden');
+      }
+    }
+
     // --- ComfyUI Render Execution ---
     async function submitRender() {
       const promptInput = document.getElementById('renderPrompt');
+      const negInput = document.getElementById('renderNegativePrompt');
       const promptText = promptInput.value.trim();
+      const negativePromptText = (negInput ? negInput.value.trim() : '') || DEFAULT_NEGATIVE_PROMPT;
       const statusEl = document.getElementById('renderStatus');
       const btn = document.getElementById('btnRender');
 
@@ -703,7 +1045,10 @@
         const res = await fetch('/api/render', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: promptText })
+          body: JSON.stringify({
+            prompt: promptText,
+            negative_prompt: negativePromptText
+          })
         });
         const data = await res.json();
         if (!res.ok || !data.success) {

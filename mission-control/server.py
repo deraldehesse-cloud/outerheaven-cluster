@@ -19,6 +19,7 @@ import hashlib
 import hmac
 import base64
 import asyncio
+import re
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
@@ -654,6 +655,92 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
     except Exception as e:
         return web.json_response({"error": f"Failed to contact ComfyUI: {e}"}, status=500)
 
+async def handle_enhance_prompt(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    raw_prompt = body.get("prompt", "").strip()
+    if not raw_prompt:
+        return web.json_response({"error": "Prompt required"}, status=400)
+
+    system_instruction = (
+        "You are an expert ComfyUI and Stable Diffusion prompt engineer. "
+        "Expand the given concept into a vivid, detailed positive prompt for SDXL / LCM "
+        "(lighting, framing, textures, masterpiece, 8k) and a concise negative prompt (max 15 keywords). "
+        "Output strictly valid JSON with keys \"prompt\" and \"negative_prompt\". No markdown code blocks."
+    )
+
+    prompt_query = f"{system_instruction}\n\nRaw prompt: {raw_prompt}\n\nJSON output:"
+
+    payload = {
+        "model": LOCAL_MODEL,
+        "prompt": prompt_query,
+        "stream": False,
+        "options": {
+            "temperature": 0.6,
+            "num_predict": 350,
+            "stop": ["}\n", "```"]
+        }
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(f"{LOCAL_OLLAMA_URL}/api/generate", json=payload) as resp:
+                if resp.status != 200:
+                    err_text = await resp.text()
+                    return web.json_response({"error": f"Ollama error: {err_text}"}, status=502)
+                res_data = await resp.json()
+                raw_response = res_data.get("response", "")
+
+                # Remove think tags
+                clean_response = re.sub(r'<think>[\s\S]*?</think>', '', raw_response, flags=re.DOTALL).strip()
+                pos = ""
+                neg = ""
+
+                # 1. Try parsing JSON directly or with trailing-comma fix
+                json_match = re.search(r'\{[\s\S]*\}', clean_response)
+                if json_match:
+                    candidate = json_match.group(0)
+                    fixed_json = re.sub(r',\s*([\}\]])', r'\1', candidate)
+                    try:
+                        parsed = json.loads(fixed_json)
+                        pos = str(parsed.get("prompt", "")).strip()
+                        neg = str(parsed.get("negative_prompt", "")).strip()
+                    except Exception:
+                        pass
+
+                # 2. Regex extraction if JSON parsing failed or was truncated
+                if not pos:
+                    pos_m = re.search(r'"prompt"\s*:\s*"([\s\S]*?)(?:"(?:\s*,\s*"negative_prompt"|\s*\})|$)', clean_response)
+                    if pos_m:
+                        pos = pos_m.group(1).replace(r'\"', '"').strip()
+                if not neg:
+                    neg_m = re.search(r'"negative_prompt"\s*:\s*"([\s\S]*?)(?:"|\}|$)', clean_response)
+                    if neg_m:
+                        neg = neg_m.group(1).replace(r'\"', '"').strip()
+
+                # Clean embedded Negative prompt if model put it inside prompt
+                if "Negative prompt:" in pos:
+                    pos_part, _, neg_part = pos.partition("Negative prompt:")
+                    pos = pos_part.strip().rstrip(" ,.")
+                    if not neg:
+                        neg = neg_part.strip().strip("\"' ")
+
+                if not pos:
+                    pos = clean_response or raw_prompt
+
+                return web.json_response({
+                    "success": True,
+                    "enhanced_prompt": pos,
+                    "negative_prompt": neg or "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark"
+                })
+    except Exception as e:
+        logger.error(f"Magic Prompt enhancement error: {e}")
+        return web.json_response({"error": f"Enhancement failed: {e}"}, status=500)
+
 async def handle_comfy_render_status(request: web.Request) -> web.Response:
     prompt_id = request.match_info.get("prompt_id", "")
     if not prompt_id:
@@ -853,6 +940,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/service", handle_service_control)
     app.router.add_post("/api/handover", handle_handover)
     app.router.add_post("/api/render", handle_comfy_render)
+    app.router.add_post("/api/enhance_prompt", handle_enhance_prompt)
     app.router.add_get("/api/render/status/{prompt_id}", handle_comfy_render_status)
     app.router.add_get("/api/gallery", handle_gallery_list)
     app.router.add_get("/api/gallery/{filename}", handle_gallery_file)
