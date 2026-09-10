@@ -35,8 +35,8 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 COMFYUI_OUTPUT_DIR = Path("/home/outerheaven/ComfyUI/output")
 SECRETS_DIR = Path("/mnt/storage-alpha/secrets")
 
-LOCAL_TS_IP = "<OUTERHEAVEN_IP>"
-FOX_TS_IP = "<FOX_IP>"
+LOCAL_TS_IP = os.environ.get("OUTERHEAVEN_TS_IP", "100.116.38.29")
+FOX_TS_IP = os.environ.get("FOX_TS_IP", "100.93.184.87")
 PORT = 8080
 
 COMFYUI_URL = "http://127.0.0.1:8188"
@@ -145,6 +145,18 @@ telemetry_cache = {
             "ollama-tailscale-proxy": "unknown"
         },
         "models": []
+    },
+    "delegation": {
+        "active": False,
+        "state": "idle",
+        "delegated_to": None,
+        "task": "",
+        "origin_node": "",
+        "target_node": "",
+        "model": "",
+        "reason": "",
+        "updated_at": 0,
+        "history": []
     },
     "last_update": 0
 }
@@ -435,6 +447,11 @@ async def auth_middleware(request: web.Request, handler):
             except Exception:
                 pass
 
+    if not authenticated and path.startswith("/api/delegation/"):
+        peer = request.remote
+        if peer in ("127.0.0.1", "::1", LOCAL_TS_IP, FOX_TS_IP):
+            authenticated = True
+
     if authenticated:
         return await handler(request)
 
@@ -514,6 +531,58 @@ async def handle_handover(request: web.Request) -> web.Response:
         telemetry_cache["fox"]["rebooting"] = False
 
     return web.json_response({"success": True, "node": node, "status": status})
+
+async def handle_delegation_update(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    task = data.get("task", "")
+    state = data.get("state", "idle")  # 'running', 'completed', 'failed', 'idle'
+    delegated_to = data.get("delegated_to", "")  # 'OH', 'FOX'
+    origin_node = data.get("origin_node", "")
+    target_node = data.get("target_node", "")
+    model = data.get("model", "")
+    reason = data.get("reason", "")
+    now = time.time()
+
+    is_active = (state == "running")
+    delegation_info = {
+        "active": is_active,
+        "state": state,
+        "delegated_to": delegated_to,
+        "task": task,
+        "origin_node": origin_node,
+        "target_node": target_node,
+        "model": model,
+        "reason": reason,
+        "updated_at": now
+    }
+
+    history = telemetry_cache.get("delegation", {}).get("history", [])
+    if state in ("running", "completed", "failed"):
+        history.insert(0, {
+            "task": task,
+            "state": state,
+            "delegated_to": delegated_to,
+            "origin_node": origin_node,
+            "target_node": target_node,
+            "model": model,
+            "timestamp": now,
+            "reason": reason
+        })
+        history = history[:15]
+    delegation_info["history"] = history
+
+    telemetry_cache["delegation"] = delegation_info
+    telemetry_cache["last_update"] = now
+
+    logger.info(f"Cluster Delegation: state={state}, delegated_to={delegated_to}, model={model}, task='{task}' ({reason})")
+    return web.json_response({"success": True, "delegation": delegation_info})
+
+async def handle_delegation_status(request: web.Request) -> web.Response:
+    return web.json_response(telemetry_cache.get("delegation", {}))
 
 async def handle_service_control(request: web.Request) -> web.Response:
     try:
@@ -845,7 +914,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 target_url = f"{FOX_OLLAMA_URL}/api/chat"
                 model_name = FOX_MODEL
                 system_instruction = (
-                    "Du bist Hermes Fox, der KI-Agent auf Node Fox (HP EliteDesk, Tailscale <FOX_IP>). "
+                    f"Du bist Hermes Fox, der KI-Agent auf Node Fox (HP EliteDesk, Tailscale {FOX_TS_IP}). "
                     "Antworte präzise, taktische Unterstützung. Deutsch bevorzugt."
                 )
 
@@ -939,6 +1008,8 @@ def create_app() -> web.Application:
     app.router.add_get("/api/telemetry", handle_telemetry)
     app.router.add_post("/api/service", handle_service_control)
     app.router.add_post("/api/handover", handle_handover)
+    app.router.add_post("/api/delegation/update", handle_delegation_update)
+    app.router.add_get("/api/delegation/status", handle_delegation_status)
     app.router.add_post("/api/render", handle_comfy_render)
     app.router.add_post("/api/enhance_prompt", handle_enhance_prompt)
     app.router.add_get("/api/render/status/{prompt_id}", handle_comfy_render_status)

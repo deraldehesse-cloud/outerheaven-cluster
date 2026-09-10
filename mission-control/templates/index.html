@@ -188,6 +188,41 @@
   <!-- Main Container -->
   <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 space-y-4">
 
+    <!-- Tactical Cluster Delegation & Task Status Bar -->
+    <section class="bg-slate-950/90 border border-slate-800 rounded-lg p-3 shadow-lg relative overflow-hidden transition-all duration-300" id="delegationContainer">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <!-- Left: Badge & State -->
+        <div class="flex items-center space-x-3">
+          <span class="text-[11px] uppercase font-bold tracking-wider text-slate-400 font-mono flex items-center space-x-1.5">
+            <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            <span>CLUSTER DELEGATION:</span>
+          </span>
+          <div id="delegationBadge" class="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 bg-slate-900 border border-slate-700 text-slate-400 transition-all">
+            <span id="delegationDot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span id="delegationStateText">STANDBY // IDLE</span>
+          </div>
+        </div>
+
+        <!-- Center: Current Task Info -->
+        <div class="flex-1 min-w-[240px] text-xs font-mono flex items-center space-x-2 bg-slate-900/60 px-3 py-1.5 rounded border border-slate-800/80">
+          <span class="text-slate-500 text-[10px] uppercase font-bold">TASK:</span>
+          <span id="delegationTaskText" class="text-slate-300 truncate italic">Bereit für Cluster-Aufgaben</span>
+        </div>
+
+        <!-- Right: Current Compute Node & Active Model -->
+        <div class="flex items-center space-x-2 text-xs font-mono">
+          <div class="bg-slate-900 px-2 py-1 rounded border border-slate-800 flex items-center space-x-1.5">
+            <span class="text-slate-500 text-[10px]">KNOTEN:</span>
+            <span id="delegationNodeText" class="text-slate-300 font-bold">STANDBY</span>
+          </div>
+          <div class="bg-slate-900 px-2 py-1 rounded border border-slate-800 flex items-center space-x-1.5">
+            <span class="text-slate-500 text-[10px]">MODELL:</span>
+            <span id="delegationModelText" class="text-slate-400 font-bold">--</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Cluster Status Bar (Side by Side) -->
     <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
       
@@ -200,6 +235,13 @@
             <h2 class="text-sm font-bold tracking-wider text-cyan-300">NODE // OUTER HEAVEN</h2>
           </div>
           <span class="text-[10px] text-slate-500 font-mono">HP Z620 • DUAL XEON • ARC A770</span>
+        </div>
+
+        <!-- Active Task Highlight for OH -->
+        <div id="ohActiveTaskBadge" class="hidden mb-3 p-2 rounded bg-cyan-950/80 border border-cyan-500/80 text-[11px] text-cyan-300 font-mono flex items-center space-x-2 animate-pulse glow-cyan">
+          <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+          <span class="font-bold">⚡ DELEGATED TO OH:</span>
+          <span id="ohActiveTaskName" class="truncate text-slate-100 font-semibold"></span>
         </div>
 
         <!-- Telemetry Gauges -->
@@ -280,6 +322,13 @@
             <h2 class="text-sm font-bold tracking-wider text-amber-400">NODE // FOX</h2>
           </div>
           <span class="text-[10px] text-slate-500 font-mono">HP ELITEDESK • AUX DELEGATE</span>
+        </div>
+
+        <!-- Active Task Highlight for Fox -->
+        <div id="foxActiveTaskBadge" class="hidden mb-3 p-2 rounded bg-amber-950/80 border border-amber-500/80 text-[11px] text-amber-300 font-mono flex items-center space-x-2 animate-pulse glow-amber">
+          <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+          <span class="font-bold">🦊 DELEGATED TO FOX:</span>
+          <span id="foxActiveTaskName" class="truncate text-slate-100 font-semibold"></span>
         </div>
 
         <!-- Telemetry Gauges -->
@@ -945,6 +994,61 @@
               proxyEl.textContent = st.toUpperCase();
               proxyEl.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${st === 'active' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'}`;
             }
+          }
+        }
+
+        // 3. Cluster Delegation Update
+        const del = data.delegation;
+        if (del) {
+          const delBadge = document.getElementById('delegationBadge');
+          const delDot = document.getElementById('delegationDot');
+          const delStateText = document.getElementById('delegationStateText');
+          const delTaskText = document.getElementById('delegationTaskText');
+          const delNodeText = document.getElementById('delegationNodeText');
+          const delModelText = document.getElementById('delegationModelText');
+          const delContainer = document.getElementById('delegationContainer');
+          const ohTaskBadge = document.getElementById('ohActiveTaskBadge');
+          const ohTaskName = document.getElementById('ohActiveTaskName');
+          const foxTaskBadge = document.getElementById('foxActiveTaskBadge');
+          const foxTaskName = document.getElementById('foxActiveTaskName');
+
+          if (del.active && del.delegated_to === 'OH') {
+            if (delContainer) delContainer.className = "bg-slate-950/90 border border-cyan-500/80 rounded-lg p-3 shadow-lg relative overflow-hidden transition-all duration-300 glow-cyan";
+            if (delBadge) delBadge.className = "px-2.5 py-0.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 bg-cyan-950 border border-cyan-400 text-cyan-300 glow-cyan animate-pulse";
+            if (delDot) delDot.className = "w-2 h-2 rounded-full bg-cyan-400 animate-ping";
+            if (delStateText) delStateText.textContent = "⚡ DELEGATED TO OH";
+            if (delTaskText) delTaskText.textContent = del.task || "Berechnung auf Outer Heaven...";
+            if (delNodeText) { delNodeText.textContent = "OUTER HEAVEN"; delNodeText.className = "text-cyan-300 font-bold"; }
+            if (delModelText) { delModelText.textContent = del.model || "deepseek-r1:14b"; delModelText.className = "text-cyan-400 font-bold"; }
+            if (ohTaskBadge) {
+              ohTaskBadge.classList.remove('hidden');
+              if (ohTaskName) ohTaskName.textContent = del.task || "Berechnung aktiv";
+            }
+            if (foxTaskBadge) foxTaskBadge.classList.add('hidden');
+          } else if (del.active && del.delegated_to === 'FOX') {
+            if (delContainer) delContainer.className = "bg-slate-950/90 border border-amber-500/80 rounded-lg p-3 shadow-lg relative overflow-hidden transition-all duration-300 glow-amber";
+            if (delBadge) delBadge.className = "px-2.5 py-0.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 bg-amber-950 border border-amber-400 text-amber-300 glow-amber animate-pulse";
+            if (delDot) delDot.className = "w-2 h-2 rounded-full bg-amber-400 animate-ping";
+            if (delStateText) delStateText.textContent = "🦊 DELEGATED TO FOX";
+            if (delTaskText) delTaskText.textContent = del.task || "Autonome Berechnung auf Fox...";
+            if (delNodeText) { delNodeText.textContent = "FOX"; delNodeText.className = "text-amber-300 font-bold"; }
+            if (delModelText) { delModelText.textContent = del.model || "hermes-3-3b-q4"; delModelText.className = "text-amber-400 font-bold"; }
+            if (foxTaskBadge) {
+              foxTaskBadge.classList.remove('hidden');
+              if (foxTaskName) foxTaskName.textContent = del.task || "Autonome Berechnung aktiv";
+            }
+            if (ohTaskBadge) ohTaskBadge.classList.add('hidden');
+          } else {
+            // Idle / Completed
+            if (delContainer) delContainer.className = "bg-slate-950/90 border border-slate-800 rounded-lg p-3 shadow-lg relative overflow-hidden transition-all duration-300";
+            if (delBadge) delBadge.className = "px-2.5 py-0.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 bg-slate-900 border border-slate-700 text-slate-400";
+            if (delDot) delDot.className = "w-2 h-2 rounded-full bg-emerald-500";
+            if (delStateText) delStateText.textContent = del.state === 'completed' ? "BEREIT // STANDBY" : "STANDBY // IDLE";
+            if (delTaskText) delTaskText.textContent = del.task ? `Zuletzt: ${del.task}` : "Bereit für Cluster-Aufgaben";
+            if (delNodeText) { delNodeText.textContent = del.target_node ? del.target_node.toUpperCase() : "IDLE"; delNodeText.className = "text-slate-300 font-bold"; }
+            if (delModelText) { delModelText.textContent = del.model || "--"; delModelText.className = "text-slate-400 font-bold"; }
+            if (ohTaskBadge) ohTaskBadge.classList.add('hidden');
+            if (foxTaskBadge) foxTaskBadge.classList.add('hidden');
           }
         }
 
