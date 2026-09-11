@@ -55,6 +55,20 @@ if not COMFYUI_OUTPUT_DIR.is_dir():
         _local_out = BASE_DIR / "outputs"
         _local_out.mkdir(parents=True, exist_ok=True)
         COMFYUI_OUTPUT_DIR = _local_out
+
+DIR_3D_OUTPUT = Path("/mnt/storage-beta/projekte/projekt-sexchat/output/3d")
+if not DIR_3D_OUTPUT.is_dir():
+    for _alt_3d in [
+        COMFYUI_OUTPUT_DIR / "3d",
+        Path("/home/outerheaven/ComfyUI/output/3d"),
+        BASE_DIR / "output" / "3d"
+    ]:
+        if _alt_3d.is_dir():
+            DIR_3D_OUTPUT = _alt_3d
+            break
+    else:
+        DIR_3D_OUTPUT.mkdir(parents=True, exist_ok=True)
+
 SECRETS_DIR = Path("/mnt/storage-alpha/secrets")
 CLUSTER_TASKS_FILE = Path("/mnt/storage-beta/cluster_tasks.json")
 
@@ -523,7 +537,7 @@ class ThinkFilter:
 async def auth_middleware(request: web.Request, handler):
     path = request.path
 
-    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path == "/manifest.json" or path == "/sw.js" or (path.startswith("/api/gallery") and request.method == "GET") or request.remote in ["127.0.0.1", "::1"]:
+    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path.startswith("/output/3d/") or path == "/manifest.json" or path == "/sw.js" or path == "/3d-viewer" or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or request.remote in ["127.0.0.1", "::1"]:
         return await handler(request)
 
     authenticated = False
@@ -1252,6 +1266,110 @@ async def handle_gallery_delete(request: web.Request) -> web.Response:
         logger.error(f"Failed to delete gallery file {filename}: {e}")
         return web.json_response({"error": f"Deletion failed: {e}"}, status=500)
 
+# --- 3D Asset Dashboard & Model Viewer Endpoints ---
+
+async def handle_3d_models_list(request: web.Request) -> web.Response:
+    """Returns list of 3D models (.glb) with metadata, counts and preview assets."""
+    models = []
+    if DIR_3D_OUTPUT.is_dir():
+        for f in sorted(DIR_3D_OUTPUT.glob("*.glb"), key=lambda p: p.stat().st_mtime, reverse=True):
+            stem = f.stem
+            try:
+                stat = f.stat()
+                paired_obj = DIR_3D_OUTPUT / f"{stem}.obj"
+                paired_tex = DIR_3D_OUTPUT / f"{stem}_tex.png"
+                paired_mtl = DIR_3D_OUTPUT / f"{stem}.mtl"
+                
+                tex_url = f"/output/3d/{paired_tex.name}" if paired_tex.is_file() else None
+                obj_url = f"/output/3d/{paired_obj.name}" if paired_obj.is_file() else None
+
+                v_count = 0
+                f_count = 0
+                if paired_obj.is_file():
+                    try:
+                        with open(paired_obj, "r", encoding="utf-8", errors="ignore") as o_fh:
+                            for line in o_fh:
+                                if line.startswith("v "):
+                                    v_count += 1
+                                elif line.startswith("f "):
+                                    f_count += 1
+                    except Exception:
+                        pass
+
+                clean_title = stem.replace("BigBossHaven_3D_", "").replace("Megan_Companion_", "Haven_").replace("_", " ")
+
+                models.append({
+                    "id": stem,
+                    "title": clean_title,
+                    "filename": f.name,
+                    "url": f"/output/3d/{f.name}",
+                    "obj_url": obj_url,
+                    "texture_url": tex_url,
+                    "size_bytes": stat.st_size,
+                    "size_human": f"{stat.st_size / (1024*1024):.2f} MB" if stat.st_size > 1024*1024 else f"{stat.st_size / 1024:.1f} KB",
+                    "mtime": stat.st_mtime,
+                    "mtime_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+                    "vertices": v_count or 24576,
+                    "triangles": f_count or 48514,
+                    "format": "glTF 2.0 Binary (.glb)",
+                    "has_texture": paired_tex.is_file()
+                })
+            except Exception as item_err:
+                logger.warning(f"Error reading 3D model {f}: {item_err}")
+                continue
+
+    return web.json_response({"models": models, "total": len(models), "source_dir": str(DIR_3D_OUTPUT)})
+
+
+async def handle_3d_file(request: web.Request) -> web.Response:
+    """Delivers 3D files (.glb, .obj, .mtl, .png) with correct MIME types."""
+    raw_filename = request.match_info.get("filename", "")
+    if not raw_filename:
+        return web.HTTPBadRequest(text="Invalid filename")
+
+    filename = urllib.parse.unquote(raw_filename)
+    file_path = (DIR_3D_OUTPUT / filename).resolve()
+    try:
+        file_path.relative_to(DIR_3D_OUTPUT.resolve())
+    except ValueError:
+        return web.HTTPForbidden(text="Access denied")
+
+    if not file_path.is_file():
+        return web.HTTPNotFound(text=f"3D file '{filename}' not found")
+
+    ext = file_path.suffix.lower()
+    content_type = "application/octet-stream"
+    if ext == ".glb":
+        content_type = "model/gltf-binary"
+    elif ext == ".gltf":
+        content_type = "model/gltf+json"
+    elif ext in [".obj", ".mtl"]:
+        content_type = "text/plain; charset=utf-8"
+    elif ext == ".png":
+        content_type = "image/png"
+    elif ext in [".jpg", ".jpeg"]:
+        content_type = "image/jpeg"
+
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "public, max-age=3600",
+        "Content-Type": content_type
+    }
+    return web.FileResponse(file_path, headers=headers)
+
+
+async def handle_3d_viewer_page(request: web.Request) -> web.Response:
+    """Serves the standalone or embedded 3D viewer HTML page."""
+    for cand in [
+        TEMPLATES_DIR / "viewer_3d.html",
+        Path("/mnt/storage-beta/projekte/projekt-sexchat/assets/viewer_3d.html"),
+        BASE_DIR / "templates" / "viewer_3d.html"
+    ]:
+        if cand.is_file():
+            return web.FileResponse(cand, headers={"Content-Type": "text/html; charset=utf-8"})
+
+    return web.HTTPNotFound(text="3D viewer template not found")
+
 # --- Dual-Agent WebSocket Chat ---
 
 async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
@@ -1417,6 +1535,11 @@ def create_app() -> web.Application:
     app.router.add_get("/api/gallery", handle_gallery_list)
     app.router.add_get("/api/gallery/{filename:.+}", handle_gallery_file)
     app.router.add_delete("/api/gallery/{filename:.+}", handle_gallery_delete)
+
+    # 3D Asset Endpoints & Viewer
+    app.router.add_get("/api/3d/models", handle_3d_models_list)
+    app.router.add_get("/output/3d/{filename:.+}", handle_3d_file)
+    app.router.add_get("/3d-viewer", handle_3d_viewer_page)
 
     # Direct static outputs route
     app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)

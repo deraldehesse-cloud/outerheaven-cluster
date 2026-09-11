@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Outer Heaven - 3D Model Lab & Asset Inspector</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#ecfeff', 500: '#06b6d4', 600: '#0891b2', 900: '#164e63' }
+          }
+        }
+      }
+    };
+  </script>
+  <!-- Three.js & Loaders -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <!-- Google Model-Viewer as fallback -->
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+    #viewport3d { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+    .glass-panel { background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(12px); border: 1px solid rgba(51, 65, 85, 0.6); }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 flex flex-col h-screen">
+
+  <!-- Top Header Navigation -->
+  <header class="glass-panel z-20 flex items-center justify-between px-5 py-3 border-b border-slate-800 shrink-0">
+    <div class="flex items-center gap-3">
+      <a href="/" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded transition">
+        ← Mission Control
+      </a>
+      <div class="flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+        <h1 class="text-base font-bold tracking-wide bg-gradient-to-r from-cyan-400 via-sky-300 to-indigo-400 bg-clip-text text-transparent">
+          3D Asset Lab & Model Inspector
+        </h1>
+      </div>
+      <span class="text-xs bg-slate-800/80 text-cyan-400 font-mono px-2 py-0.5 rounded border border-cyan-900/50">
+        Intel Arc A770 Accelerated
+      </span>
+    </div>
+
+    <!-- Quick Stats HUD -->
+    <div class="flex items-center gap-4 text-xs font-mono text-slate-400">
+      <div>Model: <span id="hudModelName" class="text-cyan-300 font-bold">-</span></div>
+      <div>Vertices: <span id="hudVerts" class="text-slate-200">-</span></div>
+      <div>Triangles: <span id="hudTris" class="text-slate-200">-</span></div>
+      <div>FPS: <span id="hudFps" class="text-emerald-400 font-bold">60</span></div>
+      <button onclick="resetCamera()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded transition">
+        Reset Cam
+      </button>
+    </div>
+  </header>
+
+  <!-- Main View Area -->
+  <div class="relative flex-1 flex overflow-hidden">
+
+    <!-- 3D WebGL Canvas Viewport -->
+    <div id="viewportContainer" class="relative flex-1 h-full">
+      <div id="viewport3d"></div>
+
+      <!-- Loading Spinner Overlay -->
+      <div id="loadingOverlay" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 z-10 transition-opacity">
+        <div class="w-12 h-12 border-4 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin mb-3"></div>
+        <div id="loadingLabel" class="text-sm font-mono text-cyan-300">Lade 3D Model...</div>
+      </div>
+
+      <!-- Floating Controls Widget -->
+      <div class="glass-panel absolute bottom-5 left-5 z-10 p-3 rounded-xl flex flex-wrap gap-2 text-xs">
+        <button id="btnWireframe" onclick="toggleWireframe()" class="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+          🕸️ Drahtgitter (Off)
+        </button>
+        <button id="btnAutoRotate" onclick="toggleAutoRotate()" class="px-2.5 py-1.5 rounded bg-cyan-900/60 hover:bg-cyan-800 text-cyan-300 transition">
+          🔄 Auto-Rotation (On)
+        </button>
+        <button id="btnGrid" onclick="toggleGrid()" class="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+          📐 Bodenraster
+        </button>
+        <select id="lightingPreset" onchange="changeLighting(this.value)" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200">
+          <option value="studio">💡 Studio Lighting</option>
+          <option value="cyber">🌆 Cyberpunk Rim</option>
+          <option value="warm">🔥 Warm Intimate</option>
+          <option value="direct">☀️ Hard Sunlight</option>
+        </select>
+        <select id="bgPreset" onchange="changeBackground(this.value)" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200">
+          <option value="#020617">Dark Slate</option>
+          <option value="#000000">Pure Black</option>
+          <option value="#1e293b">Studio Gray</option>
+          <option value="#090d16">Deep Haven</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Right Sidebar: 3D Asset Library & Inspector -->
+    <aside class="glass-panel w-80 h-full border-l border-slate-800 flex flex-col shrink-0 z-10">
+      <div class="p-4 border-b border-slate-800 flex justify-between items-center">
+        <div>
+          <h2 class="text-sm font-bold text-slate-200">3D Asset Bibliothek</h2>
+          <p class="text-xs text-slate-400">Generierte Meshes (.glb / .obj)</p>
+        </div>
+        <button onclick="loadModelCatalog()" class="text-xs text-cyan-400 hover:text-cyan-300">
+          ↻ Refresh
+        </button>
+      </div>
+
+      <!-- Models List Container -->
+      <div id="modelsList" class="flex-1 overflow-y-auto p-3 space-y-2">
+        <!-- Injected via JavaScript -->
+      </div>
+
+      <!-- Selected Model Inspector Card -->
+      <div id="inspectorCard" class="p-4 border-t border-slate-800 bg-slate-900/50 text-xs space-y-2">
+        <h3 class="font-bold text-slate-300 uppercase tracking-wider text-[10px]">Inspektor & Download</h3>
+        <div class="space-y-1 font-mono text-slate-400">
+          <div class="flex justify-between"><span>Format:</span> <span class="text-slate-200" id="inspFormat">-</span></div>
+          <div class="flex justify-between"><span>Größe:</span> <span class="text-slate-200" id="inspSize">-</span></div>
+          <div class="flex justify-between"><span>Erstellt:</span> <span class="text-slate-200" id="inspTime">-</span></div>
+        </div>
+        <div class="flex gap-2 pt-2">
+          <a id="btnDownloadGlb" href="#" download class="flex-1 text-center bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold py-1.5 rounded transition">
+            ↓ .GLB
+          </a>
+          <a id="btnDownloadObj" href="#" download class="flex-1 text-center bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-1.5 rounded transition">
+            ↓ .OBJ
+          </a>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    // --- Three.js WebGL Scene State ---
+    let scene, camera, renderer, controls;
+    let currentModel = null;
+    let gridHelper = null;
+    let wireframeActive = false;
+    let autoRotateActive = true;
+    let dirLight, ambLight, rimLight;
+    let modelsData = [];
+    let activeModelId = null;
+
+    // FPS Meter
+    let lastFrameTime = performance.now();
+    let frameCount = 0;
+    let fps = 60;
+
+    function initThreeScene() {
+      const container = document.getElementById("viewport3d");
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x020617);
+
+      camera = new THREE.PerspectiveCamera(45, width / height, 0.05, 100);
+      camera.position.set(0, 0.5, 3.2);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.shadowMap.enabled = true;
+      container.appendChild(renderer.domElement);
+
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 1.2;
+
+      // Lights
+      ambLight = new THREE.AmbientLight(0xffffff, 0.85);
+      scene.add(ambLight);
+
+      dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
+      dirLight.position.set(2, 4, 3);
+      scene.add(dirLight);
+
+      rimLight = new THREE.DirectionalLight(0x06b6d4, 1.2);
+      rimLight.position.set(-3, 1, -2);
+      scene.add(rimLight);
+
+      // Floor Grid
+      gridHelper = new THREE.GridHelper(4, 20, 0x0891b2, 0x334155);
+      gridHelper.position.y = -0.9;
+      scene.add(gridHelper);
+
+      window.addEventListener("resize", onWindowResize);
+      animate();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // FPS tracking
+      frameCount++;
+      const now = performance.now();
+      if (now - lastFrameTime >= 1000) {
+        fps = Math.round((frameCount * 1000) / (now - lastFrameTime));
+        document.getElementById("hudFps").textContent = fps;
+        frameCount = 0;
+        lastFrameTime = now;
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    function onWindowResize() {
+      const container = document.getElementById("viewport3d");
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+
+    // --- Load GLB Models ---
+    function loadGLB(url, modelMeta = {}) {
+      const overlay = document.getElementById("loadingOverlay");
+      overlay.classList.remove("opacity-0", "pointer-events-none");
+
+      const loader = new THREE.GLTFLoader();
+      loader.load(
+        url,
+        (gltf) => {
+          if (currentModel) scene.remove(currentModel);
+
+          currentModel = gltf.scene;
+
+          // Center & scale model automatically
+          const box = new THREE.Box3().setFromObject(currentModel);
+          const center = box.getCenter(new THREE.Vector3());
+          const size = box.getSize(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const scale = 1.8 / (maxDim || 1.0);
+
+          currentModel.scale.set(scale, scale, scale);
+          currentModel.position.sub(center.multiplyScalar(scale));
+          currentModel.position.y += 0.1;
+
+          // Setup materials
+          let totalVerts = 0;
+          let totalTris = 0;
+
+          currentModel.traverse((child) => {
+            if (child.isMesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+              if (child.geometry) {
+                totalVerts += child.geometry.attributes.position ? child.geometry.attributes.position.count : 0;
+                totalTris += child.geometry.index ? child.geometry.index.count / 3 : (totalVerts / 3);
+              }
+              if (child.material) {
+                child.material.wireframe = wireframeActive;
+                child.material.needsUpdate = true;
+              }
+            }
+          });
+
+          scene.add(currentModel);
+
+          // Update HUD
+          document.getElementById("hudModelName").textContent = modelMeta.title || "Custom Model";
+          document.getElementById("hudVerts").textContent = (modelMeta.vertices || totalVerts).toLocaleString();
+          document.getElementById("hudTris").textContent = (modelMeta.triangles || Math.floor(totalTris)).toLocaleString();
+
+          overlay.classList.add("opacity-0", "pointer-events-none");
+        },
+        (xhr) => {
+          const pct = Math.round((xhr.loaded / (xhr.total || 1)) * 100);
+          document.getElementById("loadingLabel").textContent = `Lade Mesh (${pct}%)...`;
+        },
+        (err) => {
+          console.error("GLTF load error:", err);
+          document.getElementById("loadingLabel").textContent = "Fehler beim Laden der .glb Datei!";
+          setTimeout(() => overlay.classList.add("opacity-0", "pointer-events-none"), 2000);
+        }
+      );
+    }
+
+    // --- Interactive Control Toggles ---
+    function toggleWireframe() {
+      wireframeActive = !wireframeActive;
+      const btn = document.getElementById("btnWireframe");
+      btn.textContent = `🕸️ Drahtgitter (${wireframeActive ? 'On' : 'Off'})`;
+      btn.className = wireframeActive ? "px-2.5 py-1.5 rounded bg-cyan-600 text-slate-950 font-bold transition" : "px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition";
+
+      if (currentModel) {
+        currentModel.traverse((child) => {
+          if (child.isMesh && child.material) {
+            child.material.wireframe = wireframeActive;
+            child.material.needsUpdate = true;
+          }
+        });
+      }
+    }
+
+    function toggleAutoRotate() {
+      autoRotateActive = !autoRotateActive;
+      controls.autoRotate = autoRotateActive;
+      const btn = document.getElementById("btnAutoRotate");
+      btn.textContent = `🔄 Auto-Rotation (${autoRotateActive ? 'On' : 'Off'})`;
+      btn.className = autoRotateActive ? "px-2.5 py-1.5 rounded bg-cyan-900/60 text-cyan-300 transition" : "px-2.5 py-1.5 rounded bg-slate-800 text-slate-400 transition";
+    }
+
+    function toggleGrid() {
+      if (gridHelper) gridHelper.visible = !gridHelper.visible;
+    }
+
+    function resetCamera() {
+      controls.reset();
+      camera.position.set(0, 0.5, 3.2);
+    }
+
+    function changeLighting(preset) {
+      if (preset === "studio") {
+        ambLight.intensity = 0.85;
+        dirLight.intensity = 1.4;
+        dirLight.color.setHex(0xffffff);
+        rimLight.intensity = 1.2;
+        rimLight.color.setHex(0x06b6d4);
+      } else if (preset === "cyber") {
+        ambLight.intensity = 0.4;
+        dirLight.intensity = 2.0;
+        dirLight.color.setHex(0x38bdf8);
+        rimLight.intensity = 2.5;
+        rimLight.color.setHex(0xf43f5e);
+      } else if (preset === "warm") {
+        ambLight.intensity = 0.9;
+        dirLight.intensity = 1.6;
+        dirLight.color.setHex(0xfde047);
+        rimLight.intensity = 0.8;
+        rimLight.color.setHex(0xf97316);
+      } else if (preset === "direct") {
+        ambLight.intensity = 0.2;
+        dirLight.intensity = 2.8;
+        dirLight.color.setHex(0xffffff);
+        rimLight.intensity = 0.0;
+      }
+    }
+
+    function changeBackground(colorHex) {
+      scene.background = new THREE.Color(colorHex);
+    }
+
+    // --- Asset Catalog Fetcher ---
+    async function loadModelCatalog() {
+      try {
+        const res = await fetch("/api/3d/models");
+        const data = await res.json();
+        modelsData = data.models || [];
+
+        const container = document.getElementById("modelsList");
+        container.innerHTML = "";
+
+        if (modelsData.length === 0) {
+          container.innerHTML = `<div class="p-4 text-center text-slate-500 font-mono text-xs">Keine .glb Models gefunden.<br>Führe einen 3D-Reconstruction-Run aus.</div>`;
+          return;
+        }
+
+        modelsData.forEach((m, idx) => {
+          const card = document.createElement("div");
+          card.className = `p-3 rounded-lg border cursor-pointer transition flex items-center gap-3 ${idx === 0 ? 'bg-cyan-950/40 border-cyan-500/60' : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'}`;
+          card.onclick = () => selectModel(m.id);
+
+          const thumb = m.texture_url 
+            ? `<img src="${m.texture_url}" class="w-12 h-12 rounded object-cover border border-slate-700 shrink-0">` 
+            : `<div class="w-12 h-12 rounded bg-slate-800 border border-slate-700 flex items-center justify-center text-cyan-400 font-bold shrink-0">3D</div>`;
+
+          card.innerHTML = `
+            ${thumb}
+            <div class="flex-1 min-w-0">
+              <div class="font-bold text-slate-200 text-xs truncate">${m.title}</div>
+              <div class="text-[11px] text-slate-400 font-mono">${m.size_human} • ${(m.triangles || 0).toLocaleString()} Tris</div>
+              <div class="text-[10px] text-slate-500">${m.mtime_str || ''}</div>
+            </div>
+          `;
+          container.appendChild(card);
+        });
+
+        // Select first model by default
+        if (modelsData.length > 0 && !activeModelId) {
+          selectModel(modelsData[0].id);
+        }
+      } catch (err) {
+        console.error("Failed to load 3D catalog:", err);
+      }
+    }
+
+    function selectModel(modelId) {
+      const model = modelsData.find(m => m.id === modelId);
+      if (!model) return;
+      activeModelId = modelId;
+
+      // Update Inspector
+      document.getElementById("inspFormat").textContent = model.format;
+      document.getElementById("inspSize").textContent = model.size_human;
+      document.getElementById("inspTime").textContent = model.mtime_str;
+      document.getElementById("btnDownloadGlb").href = model.url;
+      if (model.obj_url) {
+        document.getElementById("btnDownloadObj").href = model.obj_url;
+        document.getElementById("btnDownloadObj").classList.remove("opacity-40", "pointer-events-none");
+      } else {
+        document.getElementById("btnDownloadObj").classList.add("opacity-40", "pointer-events-none");
+      }
+
+      loadGLB(model.url, model);
+    }
+
+    // Initialize
+    initThreeScene();
+    loadModelCatalog();
+  </script>
+</body>
+</html>

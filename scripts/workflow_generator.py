@@ -138,12 +138,157 @@ def create_txt2img_workflow(
     return {"prompt": workflow}
 
 
+def create_multiview_pose_workflow(
+    base_positive_prompt: str,
+    base_negative_prompt: str,
+    checkpoint: str = "DreamShaper8_LCM.safetensors",
+    loras: Optional[List[Dict[str, Any]]] = None,
+    width: int = 512,
+    height: int = 768,
+    steps: int = 14,
+    cfg: float = 6.5,
+    seed: Optional[int] = None,
+    filename_prefix: str = "Haven_MultiView"
+) -> Dict[str, Any]:
+    """
+    Constructs a 4-angle canonical multi-perspective workflow:
+      1. Front (0°): full frontal orthographic view
+      2. Side-Left (90°): side profile from left
+      3. Back (180°): full rear perspective
+      4. Side-Right (270°): side profile from right
+    Output batch is optimized for ingestion by reconstruct_3d.py.
+    """
+    if seed is None:
+        seed = secrets.randbelow(999999999999)
+
+    workflow: Dict[str, Any] = {}
+
+    # 1. Base Checkpoint Loader
+    workflow["1"] = {
+        "class_type": "CheckpointLoaderSimple",
+        "inputs": {"ckpt_name": checkpoint}
+    }
+
+    current_model = ["1", 0]
+    current_clip = ["1", 1]
+    current_vae = ["1", 2]
+
+    # 2. LoRA Chaining
+    next_id = 10
+    if loras:
+        for lora in loras:
+            lora_name = lora.get("name")
+            if not lora_name:
+                continue
+            l_id = str(next_id)
+            workflow[l_id] = {
+                "class_type": "LoraLoader",
+                "inputs": {
+                    "lora_name": lora_name,
+                    "strength_model": float(lora.get("strength_model", 0.8)),
+                    "strength_clip": float(lora.get("strength_clip", 0.8)),
+                    "model": current_model,
+                    "clip": current_clip
+                }
+            }
+            current_model = [l_id, 0]
+            current_clip = [l_id, 1]
+            next_id += 1
+
+    # 3. Shared Negative Prompt
+    workflow["3"] = {
+        "class_type": "CLIPTextEncode",
+        "inputs": {
+            "text": f"{base_negative_prompt}, extreme angles, tilted horizon, asymmetric poses, dynamic motion",
+            "clip": current_clip
+        }
+    }
+
+    # 4 Canonical Camera Views
+    views = [
+        {"suffix": "0_front", "angle_prompt": "full frontal orthographic view, standing straight, looking directly forward, symmetric pose, neutral expression"},
+        {"suffix": "1_side_l", "angle_prompt": "side profile view from left, 90 degrees turned left profile, orthographic side reference, arms at side"},
+        {"suffix": "2_back", "angle_prompt": "back view, rear perspective, looking away from camera, 180 degrees turn, full body back reference"},
+        {"suffix": "3_side_r", "angle_prompt": "side profile view from right, 270 degrees turned right profile, orthographic side reference, arms at side"}
+    ]
+
+    for idx, v in enumerate(views):
+        pos_id = str(100 + idx * 10)
+        latent_id = str(101 + idx * 10)
+        sampler_id = str(102 + idx * 10)
+        vae_dec_id = str(103 + idx * 10)
+        save_id = str(104 + idx * 10)
+
+        # Positive encode with view angle
+        workflow[pos_id] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": f"{base_positive_prompt}, {v['angle_prompt']}, clean neutral background, studio lighting, highly consistent character",
+                "clip": current_clip
+            }
+        }
+
+        # Empty Latent
+        workflow[latent_id] = {
+            "class_type": "EmptyLatentImage",
+            "inputs": {"width": width, "height": height, "batch_size": 1}
+        }
+
+        # KSampler with fixed seed for high consistency
+        workflow[sampler_id] = {
+            "class_type": "KSampler",
+            "inputs": {
+                "seed": seed + idx,  # Correlated seeds for consistency
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": "euler",
+                "scheduler": "normal",
+                "denoise": 1.0,
+                "model": current_model,
+                "positive": [pos_id, 0],
+                "negative": ["3", 0],
+                "latent_image": [latent_id, 0]
+            }
+        }
+
+        # VAE Decode
+        workflow[vae_dec_id] = {
+            "class_type": "VAEDecode",
+            "inputs": {
+                "samples": [sampler_id, 0],
+                "vae": current_vae
+            }
+        }
+
+        # Save Image
+        workflow[save_id] = {
+            "class_type": "SaveImage",
+            "inputs": {
+                "filename_prefix": f"{filename_prefix}_{v['suffix']}",
+                "images": [vae_dec_id, 0]
+            }
+        }
+
+    return {
+        "prompt": workflow,
+        "views": [v["suffix"] for v in views],
+        "seed": seed
+    }
+
+
 if __name__ == "__main__":
     wf = create_txt2img_workflow(
-        positive_prompt="1girl, megan, beautiful cinematic portrait",
+        positive_prompt="1girl, haven, beautiful cinematic portrait",
         negative_prompt="bad quality, deformed",
         checkpoint="DreamShaper8_LCM.safetensors",
         loras=[{"name": "detail_slider.safetensors", "strength_model": 0.75}]
     )
-    print("Generated Workflow Node Count:", len(wf["prompt"]))
-    print(json.dumps(wf, indent=2)[:400] + "\n...")
+    print("Standard Workflow Node Count:", len(wf["prompt"]))
+
+    mv_wf = create_multiview_pose_workflow(
+        base_positive_prompt="1girl, haven, tactical crop top, denim shorts",
+        base_negative_prompt="bad quality, deformed",
+        checkpoint="DreamShaper8_LCM.safetensors"
+    )
+    print("Multi-View Pose Workflow Node Count:", len(mv_wf["prompt"]), "Views:", mv_wf["views"])
+
