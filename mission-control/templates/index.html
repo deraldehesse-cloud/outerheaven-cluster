@@ -550,6 +550,29 @@
               class="w-full bg-black/60 border border-slate-800 rounded px-2.5 py-1.5 text-[11px] text-slate-400 placeholder-slate-600 focus:outline-none focus:border-cyan-400/60 transition font-mono">
           </div>
 
+          <!-- Tactical Model Selectors (Checkpoint & LoRA) -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] uppercase text-slate-400 font-bold tracking-wider mb-1 flex items-center justify-between">
+                <span>Checkpoint</span>
+                <button type="button" onclick="loadComfyModels()" title="Modelle neu laden" class="text-[9px] text-slate-500 hover:text-cyan-400 transition">⟳ Scan</button>
+              </label>
+              <select id="renderCheckpoint"
+                class="w-full bg-black/80 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-cyan-300 focus:outline-none focus:border-cyan-400 transition font-mono truncate">
+                <option value="DreamShaper8_LCM.safetensors">DreamShaper8_LCM.safetensors</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] uppercase text-slate-400 font-bold tracking-wider mb-1">
+                <span>LoRA (Optional)</span>
+              </label>
+              <select id="renderLora"
+                class="w-full bg-black/80 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-amber-300 focus:outline-none focus:border-amber-400 transition font-mono truncate">
+                <option value="">(Kein LoRA / None)</option>
+              </select>
+            </div>
+          </div>
+
           <div class="flex items-center justify-between pt-0.5">
             <button id="btnRender" onclick="submitRender()"
               class="w-full bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-slate-950 font-bold py-2 rounded text-xs tracking-wider uppercase transition shadow">
@@ -587,6 +610,9 @@
         <a id="lightboxDownload" href="" download class="text-xs bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-1.5 rounded transition">
           DOWNLOAD IMAGE
         </a>
+        <button id="lightboxDeleteBtn" onclick="deleteCurrentLightboxImage()" class="text-xs bg-red-950/80 hover:bg-red-700 border border-red-500/80 text-red-200 font-bold px-3 py-1.5 rounded transition font-mono">
+          🗑️ DELETE (DEL)
+        </button>
       </div>
     </div>
   </div>
@@ -1180,6 +1206,8 @@
       const negInput = document.getElementById('renderNegativePrompt');
       const promptText = promptInput.value.trim();
       const negativePromptText = (negInput ? negInput.value.trim() : '') || DEFAULT_NEGATIVE_PROMPT;
+      const ckptVal = document.getElementById('renderCheckpoint')?.value || "DreamShaper8_LCM.safetensors";
+      const loraVal = document.getElementById('renderLora')?.value || "";
       const statusEl = document.getElementById('renderStatus');
       const btn = document.getElementById('btnRender');
 
@@ -1199,7 +1227,9 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: promptText,
-            negative_prompt: negativePromptText
+            negative_prompt: negativePromptText,
+            checkpoint: ckptVal,
+            lora: loraVal
           })
         });
         const data = await res.json();
@@ -1240,7 +1270,46 @@
       }
     }
 
-    // --- Gallery Loader ---
+    // --- ComfyUI Models Loader ---
+    async function loadComfyModels() {
+      try {
+        const res = await fetch('/api/comfy/models');
+        if (!res.ok) return;
+        const data = await res.json();
+        const ckptSelect = document.getElementById('renderCheckpoint');
+        const loraSelect = document.getElementById('renderLora');
+
+        if (ckptSelect && Array.isArray(data.checkpoints) && data.checkpoints.length > 0) {
+          const prev = ckptSelect.value;
+          ckptSelect.innerHTML = '';
+          data.checkpoints.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            if (m === prev || m === "DreamShaper8_LCM.safetensors") opt.selected = true;
+            ckptSelect.appendChild(opt);
+          });
+        }
+
+        if (loraSelect && Array.isArray(data.loras)) {
+          const prev = loraSelect.value;
+          loraSelect.innerHTML = '<option value="">(Kein LoRA / None)</option>';
+          data.loras.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            if (m === prev) opt.selected = true;
+            loraSelect.appendChild(opt);
+          });
+        }
+      } catch (e) {
+        console.warn("Could not load ComfyUI models:", e);
+      }
+    }
+
+    // --- Gallery Loader & Deleter ---
+    let currentLightboxFilename = '';
+
     async function loadGallery() {
       try {
         const res = await fetch('/api/gallery');
@@ -1254,11 +1323,19 @@
 
         data.images.forEach(img => {
           const card = document.createElement('div');
+          const safeId = `gallery-card-${img.filename.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+          card.id = safeId;
           card.className = "group relative aspect-square bg-black rounded border border-slate-800 overflow-hidden cursor-pointer hover:border-cyan-400 transition";
-          card.onclick = () => openLightbox(img.url);
+          card.onclick = () => openLightbox(img.url, img.filename);
           card.innerHTML = `
             <img src="${img.url}" loading="lazy" alt="${img.filename}" class="w-full h-full object-cover transition transform group-hover:scale-105 duration-300">
-            <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition p-1.5 flex flex-col justify-end">
+            <!-- Discrete MGS Delete Button -->
+            <button onclick="event.stopPropagation(); deleteGalleryImage('${img.filename}', this)"
+                    title="Bild dauerhaft löschen (DEL)"
+                    class="absolute top-1.5 right-1.5 px-2 py-0.5 rounded bg-red-950/80 hover:bg-red-600 border border-red-500/70 text-red-200 text-[10px] font-mono font-bold opacity-0 group-hover:opacity-100 transition shadow z-10">
+              DEL
+            </button>
+            <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition p-1.5 flex flex-col justify-end pointer-events-none">
               <span class="text-[9px] text-cyan-200 truncate font-mono">${img.filename}</span>
             </div>
           `;
@@ -1269,11 +1346,55 @@
       }
     }
 
+    async function deleteGalleryImage(filename, btnElement) {
+      if (!confirm(`[MGS-TACTICAL] Bild wirklich aus dem ComfyUI Output löschen?\n\nDatei: ${filename}`)) {
+        return;
+      }
+      if (btnElement) {
+        btnElement.disabled = true;
+        btnElement.textContent = "...";
+      }
+      try {
+        const res = await fetch(`/api/gallery/${encodeURIComponent(filename)}`, {
+          method: 'DELETE'
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'deleted') {
+          const safeId = `gallery-card-${filename.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+          const card = document.getElementById(safeId) || (btnElement ? btnElement.closest('.group') : null);
+          if (card) {
+            card.remove();
+          }
+          const count = document.getElementById('galleryCount');
+          const grid = document.getElementById('galleryGrid');
+          if (count && grid) {
+            count.textContent = `${grid.children.length} images`;
+          }
+          if (currentLightboxFilename === filename) {
+            closeLightbox();
+          }
+        } else {
+          alert("Fehler beim Löschen: " + (data.error || "Unbekannter Fehler"));
+          if (btnElement) {
+            btnElement.disabled = false;
+            btnElement.textContent = "DEL";
+          }
+        }
+      } catch (e) {
+        alert("Netzwerkfehler beim Löschen: " + e.message);
+        if (btnElement) {
+          btnElement.disabled = false;
+          btnElement.textContent = "DEL";
+        }
+      }
+    }
+
     // --- Lightbox Functions ---
-    function openLightbox(url) {
+    function openLightbox(url, filename) {
       const lb = document.getElementById('lightbox');
       const img = document.getElementById('lightboxImg');
       const dl = document.getElementById('lightboxDownload');
+      currentLightboxFilename = filename || url.split('/').pop();
       img.src = url;
       dl.href = url;
       lb.classList.remove('hidden');
@@ -1281,6 +1402,12 @@
 
     function closeLightbox() {
       document.getElementById('lightbox').classList.add('hidden');
+      currentLightboxFilename = '';
+    }
+
+    async function deleteCurrentLightboxImage() {
+      if (!currentLightboxFilename) return;
+      await deleteGalleryImage(currentLightboxFilename, document.getElementById('lightboxDeleteBtn'));
     }
 
     // --- PWA Service Worker Registration ---
@@ -1298,6 +1425,7 @@
     initWebSocket();
     updateTelemetry();
     loadGallery();
+    loadComfyModels();
     setInterval(updateTelemetry, 3000);
   </script>
 </body>

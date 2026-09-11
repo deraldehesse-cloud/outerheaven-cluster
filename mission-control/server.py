@@ -39,6 +39,9 @@ CLUSTER_TASKS_FILE = Path("/mnt/storage-beta/cluster_tasks.json")
 LOCAL_TS_IP = os.environ.get("OUTERHEAVEN_TS_IP", "100.116.38.29")
 FOX_TS_IP = os.environ.get("FOX_TS_IP", "100.93.184.87")
 PORT = 8080
+SSL_PORT = 8443
+SSL_CERT = BASE_DIR / "cert.pem"
+SSL_KEY = BASE_DIR / "key.pem"
 
 COMFYUI_URL = "http://127.0.0.1:8188"
 LOCAL_OLLAMA_URL = "http://127.0.0.1:11434"
@@ -720,6 +723,47 @@ async def handle_service_control(request: web.Request) -> web.Response:
 
 # --- ComfyUI Render Bridge & Gallery ---
 
+async def handle_comfy_models(request: web.Request) -> web.Response:
+    """Dynamically query available checkpoints and loras from ComfyUI /object_info."""
+    checkpoints = []
+    loras = []
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{COMFYUI_URL}/object_info", timeout=aiohttp.ClientTimeout(total=4)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    ckpt_info = data.get("CheckpointLoaderSimple", {}).get("input", {}).get("required", {}).get("ckpt_name", [])
+                    if ckpt_info and isinstance(ckpt_info[0], list):
+                        checkpoints = [c for c in ckpt_info[0] if isinstance(c, str)]
+
+                    lora_info = data.get("LoraLoader", {}).get("input", {}).get("required", {}).get("lora_name", [])
+                    if lora_info and isinstance(lora_info[0], list):
+                        loras = [l for l in lora_info[0] if isinstance(l, str)]
+    except Exception as e:
+        logger.warning(f"Could not query ComfyUI /object_info: {e}")
+
+    # Fallback to local files if API list is empty
+    if not checkpoints:
+        for p in [COMFYUI_OUTPUT_DIR.parent / "models" / "checkpoints", Path("/mnt/storage-beta/models/checkpoints"), Path("/mnt/fox-assets/models/checkpoints")]:
+            if p.is_dir():
+                for f in p.rglob("*"):
+                    if f.is_file() and f.suffix.lower() in [".safetensors", ".ckpt"] and f.name not in checkpoints:
+                        checkpoints.append(f.name)
+
+    if not loras:
+        for p in [COMFYUI_OUTPUT_DIR.parent / "models" / "loras", Path("/mnt/storage-beta/models/loras"), Path("/mnt/fox-assets/models/loras")]:
+            if p.is_dir():
+                for f in p.rglob("*"):
+                    if f.is_file() and f.suffix.lower() in [".safetensors", ".ckpt"] and f.name not in loras:
+                        loras.append(f.name)
+
+    checkpoints.sort()
+    loras.sort()
+    return web.json_response({
+        "checkpoints": checkpoints,
+        "loras": loras
+    })
+
 async def handle_comfy_render(request: web.Request) -> web.Response:
     try:
         body = await request.json()
@@ -731,6 +775,9 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
         return web.json_response({"error": "Prompt required"}, status=400)
 
     negative_prompt = body.get("negative_prompt", "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark").strip()
+    checkpoint = body.get("checkpoint", "DreamShaper8_LCM.safetensors").strip()
+    lora = body.get("lora", "").strip()
+    lora_strength = float(body.get("lora_strength", 1.0))
     steps = int(body.get("steps", 14))
     cfg = float(body.get("cfg", 6.5))
     seed = int(body.get("seed", secrets.randbelow(999999999999)))
@@ -739,7 +786,7 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
         "prompt": {
             "1": {
                 "class_type": "CheckpointLoaderSimple",
-                "inputs": {"ckpt_name": "DreamShaper8_LCM.safetensors"}
+                "inputs": {"ckpt_name": checkpoint}
             },
             "2": {
                 "class_type": "EmptyLatentImage",
@@ -774,10 +821,26 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
             },
             "7": {
                 "class_type": "SaveImage",
-                "inputs": {"filename_prefix": "OuterHeaven_MissionControl", "images": ["6", 0]}
+                "inputs": {"filename_prefix": "OH_%date:yyyy-MM-dd%_%batch_num%", "images": ["6", 0]}
             }
         }
     }
+
+    # Dynamically inject LoRA if selected
+    if lora and lora.lower() not in ("none", "keines", "", "false"):
+        workflow["prompt"]["8"] = {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": ["1", 0],
+                "clip": ["1", 1],
+                "lora_name": lora,
+                "strength_model": lora_strength,
+                "strength_clip": lora_strength
+            }
+        }
+        workflow["prompt"]["3"]["inputs"]["clip"] = ["8", 1]
+        workflow["prompt"]["4"]["inputs"]["clip"] = ["8", 1]
+        workflow["prompt"]["5"]["inputs"]["model"] = ["8", 0]
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -937,6 +1000,28 @@ async def handle_gallery_file(request: web.Request) -> web.Response:
 
     return web.FileResponse(file_path)
 
+async def handle_gallery_delete(request: web.Request) -> web.Response:
+    filename = request.match_info.get("filename", "")
+    if not filename or os.path.basename(filename) != filename:
+        return web.json_response({"error": "Invalid filename"}, status=400)
+
+    target_path = (COMFYUI_OUTPUT_DIR / filename).resolve()
+    try:
+        target_path.relative_to(COMFYUI_OUTPUT_DIR.resolve())
+    except ValueError:
+        return web.json_response({"error": "Path traversal attempt detected"}, status=403)
+
+    if not target_path.is_file():
+        return web.json_response({"error": "File not found"}, status=404)
+
+    try:
+        target_path.unlink()
+        logger.info(f"Gallery image deleted: {filename}")
+        return web.json_response({"status": "deleted", "filename": filename})
+    except Exception as e:
+        logger.error(f"Failed to delete gallery file {filename}: {e}")
+        return web.json_response({"error": f"Deletion failed: {e}"}, status=500)
+
 # --- Dual-Agent WebSocket Chat ---
 
 async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
@@ -1086,8 +1171,10 @@ def create_app() -> web.Application:
     app.router.add_post("/api/render", handle_comfy_render)
     app.router.add_post("/api/enhance_prompt", handle_enhance_prompt)
     app.router.add_get("/api/render/status/{prompt_id}", handle_comfy_render_status)
+    app.router.add_get("/api/comfy/models", handle_comfy_models)
     app.router.add_get("/api/gallery", handle_gallery_list)
     app.router.add_get("/api/gallery/{filename}", handle_gallery_file)
+    app.router.add_delete("/api/gallery/{filename}", handle_gallery_delete)
 
     # WebSocket
     app.router.add_get("/ws/chat", handle_chat_ws)
@@ -1104,7 +1191,7 @@ def create_app() -> web.Application:
 
 async def main():
     logger.info("=== Outer Heaven Mission Control Starting ===")
-    logger.info(f"Tailscale IP: {LOCAL_TS_IP}, Port: {PORT}")
+    logger.info(f"Tailscale IP: {LOCAL_TS_IP}, Port: {PORT}, SSL Port: {SSL_PORT}")
     logger.info(f"Fox Peer IP: {FOX_TS_IP}")
 
     app = create_app()
@@ -1127,6 +1214,31 @@ async def main():
     except Exception as e:
         logger.error(f"Failed to bind Tailscale IP {LOCAL_TS_IP}:{PORT}: {e}")
         sys.exit(1)
+
+    # SSL / HTTPS Binding (Port 8443) for Web Speech API & Microphone security context
+    ssl_ctx = None
+    if SSL_CERT.is_file() and SSL_KEY.is_file():
+        try:
+            import ssl
+            ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            ssl_ctx.load_cert_chain(str(SSL_CERT), str(SSL_KEY))
+            logger.info("SSL Certificate and Key loaded successfully.")
+        except Exception as e:
+            logger.warning(f"Failed to initialize SSL context: {e}")
+
+    if ssl_ctx:
+        try:
+            site_ssl_local = web.TCPSite(runner, "127.0.0.1", SSL_PORT, ssl_context=ssl_ctx)
+            await site_ssl_local.start()
+            sites.append(site_ssl_local)
+            logger.info(f"HTTPS binding active: https://127.0.0.1:{SSL_PORT}")
+
+            site_ssl_ts = web.TCPSite(runner, LOCAL_TS_IP, SSL_PORT, ssl_context=ssl_ctx)
+            await site_ssl_ts.start()
+            sites.append(site_ssl_ts)
+            logger.info(f"HTTPS binding active: https://{LOCAL_TS_IP}:{SSL_PORT}")
+        except Exception as e:
+            logger.warning(f"Could not bind HTTPS on port {SSL_PORT}: {e}")
 
     logger.info("Mission Control operational. Press Ctrl+C or send SIGTERM to stop.")
 
