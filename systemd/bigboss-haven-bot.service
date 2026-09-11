@@ -1,0 +1,22 @@
+[Unit]
+Description=Big Boss Haven Telegram Bot Service on Outer Heaven
+After=network-online.target comfyui.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/mnt/storage-beta/projekte/projekt-sexchat
+Environment="PATH=/home/outerheaven/.hermes/.venv/bin:/home/outerheaven/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="VIRTUAL_ENV=/home/outerheaven/.hermes/.venv"
+Environment="PYTHONUNBUFFERED=1"
+Environment="HERMES_HOME=/home/outerheaven/.hermes"
+# Tokens loaded from ~/.hermes/.env or environment
+EnvironmentFile=-/home/outerheaven/.hermes/.env
+ExecStart=/home/outerheaven/.hermes/.venv/bin/python -u /mnt/storage-beta/projekte/projekt-sexchat/assets/telegram_bot.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/mnt/storage-beta/projekte/projekt-sexchat/bot.log
+StandardError=append:/mnt/storage-beta/projekte/projekt-sexchat/bot.log
+
+[Install]
+WantedBy=default.target

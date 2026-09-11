@@ -508,89 +508,188 @@
 
       </div>
 
-      <!-- ComfyUI Bridge & Gallery Station (5 cols on lg) -->
-      <div class="lg:col-span-5 bg-slate-950/90 border border-slate-800 rounded-lg flex flex-col h-[620px] overflow-hidden">
+            <!-- ComfyUI Bridge & Gallery Station (5 cols on lg, expandable) -->
+      <div id="comfyStudioStation" class="lg:col-span-5 bg-slate-950/90 border border-slate-800 rounded-lg flex flex-col h-[620px] overflow-hidden transition-all duration-300 relative">
         
-        <!-- Tab Header -->
-        <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between">
-          <div class="flex items-center space-x-2">
-            <span class="text-xs font-bold text-cyan-400 uppercase tracking-wider">COMFYUI STUDIO</span>
-            <span class="text-[10px] text-slate-500 font-mono">ARC A770 (XPU)</span>
-          </div>
-          <button onclick="loadGallery()" class="text-xs text-slate-400 hover:text-cyan-300 transition flex items-center space-x-1">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            <span>REFRESH</span>
-          </button>
-        </div>
-
-        <!-- Render Form -->
-        <div class="p-3 border-b border-slate-800 bg-black/40 space-y-2.5 text-xs">
-          <div>
-            <div class="flex items-center justify-between mb-1">
-              <label class="block text-[10px] uppercase text-slate-400 font-bold tracking-wider">Prompt</label>
-              <button type="button" id="btnMagicPrompt" onclick="enhancePrompt()"
-                title="Erweitert den Prompt via DeepSeek-R1 mit Licht, Framing & negativem Prompt"
-                class="text-[10px] font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 px-2 py-0.5 rounded flex items-center space-x-1.5 transition shadow glow-amber">
-                <span>✨ Magic Prompt (DeepSeek-R1)</span>
-                <span id="magicSpinner" class="hidden animate-spin">⏳</span>
-              </button>
-            </div>
-            <textarea id="renderPrompt" rows="2"
-              placeholder="z. B. tactical cyborg soldier in dark rain, outer heaven logo, neon cyber, 8k..."
-              class="w-full bg-black/80 border border-slate-700 rounded p-2 text-xs text-cyan-200 placeholder-slate-600 focus:outline-none focus:border-cyan-400 transition font-mono"></textarea>
-          </div>
-
-          <div>
-            <div class="flex items-center justify-between mb-1">
-              <label class="block text-[10px] uppercase text-slate-500 font-bold tracking-wider">Negative Prompt</label>
-              <button type="button" onclick="resetNegativePrompt()" class="text-[9px] text-slate-500 hover:text-slate-400 transition">Standard wiederherstellen</button>
-            </div>
-            <input type="text" id="renderNegativePrompt"
-              value="ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark"
-              class="w-full bg-black/60 border border-slate-800 rounded px-2.5 py-1.5 text-[11px] text-slate-400 placeholder-slate-600 focus:outline-none focus:border-cyan-400/60 transition font-mono">
-          </div>
-
-          <!-- Tactical Model Selectors (Checkpoint & LoRA) -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div>
-              <label class="block text-[10px] uppercase text-slate-400 font-bold tracking-wider mb-1 flex items-center justify-between">
-                <span>Checkpoint</span>
-                <button type="button" onclick="loadComfyModels()" title="Modelle neu laden" class="text-[9px] text-slate-500 hover:text-cyan-400 transition">⟳ Scan</button>
-              </label>
-              <select id="renderCheckpoint"
-                class="w-full bg-black/80 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-cyan-300 focus:outline-none focus:border-cyan-400 transition font-mono truncate">
-                <option value="DreamShaper8_LCM.safetensors">DreamShaper8_LCM.safetensors</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-[10px] uppercase text-slate-400 font-bold tracking-wider mb-1">
-                <span>LoRA (Optional)</span>
-              </label>
-              <select id="renderLora"
-                class="w-full bg-black/80 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-amber-300 focus:outline-none focus:border-amber-400 transition font-mono truncate">
-                <option value="">(Kein LoRA / None)</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="flex items-center justify-between pt-0.5">
-            <button id="btnRender" onclick="submitRender()"
-              class="w-full bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-slate-950 font-bold py-2 rounded text-xs tracking-wider uppercase transition shadow">
-              🚀 Render on Arc A770 (LCM)
+        <!-- Tab Header & Mode Switcher -->
+        <div class="p-2.5 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between shrink-0">
+          <div class="flex items-center space-x-1 bg-black/60 p-0.5 rounded border border-slate-800 text-[11px]">
+            <button type="button" id="tabBtnQuick" onclick="switchComfyTab('quick')"
+              class="px-2.5 py-1 rounded font-bold transition bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow">
+              ⚡ SCHNELL-RENDER
+            </button>
+            <button type="button" id="tabBtnPipeline" onclick="switchComfyTab('pipeline')"
+              class="px-2.5 py-1 rounded font-bold transition text-slate-400 hover:text-slate-200 border border-transparent">
+              🧩 PIPELINE-BUILDER
             </button>
           </div>
-          <div id="renderStatus" class="hidden text-[11px] p-2 rounded text-center font-mono"></div>
+          <div class="flex items-center space-x-1.5">
+            <span class="hidden sm:inline-block text-[10px] text-slate-500 font-mono">ARC A770</span>
+            <button type="button" id="btnExpandPipeline" onclick="togglePipelineExpand()" title="Arbeitsbereich vergrößern / verkleinern"
+              class="text-xs text-slate-400 hover:text-cyan-300 transition px-2 py-0.5 rounded border border-slate-800 hover:border-cyan-500/40 font-mono flex items-center space-x-1">
+              <span id="expandIcon">⛶</span> <span id="expandText" class="hidden sm:inline">EXPAND</span>
+            </button>
+            <button type="button" onclick="loadGallery()" title="Galerie neu laden"
+              class="text-xs text-slate-400 hover:text-cyan-300 transition flex items-center space-x-1 px-1.5 py-0.5 rounded border border-slate-800 hover:border-cyan-500/40">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              <span class="hidden sm:inline">REFRESH</span>
+            </button>
+          </div>
         </div>
 
-        <!-- Gallery Grid -->
-        <div class="p-3 flex-1 overflow-y-auto scrollbar-thin">
-          <div class="text-[10px] uppercase text-slate-500 tracking-wider mb-2 font-bold flex justify-between">
-            <span>Recent Outputs</span>
-            <span id="galleryCount" class="text-slate-400">0 images</span>
+        <!-- View 1: Quick Render (Original Simple Mode) -->
+        <div id="comfyQuickView" class="flex flex-col flex-1 overflow-hidden">
+          <!-- Render Form -->
+          <div class="p-3 border-b border-slate-800 bg-black/40 space-y-2.5 text-xs">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-[10px] uppercase text-slate-400 font-bold tracking-wider">Prompt</label>
+                <button type="button" id="btnMagicPrompt" onclick="enhancePrompt()"
+                  title="Erweitert den Prompt via DeepSeek-R1 mit Licht, Framing & negativem Prompt"
+                  class="text-[10px] font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 px-2 py-0.5 rounded flex items-center space-x-1.5 transition shadow glow-amber">
+                  <span>✨ Magic Prompt (DeepSeek-R1)</span>
+                  <span id="magicSpinner" class="hidden animate-spin">⏳</span>
+                </button>
+              </div>
+              <textarea id="renderPrompt" rows="2"
+                placeholder="z. B. tactical cyborg soldier in dark rain, outer heaven logo, neon cyber, 8k..."
+                class="w-full bg-black/80 border border-slate-700 rounded p-2 text-xs text-cyan-200 placeholder-slate-600 focus:outline-none focus:border-cyan-400 transition font-mono"></textarea>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-[10px] uppercase text-slate-500 font-bold tracking-wider">Negative Prompt</label>
+                <button type="button" onclick="resetNegativePrompt()" class="text-[9px] text-slate-500 hover:text-slate-400 transition">Standard wiederherstellen</button>
+              </div>
+              <input type="text" id="renderNegativePrompt"
+                value="ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark"
+                class="w-full bg-black/60 border border-slate-800 rounded px-2.5 py-1.5 text-[11px] text-slate-400 placeholder-slate-600 focus:outline-none focus:border-cyan-400/60 transition font-mono">
+            </div>
+
+            <!-- Tactical Model Selectors (Checkpoint & LoRA) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[10px] uppercase text-slate-400 font-bold tracking-wider mb-1 flex items-center justify-between">
+                  <span>Checkpoint</span>
+                  <button type="button" onclick="loadComfyModels()" title="Modelle neu laden" class="text-[9px] text-slate-500 hover:text-cyan-400 transition">⟳ Scan</button>
+                </label>
+                <select id="renderCheckpoint"
+                  class="w-full bg-black/80 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-cyan-300 focus:outline-none focus:border-cyan-400 transition font-mono truncate">
+                  <option value="DreamShaper8_LCM.safetensors">DreamShaper8_LCM.safetensors</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[10px] uppercase text-slate-400 font-bold tracking-wider mb-1">
+                  <span>LoRA (Optional)</span>
+                </label>
+                <select id="renderLora"
+                  class="w-full bg-black/80 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-amber-300 focus:outline-none focus:border-amber-400 transition font-mono truncate">
+                  <option value="">(Kein LoRA / None)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between pt-0.5">
+              <button id="btnRender" onclick="submitRender()"
+                class="w-full bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-slate-950 font-bold py-2 rounded text-xs tracking-wider uppercase transition shadow">
+                🚀 Render on Arc A770 (LCM)
+              </button>
+            </div>
+            <div id="renderStatus" class="hidden text-[11px] p-2 rounded text-center font-mono"></div>
           </div>
-          <div id="galleryGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            <!-- Images dynamically injected -->
+
+          <!-- Gallery Grid -->
+          <div class="p-3 flex-1 overflow-y-auto scrollbar-thin">
+            <div class="text-[10px] uppercase text-slate-500 tracking-wider mb-2 font-bold flex justify-between">
+              <span>Recent Outputs</span>
+              <span id="galleryCount" class="text-slate-400">0 images</span>
+            </div>
+            <div id="galleryGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <!-- Images dynamically injected -->
+            </div>
           </div>
+        </div>
+
+        <!-- View 2: Intent-based Smart-Slot Pipeline Builder -->
+        <div id="comfyPipelineView" class="hidden flex flex-col flex-1 overflow-hidden bg-slate-950/60">
+          
+          <!-- Archetype Intent Switcher Bar -->
+          <div class="p-2.5 bg-black/70 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div class="flex items-center space-x-1.5 overflow-x-auto scrollbar-none py-0.5">
+              <span class="text-[10px] uppercase tracking-wider text-slate-500 font-bold mr-1 shrink-0">ARCHETYPEN:</span>
+              <button type="button" id="archBtn_text_to_image" onclick="loadArchetype('text_to_image')"
+                class="archetype-btn px-2.5 py-1 rounded text-[11px] font-bold transition bg-cyan-950/80 text-cyan-300 border border-cyan-600/80 shadow flex items-center space-x-1 shrink-0">
+                <span>🖼️</span> <span>Text-to-Image</span>
+              </button>
+              <button type="button" id="archBtn_image_to_image_controlnet" onclick="loadArchetype('image_to_image_controlnet')"
+                class="archetype-btn px-2.5 py-1 rounded text-[11px] font-bold transition bg-slate-900 text-slate-400 hover:text-cyan-300 border border-slate-800 hover:border-slate-700 flex items-center space-x-1 shrink-0">
+                <span>🎨</span> <span>Img2Img / ControlNet</span>
+              </button>
+              <button type="button" id="archBtn_video_generation" onclick="loadArchetype('video_generation')"
+                class="archetype-btn px-2.5 py-1 rounded text-[11px] font-bold transition bg-slate-900 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-slate-700 flex items-center space-x-1 shrink-0">
+                <span>🎬</span> <span>Video (AnimateDiff)</span>
+              </button>
+              <button type="button" onclick="createNewBlankPipeline()"
+                class="px-2 py-1 rounded text-[10px] font-mono text-slate-500 hover:text-slate-300 border border-dashed border-slate-800 hover:border-slate-700 shrink-0">
+                + Leer
+              </button>
+            </div>
+
+            <div class="flex items-center space-x-2 shrink-0">
+              <button type="button" onclick="refreshComfyNodes(true)" title="ComfyUI Node-Katalog neu scannen (/object_info)"
+                class="text-[10px] text-slate-400 hover:text-cyan-300 border border-slate-800 px-1.5 py-0.5 rounded font-mono transition">
+                ⟳ Scan Nodes
+              </button>
+              <span id="pipelineValidationBadge" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-950/80 text-emerald-300 border border-emerald-600/60 shadow">
+                🟢 VALID: 7 STEPS
+              </span>
+            </div>
+          </div>
+
+          <!-- Pipeline Sequential Card Canvas -->
+          <div id="pipelineCanvas" class="flex-1 p-3 overflow-y-auto space-y-2 scrollbar-thin">
+            <!-- Dynamic step cards and insertion slots injected here -->
+          </div>
+
+          <!-- Bottom Action Bar & Status -->
+          <div class="p-2.5 bg-black/80 border-t border-slate-800 space-y-2 shrink-0">
+            <!-- Status & Messages -->
+            <div id="pipelineStatusBanner" class="text-[10px] font-mono px-2 py-1 rounded bg-slate-900/90 border border-slate-800 text-slate-400 flex items-center justify-between">
+              <div id="pipelineStatusText" class="truncate">
+                ✅ Sequentielle Pipeline ist typ-sicher verknüpft.
+              </div>
+              <div id="pipelineStepCounter" class="text-slate-500 text-right ml-2 shrink-0">
+                7 Nodes
+              </div>
+            </div>
+
+            <!-- Execution Progress (Hidden until running) -->
+            <div id="pipelineProgressContainer" class="hidden space-y-1">
+              <div class="flex items-center justify-between text-[10px] font-mono text-cyan-400">
+                <span id="pipelineProgressLabel" class="animate-pulse">⏳ Queueing Prompt on Arc A770...</span>
+                <span id="pipelineProgressPercent">0%</span>
+              </div>
+              <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                <div id="pipelineProgressBar" class="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full w-0 transition-all duration-300"></div>
+              </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex items-center justify-between space-x-2 pt-0.5">
+              <button type="button" onclick="openJsonExportModal()"
+                class="bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-800/60 font-bold px-3 py-1.5 rounded text-[11px] font-mono transition flex items-center space-x-1">
+                <span>📋</span>
+                <span>PROMPT-JSON EXPORT</span>
+              </button>
+
+              <button type="button" id="btnExecutePipeline" onclick="executePipeline()"
+                class="flex-1 bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-slate-950 font-bold py-1.5 rounded text-xs tracking-wider uppercase transition shadow flex items-center justify-center space-x-1.5">
+                <span>🚀</span>
+                <span>PIPELINE AUSFÜHREN</span>
+              </button>
+            </div>
+          </div>
+
         </div>
 
       </div>
@@ -616,6 +715,84 @@
       </div>
     </div>
   </div>
+
+  <!-- Smart-Slot Add Node Modal with Compatibility Filter -->
+  <div id="addNodeModal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+    <div class="relative max-w-2xl w-full max-h-[85vh] bg-slate-950 border border-cyan-500/50 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+      <!-- Modal Header -->
+      <div class="p-3 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between shrink-0">
+        <div>
+          <div class="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center space-x-2">
+            <span>🧩 SMART-SLOT // NODE HINZUFÜGEN</span>
+          </div>
+          <div class="text-[10px] text-slate-400 mt-0.5">
+            Einfügen an Position: <span id="addNodePositionLabel" class="text-cyan-400 font-mono font-bold">Ende</span>
+          </div>
+        </div>
+        <button type="button" onclick="closeAddNodeModal()" class="text-slate-400 hover:text-white text-sm font-bold px-2 py-1">✕</button>
+      </div>
+
+      <!-- Available Outputs Context Banner -->
+      <div class="p-2.5 bg-cyan-950/30 border-b border-cyan-900/40 text-[11px] shrink-0">
+        <div class="text-[10px] uppercase text-cyan-400 font-bold mb-1 flex items-center space-x-1">
+          <span>⚡ Verfügbare Ausgangstypen an dieser Schnittstelle:</span>
+        </div>
+        <div id="addNodeAvailableTypes" class="flex flex-wrap gap-1.5">
+          <!-- Badges for available types like LATENT, MODEL, VAE, CLIP -->
+        </div>
+      </div>
+
+      <!-- Search & Filters -->
+      <div class="p-2.5 bg-black/50 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div class="flex-1 min-w-[200px]">
+          <input type="text" id="addNodeSearchInput" oninput="filterAddNodeList()"
+            placeholder="🔍 Node-Name oder Typ suchen (z. B. VAE, KSampler, Canny)..."
+            class="w-full bg-black/80 border border-slate-700 rounded px-3 py-1.5 text-xs text-cyan-200 placeholder-slate-600 focus:outline-none focus:border-cyan-400 font-mono">
+        </div>
+        <label class="flex items-center space-x-2 cursor-pointer bg-slate-900/80 px-2.5 py-1.5 rounded border border-slate-800 select-none">
+          <input type="checkbox" id="addNodeOnlyCompatible" onchange="filterAddNodeList()" checked class="rounded bg-black border-slate-700 text-cyan-500 focus:ring-0">
+          <span class="text-[11px] text-slate-300 font-bold">Nur kompatible Nodes</span>
+        </label>
+      </div>
+
+      <!-- Categories Filter Tabs -->
+      <div id="addNodeCategoryTabs" class="px-2.5 py-1.5 bg-black/40 border-b border-slate-800/80 flex items-center space-x-1 overflow-x-auto text-[10px] font-mono shrink-0 scrollbar-none">
+        <!-- Injected category pills: Alle, loaders, sampling, latent, conditioning, image, etc. -->
+      </div>
+
+      <!-- Node Candidate List -->
+      <div id="addNodeList" class="flex-1 p-3 overflow-y-auto space-y-2 scrollbar-thin">
+        <!-- Injected list of node cards -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ComfyUI Prompt JSON Export Modal -->
+  <div id="pipelineJsonModal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+    <div class="relative max-w-3xl w-full max-h-[85vh] bg-slate-950 border border-cyan-500/50 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+      <div class="p-3 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between shrink-0">
+        <div class="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center space-x-2">
+          <span>📋 NATIVES COMFYUI PROMPT-JSON</span>
+        </div>
+        <button type="button" onclick="closeJsonExportModal()" class="text-slate-400 hover:text-white text-sm font-bold px-2 py-1">✕</button>
+      </div>
+      <div class="p-3 flex-1 overflow-y-auto bg-black/90 font-mono text-[11px] text-cyan-200 scrollbar-thin">
+        <pre id="pipelineJsonPre" class="whitespace-pre-wrap select-all"></pre>
+      </div>
+      <div class="p-2.5 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between shrink-0">
+        <span class="text-[10px] text-slate-400">Kompatibel mit nativem ComfyUI API POST /prompt</span>
+        <div class="flex items-center space-x-2">
+          <button type="button" id="btnCopyPromptJson" onclick="copyPromptJsonToClipboard()" class="bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-1 rounded text-xs transition">
+            📋 In Zwischenablage kopieren
+          </button>
+          <button type="button" onclick="closeJsonExportModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-3 py-1 rounded text-xs transition">
+            Schließen
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
   <!-- Client-side Application Logic -->
   <script>
@@ -1425,6 +1602,955 @@
     initWebSocket();
     updateTelemetry();
     loadGallery();
+
+    // =========================================================================
+    // --- SMART-SLOT INTENT-BASED COMFYUI PIPELINE BUILDER ENGINE ---
+    // =========================================================================
+
+    let comfyNodesCatalog = {};
+    let availableArchetypes = [];
+    let currentPipeline = {
+      id: "text_to_image",
+      name: "Text-to-Image",
+      steps: [],
+      connections: []
+    };
+    let currentInsertIndex = 0;
+    let selectedAddNodeCategory = "ALL";
+    let isPipelineExpanded = false;
+    let pipelinePollingInterval = null;
+
+    const KNOWN_SLOT_TYPES = [
+      "MODEL", "CLIP", "VAE", "CONDITIONING", "LATENT", "IMAGE", "MASK",
+      "CONTROL_NET", "STYLE_MODEL", "GLIGEN", "UPSCALE_MODEL"
+    ];
+
+    const CATEGORY_COLORS = {
+      "loaders": "bg-purple-950/80 text-purple-300 border-purple-700/60",
+      "sampling": "bg-emerald-950/80 text-emerald-300 border-emerald-700/60",
+      "latent": "bg-cyan-950/80 text-cyan-300 border-cyan-700/60",
+      "conditioning": "bg-amber-950/80 text-amber-300 border-amber-700/60",
+      "image": "bg-blue-950/80 text-blue-300 border-blue-700/60",
+      "image/preprocessors": "bg-indigo-950/80 text-indigo-300 border-indigo-700/60",
+      "AnimateDiff": "bg-rose-950/80 text-rose-300 border-rose-700/60",
+      "custom": "bg-slate-900 text-slate-300 border-slate-700"
+    };
+
+    function areTypesCompatible(outType, inType) {
+      if (!outType || !inType) return false;
+      const o = String(outType).trim().toUpperCase();
+      const i = String(inType).trim().toUpperCase();
+      if (o === "*" || i === "*") return true;
+      if (o === i) return true;
+      if ((o === "MASK" && i === "IMAGE") || (o === "IMAGE" && i === "MASK")) return true;
+      return false;
+    }
+
+    function switchComfyTab(tab) {
+      const quickView = document.getElementById("comfyQuickView");
+      const pipeView = document.getElementById("comfyPipelineView");
+      const btnQuick = document.getElementById("tabBtnQuick");
+      const btnPipe = document.getElementById("tabBtnPipeline");
+
+      if (tab === "pipeline") {
+        quickView.classList.add("hidden");
+        pipeView.classList.remove("hidden");
+        btnPipe.className = "px-2.5 py-1 rounded font-bold transition bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow";
+        btnQuick.className = "px-2.5 py-1 rounded font-bold transition text-slate-400 hover:text-slate-200 border border-transparent";
+        if (!currentPipeline.steps || currentPipeline.steps.length === 0) {
+          loadArchetype("text_to_image");
+        } else {
+          renderPipelineCanvas();
+          validateCurrentPipeline();
+        }
+      } else {
+        pipeView.classList.add("hidden");
+        quickView.classList.remove("hidden");
+        btnQuick.className = "px-2.5 py-1 rounded font-bold transition bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow";
+        btnPipe.className = "px-2.5 py-1 rounded font-bold transition text-slate-400 hover:text-slate-200 border border-transparent";
+      }
+    }
+
+    function togglePipelineExpand() {
+      const station = document.getElementById("comfyStudioStation");
+      const icon = document.getElementById("expandIcon");
+      const text = document.getElementById("expandText");
+      isPipelineExpanded = !isPipelineExpanded;
+
+      if (isPipelineExpanded) {
+        station.classList.remove("lg:col-span-5");
+        station.classList.add("lg:col-span-12", "h-[780px]");
+        icon.textContent = "✕";
+        text.textContent = "COLLAPSE";
+      } else {
+        station.classList.remove("lg:col-span-12", "h-[780px]");
+        station.classList.add("lg:col-span-5", "h-[620px]");
+        icon.textContent = "⛶";
+        text.textContent = "EXPAND";
+      }
+    }
+
+    async function initComfyPipelineBuilder() {
+      await Promise.all([refreshComfyNodes(false), loadArchetypesList()]);
+      if (!currentPipeline.steps || currentPipeline.steps.length === 0) {
+        await loadArchetype("text_to_image");
+      }
+    }
+
+    async function refreshComfyNodes(forceRefresh = false) {
+      try {
+        const url = forceRefresh ? "/api/comfy/nodes?refresh=true" : "/api/comfy/nodes";
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json();
+        comfyNodesCatalog = data.nodes || {};
+        console.log(`ComfyUI Schema: ${data.count || Object.keys(comfyNodesCatalog).length} nodes ready`);
+      } catch (e) {
+        console.warn("Could not fetch /api/comfy/nodes:", e);
+      }
+    }
+
+    async function loadArchetypesList() {
+      try {
+        const res = await fetch("/api/comfy/archetypes");
+        if (!res.ok) return;
+        const data = await res.json();
+        availableArchetypes = data.archetypes || [];
+      } catch (e) {
+        console.warn("Could not fetch /api/comfy/archetypes:", e);
+      }
+    }
+
+    async function loadArchetype(archetypeId) {
+      try {
+        let arch = availableArchetypes.find(a => a.id === archetypeId);
+        if (!arch) {
+          const res = await fetch(`/api/comfy/archetypes/${archetypeId}`);
+          if (res.ok) arch = await res.json();
+        }
+        if (arch) {
+          currentPipeline = JSON.parse(JSON.stringify(arch));
+          updateArchetypeButtonStyles(archetypeId);
+          renderPipelineCanvas();
+          validateCurrentPipeline();
+        }
+      } catch (e) {
+        console.error("Failed to load archetype:", e);
+      }
+    }
+
+    function updateArchetypeButtonStyles(activeId) {
+      document.querySelectorAll(".archetype-btn").forEach(btn => {
+        if (btn.id === `archBtn_${activeId}`) {
+          btn.className = "archetype-btn px-2.5 py-1 rounded text-[11px] font-bold transition bg-cyan-950/80 text-cyan-300 border border-cyan-600/80 shadow flex items-center space-x-1 shrink-0";
+        } else {
+          btn.className = "archetype-btn px-2.5 py-1 rounded text-[11px] font-bold transition bg-slate-900 text-slate-400 hover:text-cyan-300 border border-slate-800 hover:border-slate-700 flex items-center space-x-1 shrink-0";
+        }
+      });
+    }
+
+    function createNewBlankPipeline() {
+      currentPipeline = {
+        id: "blank_custom",
+        name: "Custom Pipeline",
+        description: "Benutzerdefinierte Pipeline",
+        icon: "🧩",
+        steps: [],
+        connections: []
+      };
+      updateArchetypeButtonStyles("none");
+      renderPipelineCanvas();
+      validateCurrentPipeline();
+    }
+
+    // --- Render Pipeline Cards & Insertion Slots ---
+    function renderPipelineCanvas() {
+      const container = document.getElementById("pipelineCanvas");
+      if (!container) return;
+      container.innerHTML = "";
+
+      const steps = currentPipeline.steps || [];
+      document.getElementById("pipelineStepCounter").textContent = `${steps.length} Nodes`;
+
+      if (steps.length === 0) {
+        container.innerHTML = `
+          <div class="p-8 text-center text-slate-500 border border-dashed border-slate-800 rounded-lg">
+            <div class="text-3xl mb-2">🧩</div>
+            <div class="text-xs font-bold text-slate-400 mb-1">Keine Nodes in der Pipeline</div>
+            <div class="text-[11px] text-slate-600 mb-4">Wähle einen Archetyp oben aus oder beginne mit einem Start-Node.</div>
+            <button type="button" onclick="openAddNodeModal(0)" class="bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-1.5 rounded text-xs">
+              + Ersten Node hinzufügen
+            </button>
+          </div>
+        `;
+        return;
+      }
+
+      steps.forEach((step, idx) => {
+        // Insertion connector BEFORE step
+        container.appendChild(createConnectorElement(idx));
+
+        // Step Card
+        container.appendChild(createStepCardElement(step, idx));
+      });
+
+      // Insertion connector AFTER last step
+      container.appendChild(createConnectorElement(steps.length));
+    }
+
+    function createConnectorElement(insertIndex) {
+      const div = document.createElement("div");
+      div.className = "flex items-center justify-center py-1 group";
+      div.innerHTML = `
+        <div class="h-px bg-slate-800 group-hover:bg-cyan-500/40 flex-1 transition"></div>
+        <button type="button" onclick="openAddNodeModal(${insertIndex})"
+          class="mx-2 text-[10px] font-mono text-slate-400 hover:text-cyan-200 bg-black/60 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/80 rounded px-2.5 py-0.5 transition flex items-center space-x-1 shadow-sm">
+          <span class="text-cyan-400 font-bold">+</span>
+          <span>Node an Schnittstelle einfügen</span>
+        </button>
+        <div class="h-px bg-slate-800 group-hover:bg-cyan-500/40 flex-1 transition"></div>
+      `;
+      return div;
+    }
+
+    function createStepCardElement(step, idx) {
+      const schema = comfyNodesCatalog[step.node_type] || {};
+      const cat = step.category || schema.category || "custom";
+      const catClass = CATEGORY_COLORS[cat] || CATEGORY_COLORS["custom"];
+      const stepNumStr = String(idx + 1).padStart(2, '0');
+
+      const card = document.createElement("div");
+      card.className = "p-3 bg-slate-900/70 border border-slate-800 hover:border-slate-700 rounded-lg space-y-2.5 transition shadow";
+
+      // Card Header
+      const header = document.createElement("div");
+      header.className = "flex items-center justify-between border-b border-slate-800/80 pb-2";
+      header.innerHTML = `
+        <div class="flex items-center space-x-2">
+          <span class="px-1.5 py-0.5 rounded bg-black border border-slate-800 font-mono text-[10px] font-bold text-cyan-400">
+            STEP ${stepNumStr}
+          </span>
+          <span class="font-bold text-xs text-slate-200 font-mono">${step.title || schema.display_name || step.node_type}</span>
+          <span class="px-2 py-0.5 rounded text-[9px] font-mono border ${catClass}">
+            ${cat}
+          </span>
+          ${step.role ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-950/60 text-amber-300 border border-amber-800/60">${step.role}</span>` : ''}
+        </div>
+        <div class="flex items-center space-x-1">
+          <button type="button" onclick="moveStep(${idx}, -1)" title="Nach oben verschieben" ${idx === 0 ? 'disabled class="text-slate-700 text-xs px-1"' : 'class="text-slate-400 hover:text-cyan-300 text-xs px-1 transition"'}>▲</button>
+          <button type="button" onclick="moveStep(${idx}, 1)" title="Nach unten verschieben" ${idx === currentPipeline.steps.length - 1 ? 'disabled class="text-slate-700 text-xs px-1"' : 'class="text-slate-400 hover:text-cyan-300 text-xs px-1 transition"'}>▼</button>
+          <button type="button" onclick="deleteStep('${step.id}')" title="Node entfernen" class="text-slate-500 hover:text-rose-400 text-xs px-1 transition">🗑️</button>
+        </div>
+      `;
+      card.appendChild(header);
+
+      // Slots Grid: Input Slots (Left) & Output Slots (Right)
+      const slotsSection = document.createElement("div");
+      slotsSection.className = "grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono";
+
+      // Inputs Area
+      const inputsCol = document.createElement("div");
+      inputsCol.className = "bg-black/50 p-2 rounded border border-slate-800/80 space-y-1.5";
+      inputsCol.innerHTML = `<div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-1">Eingangs-Slots (Inputs)</div>`;
+
+      const reqInputs = schema.input_types?.required || {};
+      const optInputs = schema.input_types?.optional || {};
+      const allInputs = { ...reqInputs, ...optInputs };
+
+      const connectionSlots = Object.entries(allInputs).filter(([name, type]) => KNOWN_SLOT_TYPES.includes(type) || type === "*");
+
+      if (connectionSlots.length === 0) {
+        inputsCol.innerHTML += `<div class="text-[10px] text-slate-600 italic">Keine verdrahtbaren Eingangs-Slots</div>`;
+      } else {
+        connectionSlots.forEach(([inpName, inpType]) => {
+          const isReq = inpName in reqInputs;
+          const conn = (currentPipeline.connections || []).find(c => c.to_node === step.id && c.input_name === inpName);
+
+          let statusBadge = '';
+          let isMismatch = false;
+
+          if (conn) {
+            const srcStep = currentPipeline.steps.find(s => s.id === conn.from_node);
+            const isComp = areTypesCompatible(conn.output_type, inpType);
+            if (isComp) {
+              statusBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-600/60" title="${conn.from_node}.${conn.output_name} (${conn.output_type}) ➔ ${inpName}">🟢 ${srcStep ? (srcStep.title || srcStep.node_type) : conn.from_node}</span>`;
+            } else {
+              isMismatch = true;
+              statusBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded font-bold bg-rose-950/90 text-rose-300 border border-rose-600/80 animate-pulse" title="Inkompatibel: ${conn.output_type} kann nicht an ${inpType} angeschlossen werden!">🔴 MISMATCH (${conn.output_type}➔${inpType})</span>`;
+            }
+          } else {
+            if (isReq) {
+              statusBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded font-bold bg-rose-950/70 text-rose-400 border border-rose-800/60">🔴 FEHLT (${inpType})</span>`;
+            } else {
+              statusBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded text-slate-500 border border-slate-800">⚪ Optional</span>`;
+            }
+          }
+
+          // Generate select options of preceding steps outputting compatible slots
+          const precedingSteps = currentPipeline.steps.slice(0, idx);
+          let optionsHtml = `<option value="">-- Slot trennen --</option>`;
+          precedingSteps.forEach(prevStep => {
+            const prevSchema = comfyNodesCatalog[prevStep.node_type] || {};
+            const prevOutputs = prevSchema.output_types || [];
+            const prevOutNames = prevSchema.output_names || prevOutputs;
+
+            prevOutputs.forEach((outT, oIdx) => {
+              const outN = prevOutNames[oIdx] || outT;
+              const isSelected = conn && conn.from_node === prevStep.id && (conn.output_name === outN || conn.output_type === outT);
+              const comp = areTypesCompatible(outT, inpType);
+              const tag = comp ? "✓" : "✗ Typ-Mismatch";
+              optionsHtml += `<option value="${prevStep.id}|${outN}|${outT}" ${isSelected ? 'selected' : ''}>
+                ${prevStep.title || prevStep.node_type} ➔ ${outN} (${outT}) ${tag}
+              </option>`;
+            });
+          });
+
+          const slotRow = document.createElement("div");
+          slotRow.className = `p-1.5 rounded border ${isMismatch ? 'border-rose-700/80 bg-rose-950/20' : 'border-slate-800/80 bg-black/40'} space-y-1`;
+          slotRow.innerHTML = `
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-1">
+                <span class="text-cyan-300 font-bold">${inpName}</span>
+                <span class="text-[9px] text-slate-500">(${inpType})</span>
+                ${isReq ? '<span class="text-[9px] text-rose-400 font-bold">*</span>' : ''}
+              </div>
+              <div>${statusBadge}</div>
+            </div>
+            <select onchange="handleSlotWireChange('${step.id}', '${inpName}', '${inpType}', this.value)"
+              class="w-full bg-black border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-slate-300 focus:outline-none focus:border-cyan-400 font-mono">
+              ${optionsHtml}
+            </select>
+          `;
+          inputsCol.appendChild(slotRow);
+        });
+      }
+      slotsSection.appendChild(inputsCol);
+
+      // Outputs Area
+      const outputsCol = document.createElement("div");
+      outputsCol.className = "bg-black/50 p-2 rounded border border-slate-800/80 space-y-1.5";
+      outputsCol.innerHTML = `<div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-1">Ausgangs-Slots (Outputs)</div>`;
+
+      const outTypes = schema.output_types || [];
+      const outNames = schema.output_names || outTypes;
+
+      if (outTypes.length === 0) {
+        outputsCol.innerHTML += `<div class="text-[10px] text-slate-600 italic">Terminal Node (Erzeugt Datei / Terminal)</div>`;
+      } else {
+        outTypes.forEach((outT, oIdx) => {
+          const outN = outNames[oIdx] || outT;
+          const outRow = document.createElement("div");
+          outRow.className = "p-1.5 rounded border border-slate-800/80 bg-black/40 flex items-center justify-between";
+          outRow.innerHTML = `
+            <span class="text-emerald-300 font-bold">${outN}</span>
+            <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-800 text-cyan-300 border border-slate-700">
+              ${outT}
+            </span>
+          `;
+          outputsCol.appendChild(outRow);
+        });
+      }
+      slotsSection.appendChild(outputsCol);
+      card.appendChild(slotsSection);
+
+      // In-Card Parameter Editors
+      const paramsDiv = createStepParamsEditor(step, schema);
+      if (paramsDiv) {
+        card.appendChild(paramsDiv);
+      }
+
+      return card;
+    }
+
+    function createStepParamsEditor(step, schema) {
+      step.params = step.params || {};
+      const wrapper = document.createElement("div");
+      wrapper.className = "p-2 bg-black/30 rounded border border-slate-800/80 space-y-1.5 text-xs";
+
+      let hasParams = false;
+
+      // Special handlers for common nodes
+      if (step.node_type === "CheckpointLoaderSimple") {
+        hasParams = true;
+        const ckptSelectHtml = document.getElementById("renderCheckpoint")?.innerHTML || `<option value="${step.params.ckpt_name || 'DreamShaper8_LCM.safetensors'}">${step.params.ckpt_name || 'DreamShaper8_LCM.safetensors'}</option>`;
+        wrapper.innerHTML = `
+          <div>
+            <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Checkpoint Modell</label>
+            <select onchange="updateStepParam('${step.id}', 'ckpt_name', this.value)"
+              class="w-full bg-black border border-slate-700 rounded px-2 py-1 text-[11px] text-cyan-300 font-mono">
+              ${ckptSelectHtml}
+            </select>
+          </div>
+        `;
+        const sel = wrapper.querySelector("select");
+        if (sel && step.params.ckpt_name) sel.value = step.params.ckpt_name;
+      }
+      else if (step.node_type === "CLIPTextEncode") {
+        hasParams = true;
+        const isPos = (step.role === "positive_prompt") || (step.title && step.title.toLowerCase().includes("pos"));
+        wrapper.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-[10px] uppercase ${isPos ? 'text-cyan-400' : 'text-slate-400'} font-bold">
+                ${isPos ? 'Positive Prompt Text' : 'Negative Prompt Text'}
+              </label>
+              ${isPos ? `
+                <button type="button" onclick="enhanceStepPrompt('${step.id}')"
+                  class="text-[9px] font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 border border-amber-600/60 px-1.5 py-0.2 rounded transition">
+                  ✨ Magic Prompt (R1)
+                </button>
+              ` : ''}
+            </div>
+            <textarea rows="2" onchange="updateStepParam('${step.id}', 'text', this.value)"
+              class="w-full bg-black border border-slate-700 rounded p-1.5 text-[11px] text-cyan-200 font-mono focus:outline-none focus:border-cyan-400">${step.params.text || ''}</textarea>
+          </div>
+        `;
+      }
+      else if (step.node_type === "KSampler") {
+        hasParams = true;
+        wrapper.innerHTML = `
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono">
+            <div>
+              <label class="block text-[9px] uppercase text-slate-400">Steps</label>
+              <input type="number" value="${step.params.steps || 14}" min="1" max="150"
+                onchange="updateStepParam('${step.id}', 'steps', parseInt(this.value))"
+                class="w-full bg-black border border-slate-700 rounded px-1.5 py-0.5 text-cyan-300">
+            </div>
+            <div>
+              <label class="block text-[9px] uppercase text-slate-400">CFG</label>
+              <input type="number" step="0.5" value="${step.params.cfg || 6.5}" min="0" max="30"
+                onchange="updateStepParam('${step.id}', 'cfg', parseFloat(this.value))"
+                class="w-full bg-black border border-slate-700 rounded px-1.5 py-0.5 text-cyan-300">
+            </div>
+            <div>
+              <label class="block text-[9px] uppercase text-slate-400">Denoise</label>
+              <input type="number" step="0.05" value="${step.params.denoise !== undefined ? step.params.denoise : 1.0}" min="0" max="1"
+                onchange="updateStepParam('${step.id}', 'denoise', parseFloat(this.value))"
+                class="w-full bg-black border border-slate-700 rounded px-1.5 py-0.5 text-cyan-300">
+            </div>
+            <div>
+              <label class="block text-[9px] uppercase text-slate-400">Sampler</label>
+              <select onchange="updateStepParam('${step.id}', 'sampler_name', this.value)"
+                class="w-full bg-black border border-slate-700 rounded px-1 py-0.5 text-[10px] text-cyan-300">
+                ${['euler', 'euler_ancestral', 'dpm_2', 'dpmpp_2m', 'lcm', 'ddim'].map(s => `<option value="${s}" ${step.params.sampler_name === s ? 'selected' : ''}>${s}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        `;
+      }
+      else if (step.node_type === "EmptyLatentImage") {
+        hasParams = true;
+        wrapper.innerHTML = `
+          <div class="grid grid-cols-3 gap-2 text-[11px] font-mono">
+            <div>
+              <label class="block text-[9px] uppercase text-slate-400">Breite</label>
+              <input type="number" step="64" value="${step.params.width || 512}"
+                onchange="updateStepParam('${step.id}', 'width', parseInt(this.value))"
+                class="w-full bg-black border border-slate-700 rounded px-1.5 py-0.5 text-cyan-300">
+            </div>
+            <div>
+              <label class="block text-[9px] uppercase text-slate-400">Höhe</label>
+              <input type="number" step="64" value="${step.params.height || 512}"
+                onchange="updateStepParam('${step.id}', 'height', parseInt(this.value))"
+                class="w-full bg-black border border-slate-700 rounded px-1.5 py-0.5 text-cyan-300">
+            </div>
+            <div>
+              <label class="block text-[9px] uppercase text-slate-400">Batch / Frames</label>
+              <input type="number" value="${step.params.batch_size || 1}" min="1" max="64"
+                onchange="updateStepParam('${step.id}', 'batch_size', parseInt(this.value))"
+                class="w-full bg-black border border-slate-700 rounded px-1.5 py-0.5 text-cyan-300">
+            </div>
+          </div>
+        `;
+      }
+      else if (step.node_type === "LoadImage") {
+        hasParams = true;
+        wrapper.innerHTML = `
+          <div>
+            <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Eingabe-Bilddatei</label>
+            <input type="text" value="${step.params.image || 'input.png'}"
+              onchange="updateStepParam('${step.id}', 'image', this.value)"
+              class="w-full bg-black border border-slate-700 rounded px-2 py-1 text-[11px] text-cyan-300 font-mono">
+          </div>
+        `;
+      }
+      else if (step.node_type === "SaveImage") {
+        hasParams = true;
+        wrapper.innerHTML = `
+          <div>
+            <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Dateinamen-Präfix</label>
+            <input type="text" value="${step.params.filename_prefix || 'OuterHeaven_T2I'}"
+              onchange="updateStepParam('${step.id}', 'filename_prefix', this.value)"
+              class="w-full bg-black border border-slate-700 rounded px-2 py-1 text-[11px] text-cyan-300 font-mono">
+          </div>
+        `;
+      }
+      else if (step.node_type === "AnimateDiffCombine") {
+        hasParams = true;
+        wrapper.innerHTML = `
+          <div class="grid grid-cols-2 gap-2 text-[11px] font-mono">
+            <div>
+              <label class="block text-[9px] uppercase text-slate-400">Framerate (FPS)</label>
+              <input type="number" value="${step.params.frame_rate || 8}" min="1" max="60"
+                onchange="updateStepParam('${step.id}', 'frame_rate', parseInt(this.value))"
+                class="w-full bg-black border border-slate-700 rounded px-1.5 py-0.5 text-cyan-300">
+            </div>
+            <div>
+              <label class="block text-[9px] uppercase text-slate-400">Format</label>
+              <select onchange="updateStepParam('${step.id}', 'format', this.value)"
+                class="w-full bg-black border border-slate-700 rounded px-1 py-0.5 text-[10px] text-cyan-300">
+                ${['image/gif', 'image/webp', 'video/h264-mp4'].map(f => `<option value="${f}" ${step.params.format === f ? 'selected' : ''}>${f}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        `;
+      }
+
+      return hasParams ? wrapper : null;
+    }
+
+    function updateStepParam(stepId, key, val) {
+      const step = (currentPipeline.steps || []).find(s => s.id === stepId);
+      if (step) {
+        step.params = step.params || {};
+        step.params[key] = val;
+      }
+    }
+
+    async function enhanceStepPrompt(stepId) {
+      const step = (currentPipeline.steps || []).find(s => s.id === stepId);
+      if (!step) return;
+      const promptText = step.params?.text || "";
+      if (!promptText) {
+        alert("Bitte zuerst einen Basis-Prompt eingeben.");
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/enhance_prompt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: promptText })
+        });
+        const data = await res.json();
+        if (data.enhanced_prompt) {
+          step.params.text = data.enhanced_prompt;
+          const negStep = currentPipeline.steps.find(s => s.role === "negative_prompt" || (s.title && s.title.toLowerCase().includes("neg")));
+          if (negStep && data.negative_prompt) {
+            negStep.params = negStep.params || {};
+            negStep.params.text = data.negative_prompt;
+          }
+          renderPipelineCanvas();
+        }
+      } catch (e) {
+        alert("Magic Prompt Fehler: " + e.message);
+      }
+    }
+
+    function handleSlotWireChange(toNodeId, inputName, expectedType, selectVal) {
+      currentPipeline.connections = currentPipeline.connections || [];
+      currentPipeline.connections = currentPipeline.connections.filter(c => !(c.to_node === toNodeId && c.input_name === inputName));
+
+      if (selectVal) {
+        const [fromNodeId, outName, outType] = selectVal.split('|');
+        currentPipeline.connections.push({
+          from_node: fromNodeId,
+          output_name: outName,
+          output_type: outType,
+          to_node: toNodeId,
+          input_name: inputName,
+          input_type: expectedType
+        });
+      }
+
+      renderPipelineCanvas();
+      validateCurrentPipeline();
+    }
+
+    function moveStep(idx, dir) {
+      const steps = currentPipeline.steps;
+      const target = idx + dir;
+      if (target < 0 || target >= steps.length) return;
+      const temp = steps[idx];
+      steps[idx] = steps[target];
+      steps[target] = temp;
+      renderPipelineCanvas();
+      validateCurrentPipeline();
+    }
+
+    function deleteStep(stepId) {
+      if (!confirm("Diesen Node wirklich aus der Pipeline entfernen?")) return;
+      currentPipeline.steps = currentPipeline.steps.filter(s => s.id !== stepId);
+      currentPipeline.connections = currentPipeline.connections.filter(c => c.from_node !== stepId && c.to_node !== stepId);
+      renderPipelineCanvas();
+      validateCurrentPipeline();
+    }
+
+    // --- Validation Engine ---
+    async function validateCurrentPipeline() {
+      const badge = document.getElementById("pipelineValidationBadge");
+      const statusText = document.getElementById("pipelineStatusText");
+      if (!badge || !statusText) return false;
+
+      try {
+        const res = await fetch("/api/comfy/pipeline/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(currentPipeline)
+        });
+        const val = await res.json();
+
+        if (val.valid) {
+          badge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-950/80 text-emerald-300 border border-emerald-600/60 shadow";
+          badge.textContent = `🟢 VALID: ${currentPipeline.steps.length} STEPS`;
+          statusText.className = "text-emerald-400 font-bold truncate";
+          statusText.textContent = `✅ Pipeline ist typ-sicher und bereit zur Ausführung (${currentPipeline.steps.length} Nodes).`;
+        } else {
+          const errCount = val.errors?.length || 1;
+          badge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-rose-950/90 text-rose-300 border border-rose-600/80 animate-pulse";
+          badge.textContent = `🔴 ${errCount} FEHLER`;
+          statusText.className = "text-rose-400 font-bold truncate";
+          statusText.textContent = `⚠️ ${val.errors ? val.errors[0] : 'Inkompatible Pipeline'}`;
+        }
+        return val.valid;
+      } catch (e) {
+        console.warn("Validation error:", e);
+        return false;
+      }
+    }
+
+    // --- Smart-Slot Add Node Modal with Compatibility Filter ---
+    function openAddNodeModal(insertIndex) {
+      currentInsertIndex = insertIndex;
+      const modal = document.getElementById("addNodeModal");
+      const posLabel = document.getElementById("addNodePositionLabel");
+      const typesContainer = document.getElementById("addNodeAvailableTypes");
+
+      posLabel.textContent = insertIndex === 0 ? "Am Anfang (Position 0)" : (insertIndex >= currentPipeline.steps.length ? `Am Ende (Position ${insertIndex})` : `Nach Step ${insertIndex}`);
+
+      const precedingSteps = currentPipeline.steps.slice(0, insertIndex);
+      const availableOutputs = new Set();
+
+      precedingSteps.forEach(s => {
+        const schema = comfyNodesCatalog[s.node_type] || {};
+        (schema.output_types || []).forEach(t => availableOutputs.add(t));
+      });
+
+      typesContainer.innerHTML = "";
+      if (availableOutputs.size === 0) {
+        typesContainer.innerHTML = `<span class="text-slate-500 italic text-[10px]">Keine vorherigen Ausgänge (Start-Node)</span>`;
+      } else {
+        availableOutputs.forEach(t => {
+          typesContainer.innerHTML += `<span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-700/80">⚡ ${t}</span>`;
+        });
+      }
+
+      renderAddNodeCategoryTabs();
+      filterAddNodeList();
+      modal.classList.remove("hidden");
+      document.getElementById("addNodeSearchInput").focus();
+    }
+
+    function closeAddNodeModal() {
+      document.getElementById("addNodeModal").classList.add("hidden");
+    }
+
+    function renderAddNodeCategoryTabs() {
+      const container = document.getElementById("addNodeCategoryTabs");
+      const categories = new Set(["ALL"]);
+      Object.values(comfyNodesCatalog).forEach(n => {
+        if (n.category) categories.add(n.category);
+      });
+
+      container.innerHTML = "";
+      categories.forEach(cat => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const isActive = cat === selectedAddNodeCategory;
+        btn.className = `px-2 py-0.5 rounded transition ${isActive ? 'bg-cyan-600 text-slate-950 font-bold' : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'}`;
+        btn.textContent = cat;
+        btn.onclick = () => {
+          selectedAddNodeCategory = cat;
+          renderAddNodeCategoryTabs();
+          filterAddNodeList();
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    function filterAddNodeList() {
+      const container = document.getElementById("addNodeList");
+      const query = (document.getElementById("addNodeSearchInput").value || "").toLowerCase().trim();
+      const onlyCompatible = document.getElementById("addNodeOnlyCompatible").checked;
+
+      const precedingSteps = currentPipeline.steps.slice(0, currentInsertIndex);
+      const availableOutputs = new Set();
+      precedingSteps.forEach(s => {
+        const schema = comfyNodesCatalog[s.node_type] || {};
+        (schema.output_types || []).forEach(t => availableOutputs.add(t));
+      });
+
+      container.innerHTML = "";
+
+      const candidateNodes = Object.values(comfyNodesCatalog).filter(node => {
+        if (selectedAddNodeCategory !== "ALL" && node.category !== selectedAddNodeCategory) return false;
+        if (query) {
+          const matchName = (node.name || "").toLowerCase().includes(query);
+          const matchDisp = (node.display_name || "").toLowerCase().includes(query);
+          const matchCat = (node.category || "").toLowerCase().includes(query);
+          if (!matchName && !matchDisp && !matchCat) return false;
+        }
+        return true;
+      });
+
+      if (candidateNodes.length === 0) {
+        container.innerHTML = `<div class="p-6 text-center text-slate-500 text-xs font-mono">Keine passenden Nodes gefunden.</div>`;
+        return;
+      }
+
+      candidateNodes.forEach(node => {
+        const allInputs = { ...(node.input_types?.required || {}), ...(node.input_types?.optional || {}) };
+        const inputTypes = Object.values(allInputs);
+
+        let isCompatible = false;
+        let matchedType = "";
+
+        if (availableOutputs.size === 0) {
+          const requiredSlots = Object.entries(node.input_types?.required || {}).filter(([k, v]) => KNOWN_SLOT_TYPES.includes(v));
+          isCompatible = (requiredSlots.length === 0);
+          matchedType = "Root/Loader";
+        } else {
+          for (let avail of availableOutputs) {
+            for (let inT of inputTypes) {
+              if (areTypesCompatible(avail, inT)) {
+                isCompatible = true;
+                matchedType = `${avail} ➔ ${inT}`;
+                break;
+              }
+            }
+            if (isCompatible) break;
+          }
+        }
+
+        if (onlyCompatible && !isCompatible) return;
+
+        const nodeCard = document.createElement("div");
+        nodeCard.className = `p-2.5 rounded-lg border transition ${isCompatible ? 'border-slate-800 hover:border-cyan-500/80 bg-black/60' : 'border-slate-800/40 bg-black/20 opacity-60'} flex items-center justify-between gap-3`;
+
+        const reqSlotNames = Object.entries(node.input_types?.required || {}).map(([k, v]) => `${k}:${v}`).join(", ");
+        const outSlotNames = (node.output_types || []).join(", ");
+
+        nodeCard.innerHTML = `
+          <div class="flex-1 min-w-0 font-mono">
+            <div class="flex items-center space-x-2 mb-1">
+              <span class="font-bold text-xs text-slate-200">${node.display_name || node.name}</span>
+              <span class="px-1.5 py-0.2 rounded text-[9px] ${CATEGORY_COLORS[node.category] || CATEGORY_COLORS.custom}">${node.category}</span>
+              ${isCompatible ?
+                `<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-600/60">🟢 Kompatibel (${matchedType})</span>` :
+                `<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-950/80 text-rose-400 border border-rose-800/60">🔴 Inkompatibel</span>`}
+            </div>
+            <div class="text-[10px] text-slate-400 truncate">
+              <span class="text-slate-500">Inputs:</span> [${reqSlotNames || 'Keine'}] ➔ <span class="text-slate-500">Outputs:</span> [${outSlotNames || 'Keine'}]
+            </div>
+          </div>
+          <button type="button" onclick="insertNodeAt('${node.name}', ${currentInsertIndex})"
+            class="${isCompatible ? 'bg-cyan-600 hover:bg-cyan-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700 text-slate-400'} font-bold px-3 py-1.5 rounded text-xs transition shrink-0">
+            + Einfügen
+          </button>
+        `;
+        container.appendChild(nodeCard);
+      });
+    }
+
+    function insertNodeAt(nodeType, insertIndex) {
+      const schema = comfyNodesCatalog[nodeType] || {};
+      const newStepId = `step_${Date.now()}_${Math.floor(Math.random()*1000)}`;
+
+      const newStep = {
+        id: newStepId,
+        node_type: nodeType,
+        title: schema.display_name || nodeType,
+        category: schema.category || "custom",
+        params: {}
+      };
+
+      if (nodeType === "CheckpointLoaderSimple") newStep.params.ckpt_name = "DreamShaper8_LCM.safetensors";
+      if (nodeType === "KSampler") {
+        newStep.params.seed = Math.floor(Math.random() * 999999999);
+        newStep.params.steps = 14;
+        newStep.params.cfg = 6.5;
+        newStep.params.sampler_name = "euler";
+        newStep.params.scheduler = "normal";
+        newStep.params.denoise = 1.0;
+      }
+      if (nodeType === "EmptyLatentImage") {
+        newStep.params.width = 512;
+        newStep.params.height = 512;
+        newStep.params.batch_size = 1;
+      }
+      if (nodeType === "CLIPTextEncode") {
+        newStep.params.text = "tactical cybernetic soldier, neon rain, 8k";
+        newStep.role = "positive_prompt";
+      }
+      if (nodeType === "SaveImage") newStep.params.filename_prefix = "OuterHeaven_T2I";
+
+      currentPipeline.steps.splice(insertIndex, 0, newStep);
+
+      const precedingSteps = currentPipeline.steps.slice(0, insertIndex);
+      const reqInputs = schema.input_types?.required || {};
+
+      Object.entries(reqInputs).forEach(([inpName, inpType]) => {
+        if (!KNOWN_SLOT_TYPES.includes(inpType)) return;
+        for (let pIdx = precedingSteps.length - 1; pIdx >= 0; pIdx--) {
+          const prevStep = precedingSteps[pIdx];
+          const prevSchema = comfyNodesCatalog[prevStep.node_type] || {};
+          const prevOutputs = prevSchema.output_types || [];
+          const prevOutNames = prevSchema.output_names || prevOutputs;
+
+          for (let oIdx = 0; oIdx < prevOutputs.length; oIdx++) {
+            const outT = prevOutputs[oIdx];
+            const outN = prevOutNames[oIdx] || outT;
+            if (areTypesCompatible(outT, inpType)) {
+              currentPipeline.connections.push({
+                from_node: prevStep.id,
+                output_name: outN,
+                output_type: outT,
+                to_node: newStep.id,
+                input_name: inpName,
+                input_type: inpType
+              });
+              return;
+            }
+          }
+        }
+      });
+
+      closeAddNodeModal();
+      renderPipelineCanvas();
+      validateCurrentPipeline();
+    }
+
+    // --- JSON Export Modal ---
+    async function openJsonExportModal() {
+      const modal = document.getElementById("pipelineJsonModal");
+      const pre = document.getElementById("pipelineJsonPre");
+
+      try {
+        const res = await fetch("/api/comfy/pipeline/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(currentPipeline)
+        });
+        const promptJson = await res.json();
+        pre.textContent = JSON.stringify(promptJson, null, 2);
+        modal.classList.remove("hidden");
+      } catch (e) {
+        alert("Fehler beim Erstellen des ComfyUI Prompt JSON: " + e.message);
+      }
+    }
+
+    function closeJsonExportModal() {
+      document.getElementById("pipelineJsonModal").classList.add("hidden");
+    }
+
+    function copyPromptJsonToClipboard() {
+      const text = document.getElementById("pipelineJsonPre").textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById("btnCopyPromptJson");
+        const prev = btn.textContent;
+        btn.textContent = "✔ Kopiert!";
+        setTimeout(() => { btn.textContent = prev; }, 2000);
+      });
+    }
+
+    // --- Pipeline Execution & Live Progress Tracking ---
+    async function executePipeline() {
+      const isValid = await validateCurrentPipeline();
+      if (!isValid) {
+        if (!confirm("Die Pipeline enthält Typ-Konflikte oder fehlende Pflicht-Eingänge. Trotzdem versuchen auszuführen?")) {
+          return;
+        }
+      }
+
+      const btn = document.getElementById("btnExecutePipeline");
+      const progressContainer = document.getElementById("pipelineProgressContainer");
+      const progressLabel = document.getElementById("pipelineProgressLabel");
+      const progressBar = document.getElementById("pipelineProgressBar");
+      const progressPercent = document.getElementById("pipelineProgressPercent");
+
+      btn.disabled = true;
+      progressContainer.classList.remove("hidden");
+      progressBar.style.width = "15%";
+      progressPercent.textContent = "15%";
+      progressLabel.textContent = "🚀 Sende Pipeline an ComfyUI /prompt...";
+
+      try {
+        const res = await fetch("/api/comfy/pipeline/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workflow: currentPipeline })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || errData.details?.join(", ") || "ComfyUI Ausführungsfehler");
+        }
+
+        const data = await res.json();
+        const promptId = data.prompt_id;
+        progressLabel.textContent = `⏳ Ausführung aktiv (Prompt: ${promptId.slice(0, 8)}...)...`;
+        progressBar.style.width = "40%";
+        progressPercent.textContent = "40%";
+
+        let pollAttempts = 0;
+        clearInterval(pipelinePollingInterval);
+        pipelinePollingInterval = setInterval(async () => {
+          pollAttempts++;
+          try {
+            const statusRes = await fetch(`/api/render/status/${promptId}`);
+            if (!statusRes.ok) return;
+            const statusData = await statusRes.json();
+
+            const currentPct = Math.min(95, 40 + pollAttempts * 5);
+            progressBar.style.width = `${currentPct}%`;
+            progressPercent.textContent = `${currentPct}%`;
+
+            if (statusData.completed) {
+              clearInterval(pipelinePollingInterval);
+              progressBar.style.width = "100%";
+              progressPercent.textContent = "100%";
+              progressLabel.textContent = `✔ Fertiggestellt: ${statusData.filename}`;
+
+              btn.disabled = false;
+              setTimeout(() => {
+                progressContainer.classList.add("hidden");
+                loadGallery();
+                if (statusData.url) {
+                  openLightbox(statusData.url, statusData.filename);
+                }
+              }, 1200);
+            }
+          } catch (err) {
+            console.warn("Poll status error:", err);
+          }
+
+          if (pollAttempts > 100) {
+            clearInterval(pipelinePollingInterval);
+            progressLabel.textContent = "⚠️ Timeout bei der Ausführung.";
+            btn.disabled = false;
+          }
+        }, 1500);
+
+      } catch (e) {
+        clearInterval(pipelinePollingInterval);
+        progressLabel.textContent = `❌ Fehler: ${e.message}`;
+        progressBar.style.width = "100%";
+        progressBar.className = "bg-rose-500 h-full w-full";
+        btn.disabled = false;
+      }
+    }
+
+    initComfyPipelineBuilder();
     loadComfyModels();
     setInterval(updateTelemetry, 3000);
   </script>

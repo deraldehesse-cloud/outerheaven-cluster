@@ -1,0 +1,234 @@
+{
+  "id": "image_to_image_controlnet",
+  "name": "Image-to-Image / ControlNet",
+  "description": "Modifiziert Eingabebilder unter struktureller F\u00fchrung von ControlNet (z. B. Canny Edge Detection)",
+  "icon": "\ud83c\udfa8",
+  "category": "controlnet",
+  "steps": [
+    {
+      "id": "step_1",
+      "node_type": "CheckpointLoaderSimple",
+      "title": "Checkpoint Loader",
+      "category": "loaders",
+      "params": {
+        "ckpt_name": "DreamShaper8_LCM.safetensors"
+      }
+    },
+    {
+      "id": "step_2",
+      "node_type": "LoadImage",
+      "title": "Load Input Image",
+      "category": "image",
+      "params": {
+        "image": "input_reference.png"
+      }
+    },
+    {
+      "id": "step_3",
+      "node_type": "ControlNetLoader",
+      "title": "ControlNet Model Loader",
+      "category": "loaders",
+      "params": {
+        "control_net_name": "control_v11p_sd15_canny.pth"
+      }
+    },
+    {
+      "id": "step_4",
+      "node_type": "Canny",
+      "title": "Canny Edge Preprocessor",
+      "category": "image/preprocessors",
+      "params": {
+        "low_threshold": 100,
+        "high_threshold": 200
+      }
+    },
+    {
+      "id": "step_5",
+      "node_type": "CLIPTextEncode",
+      "title": "CLIP Text (Positive)",
+      "category": "conditioning",
+      "role": "positive_prompt",
+      "params": {
+        "text": "masterpiece, tactical cybernetic armor, high tech suit, glowing cyan visor, sharp focus"
+      }
+    },
+    {
+      "id": "step_6",
+      "node_type": "CLIPTextEncode",
+      "title": "CLIP Text (Negative)",
+      "category": "conditioning",
+      "role": "negative_prompt",
+      "params": {
+        "text": "ugly, deformed, bad anatomy, blurry, low quality, artifacts"
+      }
+    },
+    {
+      "id": "step_7",
+      "node_type": "ApplyControlNet",
+      "title": "Apply ControlNet Guide",
+      "category": "conditioning",
+      "params": {
+        "strength": 1.0
+      }
+    },
+    {
+      "id": "step_8",
+      "node_type": "VAEEncode",
+      "title": "VAE Encode (Image to Latent)",
+      "category": "latent",
+      "params": {}
+    },
+    {
+      "id": "step_9",
+      "node_type": "KSampler",
+      "title": "KSampler (Denoise 0.70)",
+      "category": "sampling",
+      "params": {
+        "seed": 0,
+        "steps": 16,
+        "cfg": 7.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "denoise": 0.7
+      }
+    },
+    {
+      "id": "step_10",
+      "node_type": "VAEDecode",
+      "title": "VAE Decode",
+      "category": "latent",
+      "params": {}
+    },
+    {
+      "id": "step_11",
+      "node_type": "SaveImage",
+      "title": "Save Rendered Image",
+      "category": "image",
+      "params": {
+        "filename_prefix": "OuterHeaven_I2I_ControlNet"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from_node": "step_2",
+      "output_name": "IMAGE",
+      "output_type": "IMAGE",
+      "to_node": "step_4",
+      "input_name": "image",
+      "input_type": "IMAGE"
+    },
+    {
+      "from_node": "step_2",
+      "output_name": "IMAGE",
+      "output_type": "IMAGE",
+      "to_node": "step_8",
+      "input_name": "pixels",
+      "input_type": "IMAGE"
+    },
+    {
+      "from_node": "step_1",
+      "output_name": "VAE",
+      "output_type": "VAE",
+      "to_node": "step_8",
+      "input_name": "vae",
+      "input_type": "VAE"
+    },
+    {
+      "from_node": "step_1",
+      "output_name": "CLIP",
+      "output_type": "CLIP",
+      "to_node": "step_5",
+      "input_name": "clip",
+      "input_type": "CLIP"
+    },
+    {
+      "from_node": "step_1",
+      "output_name": "CLIP",
+      "output_type": "CLIP",
+      "to_node": "step_6",
+      "input_name": "clip",
+      "input_type": "CLIP"
+    },
+    {
+      "from_node": "step_3",
+      "output_name": "CONTROL_NET",
+      "output_type": "CONTROL_NET",
+      "to_node": "step_7",
+      "input_name": "control_net",
+      "input_type": "CONTROL_NET"
+    },
+    {
+      "from_node": "step_4",
+      "output_name": "IMAGE",
+      "output_type": "IMAGE",
+      "to_node": "step_7",
+      "input_name": "image",
+      "input_type": "IMAGE"
+    },
+    {
+      "from_node": "step_5",
+      "output_name": "CONDITIONING",
+      "output_type": "CONDITIONING",
+      "to_node": "step_7",
+      "input_name": "conditioning",
+      "input_type": "CONDITIONING"
+    },
+    {
+      "from_node": "step_1",
+      "output_name": "MODEL",
+      "output_type": "MODEL",
+      "to_node": "step_9",
+      "input_name": "model",
+      "input_type": "MODEL"
+    },
+    {
+      "from_node": "step_7",
+      "output_name": "CONDITIONING",
+      "output_type": "CONDITIONING",
+      "to_node": "step_9",
+      "input_name": "positive",
+      "input_type": "CONDITIONING"
+    },
+    {
+      "from_node": "step_6",
+      "output_name": "CONDITIONING",
+      "output_type": "CONDITIONING",
+      "to_node": "step_9",
+      "input_name": "negative",
+      "input_type": "CONDITIONING"
+    },
+    {
+      "from_node": "step_8",
+      "output_name": "LATENT",
+      "output_type": "LATENT",
+      "to_node": "step_9",
+      "input_name": "latent_image",
+      "input_type": "LATENT"
+    },
+    {
+      "from_node": "step_9",
+      "output_name": "LATENT",
+      "output_type": "LATENT",
+      "to_node": "step_10",
+      "input_name": "samples",
+      "input_type": "LATENT"
+    },
+    {
+      "from_node": "step_1",
+      "output_name": "VAE",
+      "output_type": "VAE",
+      "to_node": "step_10",
+      "input_name": "vae",
+      "input_type": "VAE"
+    },
+    {
+      "from_node": "step_10",
+      "output_name": "IMAGE",
+      "output_type": "IMAGE",
+      "to_node": "step_11",
+      "input_name": "images",
+      "input_type": "IMAGE"
+    }
+  ]
+}

@@ -26,6 +26,9 @@ credentials/
 *.json
 !manifest.json
 !package.json
+!workflows/*.json
+!workflows/archetypes/*.json
+!mission-control/workflows/archetypes/*.json
 
 # Generierte Medien und Modelle
 output/

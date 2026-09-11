@@ -29,6 +29,14 @@ from aiohttp import web
 import jinja2
 import urllib.parse
 
+import comfy_schema
+from comfy_schema import (
+    ComfySchemaManager,
+    PipelineWorkflow,
+    validate_pipeline,
+    convert_pipeline_to_comfy_prompt,
+)
+
 # --- Configuration & Paths ---
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -43,11 +51,27 @@ if not COMFYUI_OUTPUT_DIR.is_dir():
         if _alt.is_dir():
             COMFYUI_OUTPUT_DIR = _alt
             break
+    else:
+        _local_out = BASE_DIR / "outputs"
+        _local_out.mkdir(parents=True, exist_ok=True)
+        COMFYUI_OUTPUT_DIR = _local_out
 SECRETS_DIR = Path("/mnt/storage-alpha/secrets")
 CLUSTER_TASKS_FILE = Path("/mnt/storage-beta/cluster_tasks.json")
 
+COMFY_CACHE_FILE = BASE_DIR / "data" / "object_info_cache.json"
+COMFY_ARCHETYPES_DIRS = [
+    BASE_DIR / "workflows" / "archetypes",
+    BASE_DIR.parent / "workflows" / "archetypes",
+]
+comfy_schema_mgr = ComfySchemaManager(
+    cache_file=COMFY_CACHE_FILE,
+    archetypes_dirs=COMFY_ARCHETYPES_DIRS,
+)
+
 LOCAL_TS_IP = os.environ.get("OUTERHEAVEN_TS_IP", "100.116.38.29")
 FOX_TS_IP = os.environ.get("FOX_TS_IP", "100.93.184.87")
+LOVENSE_IP = os.environ.get("LOVENSE_IP", "192.168.188.34").strip().strip('"').strip("'")
+LOVENSE_PORT = int(os.environ.get("LOVENSE_PORT", 20010))
 PORT = 8080
 SSL_PORT = 8443
 SSL_CERT = BASE_DIR / "cert.pem"
@@ -70,8 +94,17 @@ logger = logging.getLogger("mission-control")
 
 # --- Load Secrets ---
 def load_secrets() -> Tuple[str, str]:
-    pw_file = SECRETS_DIR / "dashboard_password.txt"
-    key_file = SECRETS_DIR / "cluster_api.key"
+    secrets_dir = SECRETS_DIR
+    if not secrets_dir.is_dir():
+        local_secrets = BASE_DIR / "secrets"
+        try:
+            local_secrets.mkdir(parents=True, exist_ok=True)
+            secrets_dir = local_secrets
+        except Exception:
+            pass
+
+    pw_file = secrets_dir / "dashboard_password.txt"
+    key_file = secrets_dir / "cluster_api.key"
 
     password = ""
     if pw_file.is_file():
@@ -79,8 +112,12 @@ def load_secrets() -> Tuple[str, str]:
     else:
         logger.warning(f"Password file {pw_file} not found, generating temporary")
         password = "OH-" + secrets.token_urlsafe(16)
-        pw_file.write_text(password + "\n")
-        os.chmod(pw_file, 0o600)
+        try:
+            pw_file.parent.mkdir(parents=True, exist_ok=True)
+            pw_file.write_text(password + "\n")
+            os.chmod(pw_file, 0o600)
+        except Exception as e:
+            logger.warning(f"Could not persist temporary password to disk: {e}")
 
     cluster_key = ""
     if key_file.is_file():
@@ -88,8 +125,12 @@ def load_secrets() -> Tuple[str, str]:
     else:
         logger.warning(f"Cluster API key {key_file} not found, generating temporary")
         cluster_key = secrets.token_hex(32)
-        key_file.write_text(cluster_key + "\n")
-        os.chmod(key_file, 0o600)
+        try:
+            key_file.parent.mkdir(parents=True, exist_ok=True)
+            key_file.write_text(cluster_key + "\n")
+            os.chmod(key_file, 0o600)
+        except Exception as e:
+            logger.warning(f"Could not persist temporary cluster key to disk: {e}")
 
     return password, cluster_key
 
@@ -669,6 +710,74 @@ async def handle_status(request: web.Request) -> web.Response:
     }
     return web.json_response(status_payload)
 
+
+async def handle_lovense_status(request: web.Request) -> web.Response:
+    """
+    Toy-Status & Pre-Flight Check:
+    Sends {"command": "GetToys"} to http://LOVENSE_IP:LOVENSE_PORT/command
+    Returns Case A, Case B, or Case C.
+    """
+    url = f"http://{LOVENSE_IP}:{LOVENSE_PORT}/command"
+    payload = {"command": "GetToys"}
+    timeout = aiohttp.ClientTimeout(total=3.5)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=payload) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    toy_data = data.get("data", {}).get("toys")
+                    parsed_toys = {}
+                    if isinstance(toy_data, dict):
+                        parsed_toys = toy_data
+                    elif isinstance(toy_data, str):
+                        try:
+                            p = json.loads(toy_data)
+                            if isinstance(p, dict):
+                                parsed_toys = p
+                            elif isinstance(p, list):
+                                parsed_toys = {t.get("id", str(i)): t for i, t in enumerate(p) if isinstance(t, dict)}
+                        except Exception:
+                            pass
+                    elif isinstance(toy_data, list):
+                        parsed_toys = {t.get("id", str(i)): t for i, t in enumerate(toy_data) if isinstance(t, dict)}
+
+                    if parsed_toys:
+                        names = [t.get("name") or t.get("nickName") or k for k, t in parsed_toys.items()]
+                        return web.json_response({
+                            "success": True,
+                            "case": "CASE_A_READY",
+                            "is_ready": True,
+                            "message": "✅ Toy verbunden und bereit",
+                            "summary": f"✅ Toy verbunden und bereit ({', '.join(names)})",
+                            "toy_count": len(parsed_toys),
+                            "toys": parsed_toys
+                        })
+                    else:
+                        return web.json_response({
+                            "success": True,
+                            "case": "CASE_B_NO_TOYS",
+                            "is_ready": False,
+                            "message": "⚠️ Handy-Bridge erreichbar, aber kein Spielzeug verbunden! Bitte Toy einschalten und in der App koppeln.",
+                            "toy_count": 0,
+                            "toys": {}
+                        })
+                else:
+                    return web.json_response({
+                        "success": False,
+                        "case": "CASE_C_OFFLINE",
+                        "is_ready": False,
+                        "message": f"❌ Handy nicht erreichbar! HTTP {resp.status}"
+                    })
+    except Exception as e:
+        return web.json_response({
+            "success": False,
+            "case": "CASE_C_OFFLINE",
+            "is_ready": False,
+            "message": "❌ Handy nicht erreichbar! Bitte prüfen, ob Lovense Connect geöffnet und 'LAN aktivieren' eingeschaltet ist.",
+            "error_detail": f"{type(e).__name__}: {str(e)}"
+        })
+
+
 async def handle_service_control(request: web.Request) -> web.Response:
     try:
         body = await request.json()
@@ -731,7 +840,101 @@ async def handle_service_control(request: web.Request) -> web.Response:
 
     return web.json_response({"error": "Unknown node"}, status=400)
 
-# --- ComfyUI Render Bridge & Gallery ---
+# --- ComfyUI Render Bridge & Pipeline Engine ---
+
+async def fetch_comfy_object_info(force: bool = False) -> bool:
+    """Query ComfyUI /object_info at startup or on demand and cache it."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{COMFYUI_URL}/object_info", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    raw_data = await resp.json()
+                    comfy_schema_mgr.update_schema(raw_data)
+                    logger.info(f"ComfyUI /object_info successfully loaded & cached ({len(comfy_schema_mgr.nodes)} nodes).")
+                    return True
+    except Exception as e:
+        logger.warning(f"Could not query ComfyUI /object_info: {e}")
+    return False
+
+async def handle_comfy_nodes(request: web.Request) -> web.Response:
+    """GET /api/comfy/nodes - Returns all available nodes with categories, input_types, and output_types."""
+    refresh = request.query.get("refresh", "").lower() in ("true", "1", "yes")
+    if refresh:
+        await fetch_comfy_object_info(force=True)
+    return web.json_response(comfy_schema_mgr.get_nodes_payload())
+
+async def handle_comfy_archetypes(request: web.Request) -> web.Response:
+    """GET /api/comfy/archetypes - Returns pre-built intent archetype workflows."""
+    return web.json_response({
+        "archetypes": comfy_schema_mgr.get_archetypes()
+    })
+
+async def handle_comfy_archetype_detail(request: web.Request) -> web.Response:
+    """GET /api/comfy/archetypes/{id} - Returns single archetype workflow."""
+    arch_id = request.match_info.get("id", "")
+    arch = comfy_schema_mgr.get_archetype_by_id(arch_id)
+    if not arch:
+        return web.json_response({"error": f"Archetype '{arch_id}' not found"}, status=404)
+    return web.json_response(arch)
+
+async def handle_comfy_pipeline_validate(request: web.Request) -> web.Response:
+    """POST /api/comfy/pipeline/validate - Validates type safety and required slots."""
+    try:
+        data = await request.json()
+        wf = PipelineWorkflow(**data)
+        res = validate_pipeline(wf, comfy_schema_mgr.nodes)
+        return web.json_response(res.model_dump())
+    except Exception as e:
+        return web.json_response({"error": str(e), "valid": False}, status=400)
+
+async def handle_comfy_pipeline_export(request: web.Request) -> web.Response:
+    """POST /api/comfy/pipeline/export - Converts visual chain to native ComfyUI prompt JSON."""
+    try:
+        data = await request.json()
+        wf = PipelineWorkflow(**data)
+        prompt_json = convert_pipeline_to_comfy_prompt(wf, comfy_schema_mgr.nodes)
+        return web.json_response(prompt_json)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+async def handle_comfy_pipeline_run(request: web.Request) -> web.Response:
+    """POST /api/comfy/pipeline/run - Validates and executes pipeline on ComfyUI /prompt."""
+    try:
+        body = await request.json()
+        wf_data = body.get("workflow", body)
+        wf = PipelineWorkflow(**wf_data)
+
+        # Validate pipeline
+        val = validate_pipeline(wf, comfy_schema_mgr.nodes)
+        if not val.valid:
+            return web.json_response({
+                "error": "Pipeline validation failed",
+                "details": val.errors
+            }, status=400)
+
+        prompt_payload = convert_pipeline_to_comfy_prompt(wf, comfy_schema_mgr.nodes)
+        client_id = body.get("client_id", secrets.token_hex(8))
+        payload = {
+            "prompt": prompt_payload.get("prompt", {}),
+            "client_id": client_id
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{COMFYUI_URL}/prompt", json=payload, timeout=aiohttp.ClientTimeout(total=6)) as resp:
+                if resp.status != 200:
+                    err_txt = await resp.text()
+                    return web.json_response({"error": f"ComfyUI /prompt error: {err_txt}"}, status=502)
+                res_data = await resp.json()
+                prompt_id = res_data.get("prompt_id")
+                return web.json_response({
+                    "success": True,
+                    "prompt_id": prompt_id,
+                    "status": "queued",
+                    "client_id": client_id
+                })
+    except Exception as e:
+        logger.error(f"Pipeline run error: {e}")
+        return web.json_response({"error": str(e)}, status=500)
 
 async def handle_comfy_models(request: web.Request) -> web.Response:
     """Dynamically query available checkpoints and loras from ComfyUI /object_info."""
@@ -968,26 +1171,33 @@ async def handle_comfy_render_status(request: web.Request) -> web.Response:
                 history = await resp.json()
                 if prompt_id in history:
                     outputs = history[prompt_id].get("outputs", {})
-                    if "7" in outputs and "images" in outputs["7"]:
-                        imgs = outputs["7"]["images"]
-                        if imgs:
-                            filename = imgs[0].get("filename")
-                            subfolder = imgs[0].get("subfolder", "")
-                            rel_path = f"{subfolder}/{filename}" if subfolder else filename
-                            return web.json_response({
-                                "completed": True,
-                                "filename": rel_path,
-                                "url": f"/api/gallery/{urllib.parse.quote(rel_path)}"
-                            })
+                    # Scan all output nodes for images, gifs or videos
+                    for node_id, node_out in outputs.items():
+                        if isinstance(node_out, dict):
+                            media_items = node_out.get("images") or node_out.get("gifs") or node_out.get("videos") or []
+                            if media_items:
+                                item = media_items[0]
+                                filename = item.get("filename")
+                                subfolder = item.get("subfolder", "")
+                                rel_path = f"{subfolder}/{filename}" if subfolder else filename
+                                is_video = bool(node_out.get("gifs") or node_out.get("videos") or (filename and filename.lower().endswith((".gif", ".mp4", ".webm"))))
+                                return web.json_response({
+                                    "completed": True,
+                                    "filename": rel_path,
+                                    "url": f"/api/gallery/{urllib.parse.quote(rel_path)}",
+                                    "is_video": is_video,
+                                    "node_id": node_id
+                                })
                 return web.json_response({"completed": False, "status": "processing"})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
 async def handle_gallery_list(request: web.Request) -> web.Response:
     images = []
+    supported_exts = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm"]
     if COMFYUI_OUTPUT_DIR.is_dir():
         for f in COMFYUI_OUTPUT_DIR.rglob("*"):
-            if f.is_file() and f.suffix.lower() in [".png", ".jpg", ".jpeg", ".webp"]:
+            if f.is_file() and f.suffix.lower() in supported_exts:
                 try:
                     rel_name = str(f.relative_to(COMFYUI_OUTPUT_DIR))
                     stat = f.stat()
@@ -1192,6 +1402,18 @@ def create_app() -> web.Application:
     app.router.add_post("/api/enhance_prompt", handle_enhance_prompt)
     app.router.add_get("/api/render/status/{prompt_id}", handle_comfy_render_status)
     app.router.add_get("/api/comfy/models", handle_comfy_models)
+    # ComfyUI Pipeline Engine & Schema endpoints
+    app.router.add_get("/api/comfy/nodes", handle_comfy_nodes)
+    app.router.add_get("/api/comfy/archetypes", handle_comfy_archetypes)
+    app.router.add_get("/api/comfy/archetypes/{id}", handle_comfy_archetype_detail)
+    app.router.add_post("/api/comfy/pipeline/validate", handle_comfy_pipeline_validate)
+    app.router.add_post("/api/comfy/pipeline/export", handle_comfy_pipeline_export)
+    app.router.add_post("/api/comfy/pipeline/run", handle_comfy_pipeline_run)
+
+    # Lovense LAN Bridge Pre-Flight & Status
+    app.router.add_get("/api/lovense/status", handle_lovense_status)
+    app.router.add_post("/api/lovense/check", handle_lovense_status)
+
     app.router.add_get("/api/gallery", handle_gallery_list)
     app.router.add_get("/api/gallery/{filename:.+}", handle_gallery_file)
     app.router.add_delete("/api/gallery/{filename:.+}", handle_gallery_delete)
@@ -1219,6 +1441,7 @@ async def main():
 
     app = create_app()
     asyncio.create_task(telemetry_background_loop())
+    asyncio.create_task(fetch_comfy_object_info())
 
     runner = web.AppRunner(app)
     await runner.setup()

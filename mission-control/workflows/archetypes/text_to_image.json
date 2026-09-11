@@ -1,0 +1,153 @@
+{
+  "id": "text_to_image",
+  "name": "Text-to-Image",
+  "description": "Standard SD1.5 / SDXL Bildgenerierung via Checkpoint, CLIP Text Prompts, KSampler und VAE Decode",
+  "icon": "\ud83d\uddbc\ufe0f",
+  "category": "generation",
+  "steps": [
+    {
+      "id": "step_1",
+      "node_type": "CheckpointLoaderSimple",
+      "title": "Checkpoint Loader",
+      "category": "loaders",
+      "params": {
+        "ckpt_name": "DreamShaper8_LCM.safetensors"
+      }
+    },
+    {
+      "id": "step_2",
+      "node_type": "EmptyLatentImage",
+      "title": "Latent Canvas",
+      "category": "latent",
+      "params": {
+        "width": 512,
+        "height": 512,
+        "batch_size": 1
+      }
+    },
+    {
+      "id": "step_3",
+      "node_type": "CLIPTextEncode",
+      "title": "CLIP Text (Positive)",
+      "category": "conditioning",
+      "role": "positive_prompt",
+      "params": {
+        "text": "tactical cyborg soldier in dark rain, outer heaven logo, neon cyber, 8k"
+      }
+    },
+    {
+      "id": "step_4",
+      "node_type": "CLIPTextEncode",
+      "title": "CLIP Text (Negative)",
+      "category": "conditioning",
+      "role": "negative_prompt",
+      "params": {
+        "text": "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark"
+      }
+    },
+    {
+      "id": "step_5",
+      "node_type": "KSampler",
+      "title": "KSampler Engine",
+      "category": "sampling",
+      "params": {
+        "seed": 0,
+        "steps": 14,
+        "cfg": 6.5,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "denoise": 1.0
+      }
+    },
+    {
+      "id": "step_6",
+      "node_type": "VAEDecode",
+      "title": "VAE Decode",
+      "category": "latent",
+      "params": {}
+    },
+    {
+      "id": "step_7",
+      "node_type": "SaveImage",
+      "title": "Save Image",
+      "category": "image",
+      "params": {
+        "filename_prefix": "OuterHeaven_T2I"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from_node": "step_1",
+      "output_name": "MODEL",
+      "output_type": "MODEL",
+      "to_node": "step_5",
+      "input_name": "model",
+      "input_type": "MODEL"
+    },
+    {
+      "from_node": "step_1",
+      "output_name": "CLIP",
+      "output_type": "CLIP",
+      "to_node": "step_3",
+      "input_name": "clip",
+      "input_type": "CLIP"
+    },
+    {
+      "from_node": "step_1",
+      "output_name": "CLIP",
+      "output_type": "CLIP",
+      "to_node": "step_4",
+      "input_name": "clip",
+      "input_type": "CLIP"
+    },
+    {
+      "from_node": "step_3",
+      "output_name": "CONDITIONING",
+      "output_type": "CONDITIONING",
+      "to_node": "step_5",
+      "input_name": "positive",
+      "input_type": "CONDITIONING"
+    },
+    {
+      "from_node": "step_4",
+      "output_name": "CONDITIONING",
+      "output_type": "CONDITIONING",
+      "to_node": "step_5",
+      "input_name": "negative",
+      "input_type": "CONDITIONING"
+    },
+    {
+      "from_node": "step_2",
+      "output_name": "LATENT",
+      "output_type": "LATENT",
+      "to_node": "step_5",
+      "input_name": "latent_image",
+      "input_type": "LATENT"
+    },
+    {
+      "from_node": "step_5",
+      "output_name": "LATENT",
+      "output_type": "LATENT",
+      "to_node": "step_6",
+      "input_name": "samples",
+      "input_type": "LATENT"
+    },
+    {
+      "from_node": "step_1",
+      "output_name": "VAE",
+      "output_type": "VAE",
+      "to_node": "step_6",
+      "input_name": "vae",
+      "input_type": "VAE"
+    },
+    {
+      "from_node": "step_6",
+      "output_name": "IMAGE",
+      "output_type": "IMAGE",
+      "to_node": "step_7",
+      "input_name": "images",
+      "input_type": "IMAGE"
+    }
+  ]
+}

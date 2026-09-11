@@ -1,0 +1,116 @@
+{
+  "pipeline_name": "Megan Fullbody Multi-View 3D Reconstruction Pipeline",
+  "version": "1.0.0",
+  "target_engine": "ComfyUI on Outer Heaven (Arc A770)",
+  "output_directory": "/mnt/storage-beta/projekte/projekt-sexchat/output/3d",
+  "nodes": {
+    "10": {
+      "id": "10",
+      "class_type": "LoadImage",
+      "title": "1. Inbound Photo Loader",
+      "inputs": {
+        "image": "megan_fullbody_input.png"
+      }
+    },
+    "20": {
+      "id": "20",
+      "class_type": "BiRefNetRembg",
+      "title": "2. Background Removal & Alpha Masking (BiRefNet)",
+      "inputs": {
+        "image": ["10", 0],
+        "model_name": "BiRefNet-general-epoch_244.safetensors",
+        "threshold": 0.5,
+        "refine_foreground": true
+      }
+    },
+    "30": {
+      "id": "30",
+      "class_type": "ImageResizeAndCenter",
+      "title": "3. Feature Alignment & Framing",
+      "inputs": {
+        "image": ["20", 0],
+        "mask": ["20", 1],
+        "target_width": 1024,
+        "target_height": 1024,
+        "padding_ratio": 0.12
+      }
+    },
+    "40": {
+      "id": "40",
+      "class_type": "DepthAnythingV2",
+      "title": "4. Monocular Geometric Depth Estimation",
+      "inputs": {
+        "image": ["30", 0],
+        "model_name": "depth_anything_v2_vitl.safetensors"
+      }
+    },
+    "50": {
+      "id": "50",
+      "class_type": "Hunyuan3DModelLoader",
+      "title": "5. 3D Generative Model Loader",
+      "inputs": {
+        "ckpt_name": "hunyuan_3d_v2.1.safetensors",
+        "device": "xpu"
+      }
+    },
+    "60": {
+      "id": "60",
+      "class_type": "Hunyuan3DGenerate",
+      "title": "6. Neural Surface & Mesh Reconstruction",
+      "inputs": {
+        "model": ["50", 0],
+        "image": ["30", 0],
+        "depth_map": ["40", 0],
+        "mc_resolution": 256,
+        "foreground_ratio": 0.85,
+        "octree_depth": 7,
+        "smooth_factor": 0.25
+      }
+    },
+    "70": {
+      "id": "70",
+      "class_type": "MeshTextureBaker",
+      "title": "7. UV Projection & Texture Baking",
+      "inputs": {
+        "mesh": ["60", 0],
+        "image": ["30", 0],
+        "texture_size": 2048,
+        "bake_lighting": false
+      }
+    },
+    "80": {
+      "id": "80",
+      "class_type": "ExportGLTF",
+      "title": "8. Export Textured glTF/GLB",
+      "inputs": {
+        "mesh": ["70", 0],
+        "filename_prefix": "Megan_3D_Model",
+        "output_path": "/mnt/storage-beta/projekte/projekt-sexchat/output/3d",
+        "embed_textures": true,
+        "format": "glb"
+      }
+    },
+    "81": {
+      "id": "81",
+      "class_type": "ExportOBJ",
+      "title": "9. Export Wavefront OBJ",
+      "inputs": {
+        "mesh": ["70", 0],
+        "filename_prefix": "Megan_3D_Model",
+        "output_path": "/mnt/storage-beta/projekte/projekt-sexchat/output/3d",
+        "generate_mtl": true
+      }
+    },
+    "82": {
+      "id": "82",
+      "class_type": "ExportGaussianSplatPLY",
+      "title": "10. Export 3D Gaussian Splat PLY",
+      "inputs": {
+        "mesh": ["60", 0],
+        "filename_prefix": "Megan_3D_Splat",
+        "output_path": "/mnt/storage-beta/projekte/projekt-sexchat/output/3d",
+        "point_density": "high"
+      }
+    }
+  }
+}
