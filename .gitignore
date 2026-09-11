@@ -9,6 +9,8 @@ prompts/
 chat_logs/
 *.md
 !README.md
+.cursor_tasks.md
+.cursor_task.md
 
 # Secrets, Zertifikate und Keys
 *.key
