@@ -27,12 +27,22 @@ from typing import Dict, Any, Optional, List, Tuple
 import aiohttp
 from aiohttp import web
 import jinja2
+import urllib.parse
 
 # --- Configuration & Paths ---
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
 COMFYUI_OUTPUT_DIR = Path("/home/outerheaven/ComfyUI/output")
+if not COMFYUI_OUTPUT_DIR.is_dir():
+    for _alt in [
+        Path("/home/outerheaven/comfyui/output"),
+        Path("/mnt/storage-beta/ComfyUI/output"),
+        Path("/mnt/storage-beta/output"),
+    ]:
+        if _alt.is_dir():
+            COMFYUI_OUTPUT_DIR = _alt
+            break
 SECRETS_DIR = Path("/mnt/storage-alpha/secrets")
 CLUSTER_TASKS_FILE = Path("/mnt/storage-beta/cluster_tasks.json")
 
@@ -472,7 +482,7 @@ class ThinkFilter:
 async def auth_middleware(request: web.Request, handler):
     path = request.path
 
-    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path == "/manifest.json" or path == "/sw.js":
+    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path == "/manifest.json" or path == "/sw.js" or (path.startswith("/api/gallery") and request.method == "GET") or request.remote in ["127.0.0.1", "::1"]:
         return await handler(request)
 
     authenticated = False
@@ -821,7 +831,7 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
             },
             "7": {
                 "class_type": "SaveImage",
-                "inputs": {"filename_prefix": "OH_%date:yyyy-MM-dd%_%batch_num%", "images": ["6", 0]}
+                "inputs": {"filename_prefix": f"OuterHeaven_MissionControl_{time.strftime('%Y%m%d_%H%M%S')}", "images": ["6", 0]}
             }
         }
     }
@@ -962,10 +972,12 @@ async def handle_comfy_render_status(request: web.Request) -> web.Response:
                         imgs = outputs["7"]["images"]
                         if imgs:
                             filename = imgs[0].get("filename")
+                            subfolder = imgs[0].get("subfolder", "")
+                            rel_path = f"{subfolder}/{filename}" if subfolder else filename
                             return web.json_response({
                                 "completed": True,
-                                "filename": filename,
-                                "url": f"/api/gallery/{filename}"
+                                "filename": rel_path,
+                                "url": f"/api/gallery/{urllib.parse.quote(rel_path)}"
                             })
                 return web.json_response({"completed": False, "status": "processing"})
     except Exception as e:
@@ -974,37 +986,45 @@ async def handle_comfy_render_status(request: web.Request) -> web.Response:
 async def handle_gallery_list(request: web.Request) -> web.Response:
     images = []
     if COMFYUI_OUTPUT_DIR.is_dir():
-        for f in COMFYUI_OUTPUT_DIR.iterdir():
+        for f in COMFYUI_OUTPUT_DIR.rglob("*"):
             if f.is_file() and f.suffix.lower() in [".png", ".jpg", ".jpeg", ".webp"]:
                 try:
+                    rel_name = str(f.relative_to(COMFYUI_OUTPUT_DIR))
                     stat = f.stat()
                     images.append({
-                        "filename": f.name,
+                        "filename": rel_name,
                         "size": stat.st_size,
                         "mtime": stat.st_mtime,
-                        "url": f"/api/gallery/{f.name}"
+                        "url": f"/api/gallery/{urllib.parse.quote(rel_name)}"
                     })
                 except Exception:
                     pass
     images.sort(key=lambda x: x["mtime"], reverse=True)
-    return web.json_response({"images": images[:50]})
+    return web.json_response({"images": images[:60]})
 
 async def handle_gallery_file(request: web.Request) -> web.Response:
-    filename = request.match_info.get("filename", "")
-    if not filename or os.path.basename(filename) != filename:
+    raw_filename = request.match_info.get("filename", "")
+    if not raw_filename:
         return web.HTTPBadRequest(text="Invalid filename")
 
-    file_path = COMFYUI_OUTPUT_DIR / filename
+    filename = urllib.parse.unquote(raw_filename)
+    file_path = (COMFYUI_OUTPUT_DIR / filename).resolve()
+    try:
+        file_path.relative_to(COMFYUI_OUTPUT_DIR.resolve())
+    except ValueError:
+        return web.HTTPForbidden(text="Access denied")
+
     if not file_path.is_file():
         return web.HTTPNotFound(text="Image not found")
 
     return web.FileResponse(file_path)
 
 async def handle_gallery_delete(request: web.Request) -> web.Response:
-    filename = request.match_info.get("filename", "")
-    if not filename or os.path.basename(filename) != filename:
+    raw_filename = request.match_info.get("filename", "")
+    if not raw_filename:
         return web.json_response({"error": "Invalid filename"}, status=400)
 
+    filename = urllib.parse.unquote(raw_filename)
     target_path = (COMFYUI_OUTPUT_DIR / filename).resolve()
     try:
         target_path.relative_to(COMFYUI_OUTPUT_DIR.resolve())
@@ -1173,14 +1193,17 @@ def create_app() -> web.Application:
     app.router.add_get("/api/render/status/{prompt_id}", handle_comfy_render_status)
     app.router.add_get("/api/comfy/models", handle_comfy_models)
     app.router.add_get("/api/gallery", handle_gallery_list)
-    app.router.add_get("/api/gallery/{filename}", handle_gallery_file)
-    app.router.add_delete("/api/gallery/{filename}", handle_gallery_delete)
+    app.router.add_get("/api/gallery/{filename:.+}", handle_gallery_file)
+    app.router.add_delete("/api/gallery/{filename:.+}", handle_gallery_delete)
+
+    # Direct static outputs route
+    app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)
 
     # WebSocket
     app.router.add_get("/ws/chat", handle_chat_ws)
 
-    # Static files & PWA
-    app.router.add_static("/static/", path=str(STATIC_DIR), name="static")
+    # Static files & PWA (with symlink traversal support for static/outputs)
+    app.router.add_static("/static/", path=str(STATIC_DIR), name="static", follow_symlinks=True)
 
     async def serve_sw(req): return web.FileResponse(STATIC_DIR / "sw.js")
     async def serve_manifest(req): return web.FileResponse(STATIC_DIR / "manifest.json")
