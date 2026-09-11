@@ -2,8 +2,15 @@
 # Outer Heaven Cluster - Git Ignore Policy
 # ==============================================================================
 
-# Secrets and Credentials
-*.token
+# Private Projekte, Notizen und Prompts
+projekte/
+projects/
+prompts/
+chat_logs/
+*.md
+!README.md
+
+# Secrets, Zertifikate und Keys
 *.key
 *.pem
 *.env
@@ -11,16 +18,26 @@
 !*.env.example
 secrets/
 credentials/
+*.token
 
 # JSON Secrets & Service Accounts
 *.json
 !manifest.json
 !package.json
 
-# Output Directories
+# Generierte Medien und Modelle
 output/
 downloads/
 cache/
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.safetensors
+*.ckpt
+*.pt
+*.bin
 
 # Python & Virtual Environments
 __pycache__/
@@ -40,3 +57,4 @@ env/
 # OS artifacts
 .DS_Store
 Thumbs.db
+
