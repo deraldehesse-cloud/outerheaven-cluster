@@ -90,9 +90,12 @@ for _buero_dir in [DIR_RECHNUNGSEINGANG, DIR_RECHNUNGSARCHIV, DIR_JOBANGEBOTE, D
         logger.warning(f"Could not initialize directory {_buero_dir}: {_e}")
 
 DIR_WORKFLOWS = Path("/mnt/storage-beta/workflows")
+DIR_CUSTOM_WORKFLOWS = DIR_WORKFLOWS / "custom"
 PROMPT_PRESETS_FILE = DIR_WORKFLOWS / "prompt_presets.json"
+BOT_CONFIG_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/bot_config.json")
 try:
     DIR_WORKFLOWS.mkdir(parents=True, exist_ok=True)
+    DIR_CUSTOM_WORKFLOWS.mkdir(parents=True, exist_ok=True)
 except Exception:
     pass
 
@@ -973,6 +976,244 @@ async def handle_comfy_pipeline_run(request: web.Request) -> web.Response:
     except Exception as e:
         logger.error(f"Pipeline run error: {e}")
         return web.json_response({"error": str(e)}, status=500)
+
+
+# --- Pipeline Workflow Storage & Management ---
+
+async def handle_workflows_save(request: web.Request) -> web.Response:
+    """POST /api/workflows/save - Persists custom workflow to /mnt/storage-beta/workflows/custom/<name>.json."""
+    try:
+        body = await request.json()
+        name = body.get("name", "").strip()
+        if not name:
+            return web.json_response({"error": "Workflow-Name darf nicht leer sein."}, status=400)
+
+        # Sanitize filename
+        safe_name = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', name)
+        if not safe_name.endswith(".json"):
+            safe_name += ".json"
+
+        workflow_data = body.get("workflow_json")
+        if workflow_data is None:
+            return web.json_response({"error": "workflow_json fehlt."}, status=400)
+
+        if not isinstance(workflow_data, (dict, list)):
+            return web.json_response({"error": "workflow_json muss ein gültiges JSON-Objekt oder Array sein."}, status=400)
+
+        DIR_CUSTOM_WORKFLOWS.mkdir(parents=True, exist_ok=True)
+        target_path = DIR_CUSTOM_WORKFLOWS / safe_name
+
+        with open(target_path, "w", encoding="utf-8") as f:
+            json.dump(workflow_data, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Custom workflow successfully saved: {target_path}")
+        return web.json_response({
+            "success": True,
+            "name": safe_name[:-5],
+            "filename": safe_name,
+            "path": str(target_path),
+            "message": f"Workflow '{safe_name[:-5]}' erfolgreich gespeichert."
+        })
+    except Exception as e:
+        logger.error(f"Error saving workflow: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_workflows_list(request: web.Request) -> web.Response:
+    """GET /api/workflows/list - Returns all saved custom workflows and default archetypes."""
+    workflows = []
+    DIR_CUSTOM_WORKFLOWS.mkdir(parents=True, exist_ok=True)
+
+    # 1. Custom workflows on server
+    for p in sorted(DIR_CUSTOM_WORKFLOWS.glob("*.json")):
+        if p.is_file():
+            try:
+                st = p.stat()
+                with open(p, "r", encoding="utf-8") as f:
+                    content = json.load(f)
+
+                node_count = 0
+                desc = ""
+                wf_name = p.stem
+                if isinstance(content, dict):
+                    if "steps" in content:
+                        node_count = len(content.get("steps", []))
+                        desc = content.get("description", "")
+                        wf_name = content.get("name", p.stem)
+                    elif "prompt" in content:
+                        node_count = len(content.get("prompt", {}))
+                    else:
+                        node_count = len(content)
+
+                workflows.append({
+                    "name": wf_name,
+                    "filename": p.name,
+                    "category": "custom",
+                    "path": str(p),
+                    "size": st.st_size,
+                    "modified": datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                    "node_count": node_count,
+                    "description": desc
+                })
+            except Exception as e:
+                logger.warning(f"Could not read workflow {p}: {e}")
+
+    # 2. Default archetypes
+    for arch in comfy_schema_mgr.get_archetypes():
+        workflows.append({
+            "name": arch.get("name", arch.get("id")),
+            "filename": f"{arch.get('id')}.json",
+            "category": "archetype",
+            "path": f"archetype:{arch.get('id')}",
+            "size": 0,
+            "modified": "Standard",
+            "node_count": len(arch.get("steps", [])),
+            "description": arch.get("description", "")
+        })
+
+    return web.json_response({"workflows": workflows})
+
+
+async def handle_workflows_load(request: web.Request) -> web.Response:
+    """GET /api/workflows/load?name=... - Returns workflow JSON content."""
+    name = request.query.get("name", "").strip()
+    if not name:
+        return web.json_response({"error": "Parameter 'name' erforderlich."}, status=400)
+
+    # Archetype check
+    if name.startswith("archetype:"):
+        arch_id = name.split(":", 1)[1]
+        arch = comfy_schema_mgr.get_archetype_by_id(arch_id)
+        if arch:
+            return web.json_response(arch)
+
+    safe_name = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', name)
+    if not safe_name.endswith(".json"):
+        safe_name += ".json"
+
+    target_path = DIR_CUSTOM_WORKFLOWS / safe_name
+    if not target_path.is_file():
+        stem = safe_name[:-5]
+        arch = comfy_schema_mgr.get_archetype_by_id(stem)
+        if arch:
+            return web.json_response(arch)
+        return web.json_response({"error": f"Workflow '{name}' nicht gefunden."}, status=404)
+
+    try:
+        with open(target_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return web.json_response(data)
+    except Exception as e:
+        return web.json_response({"error": f"Konnte Workflow nicht lesen: {e}"}, status=500)
+
+
+# --- Ollama & Bot Configuration Endpoints ---
+
+async def handle_ollama_models(request: web.Request) -> web.Response:
+    """GET /api/ollama/models - Returns installed models from Ollama /api/tags."""
+    models = []
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{LOCAL_OLLAMA_URL}/api/tags", timeout=aiohttp.ClientTimeout(total=4)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    for m in data.get("models", []):
+                        models.append({
+                            "name": m.get("name"),
+                            "size": m.get("size", 0),
+                            "modified_at": m.get("modified_at", "")
+                        })
+    except Exception as e:
+        logger.warning(f"Could not query Ollama /api/tags: {e}")
+
+    if not models:
+        models = [
+            {"name": "lexi-llama-3-8b-uncensored_q4_k_m:latest", "size": 4900000000},
+            {"name": "llava:latest", "size": 4700000000},
+            {"name": "moondream:latest", "size": 1700000000},
+            {"name": "darkidol-8b:latest", "size": 4900000000},
+            {"name": "deepseek-r1:14b", "size": 9000000000}
+        ]
+    return web.json_response({"models": models})
+
+
+async def handle_bot_config_get(request: web.Request) -> web.Response:
+    """GET /api/bot/config - Reads /mnt/storage-beta/projekte/projekt-sexchat/bot_config.json."""
+    default_config = {
+        "llm": {
+            "model": "lexi-llama-3-8b-uncensored_q4_k_m:latest",
+            "temperature": 0.95,
+            "top_p": 0.90,
+            "repeat_penalty": 1.18,
+            "num_predict": 300
+        },
+        "render": {
+            "workflow_template": "text_to_image",
+            "checkpoint": "DreamShaper8_LCM.safetensors",
+            "lora": "",
+            "lora_strength": 0.8,
+            "steps": 14,
+            "cfg": 6.0,
+            "denoise": 1.0,
+            "sampler_name": "euler_ancestral",
+            "scheduler": "karras",
+            "width": 512,
+            "height": 768
+        },
+        "voice": {
+            "voice_name": "en-US-AvaMultilingualNeural",
+            "rate": "-4%",
+            "pitch": "-1Hz",
+            "auto_voice": True
+        },
+        "proactive": {
+            "enabled": True,
+            "idle_seconds": 14400,
+            "cooldown_seconds": 21600,
+            "start_hour": 9,
+            "end_hour": 22
+        }
+    }
+
+    config = dict(default_config)
+    if BOT_CONFIG_FILE.is_file():
+        try:
+            with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for section, s_data in data.items():
+                    if section in config and isinstance(s_data, dict):
+                        config[section].update(s_data)
+                    else:
+                        config[section] = s_data
+        except Exception as e:
+            logger.warning(f"Could not read bot_config.json: {e}")
+
+    return web.json_response({"config": config})
+
+
+async def handle_bot_config_post(request: web.Request) -> web.Response:
+    """POST /api/bot/config - Writes /mnt/storage-beta/projekte/projekt-sexchat/bot_config.json."""
+    try:
+        body = await request.json()
+        new_config = body.get("config", body)
+
+        if not isinstance(new_config, dict):
+            return web.json_response({"error": "Ungültiges Format für Konfiguration."}, status=400)
+
+        BOT_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(BOT_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(new_config, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Bot configuration successfully updated in {BOT_CONFIG_FILE}")
+        return web.json_response({
+            "success": True,
+            "config": new_config,
+            "message": "Bot-Einstellungen erfolgreich gespeichert & Hot-Reload aktiv!"
+        })
+    except Exception as e:
+        logger.error(f"Error saving bot config: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
 
 async def handle_comfy_models(request: web.Request) -> web.Response:
     """Dynamically query available checkpoints and loras from ComfyUI /object_info."""
@@ -2141,6 +2382,15 @@ def create_app() -> web.Application:
     app.router.add_post("/api/comfy/pipeline/validate", handle_comfy_pipeline_validate)
     app.router.add_post("/api/comfy/pipeline/export", handle_comfy_pipeline_export)
     app.router.add_post("/api/comfy/pipeline/run", handle_comfy_pipeline_run)
+    # Workflow Persistence & Storage
+    app.router.add_post("/api/workflows/save", handle_workflows_save)
+    app.router.add_get("/api/workflows/list", handle_workflows_list)
+    app.router.add_get("/api/workflows/load", handle_workflows_load)
+
+    # Ollama & Companion Bot Runtime Configuration
+    app.router.add_get("/api/ollama/models", handle_ollama_models)
+    app.router.add_get("/api/bot/config", handle_bot_config_get)
+    app.router.add_post("/api/bot/config", handle_bot_config_post)
 
     # Lovense LAN Bridge Pre-Flight & Status
     app.router.add_get("/api/lovense/status", handle_lovense_status)

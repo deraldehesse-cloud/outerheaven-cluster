@@ -165,6 +165,11 @@
            title="Hermes Büro & Karriere Dashboard öffnen">
           <span>🏢 Büro / Hermes</span>
         </a>
+        <a href="#companionSettingsSection" onclick="document.getElementById('companionSettingsSection')?.scrollIntoView({behavior: 'smooth'})"
+           class="px-2.5 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink"
+           title="Companion Bot Konfiguration & Hot-Reload">
+          <span>💋 Bot Settings</span>
+        </a>
       </div>
 
       <!-- Right: Quick Status Badges with IP Masking -->
@@ -730,6 +735,19 @@
                 class="px-2 py-1 rounded text-[10px] font-mono text-slate-500 hover:text-slate-300 border border-dashed border-slate-800 hover:border-slate-700 shrink-0">
                 + Leer
               </button>
+
+              <!-- Saved Custom Workflows Selector -->
+              <div class="flex items-center space-x-1 shrink-0 pl-1 border-l border-slate-800 ml-1">
+                <span class="text-[10px] uppercase tracking-wider text-amber-400 font-bold">CUSTOM:</span>
+                <select id="savedWorkflowsSelect" onchange="handleSelectSavedWorkflow(this.value)"
+                  class="bg-slate-900 text-amber-300 border border-slate-700 hover:border-amber-500/60 rounded px-2 py-0.5 text-[11px] font-mono focus:outline-none focus:border-amber-400 max-w-[180px] truncate">
+                  <option value="">-- Workflow laden --</option>
+                </select>
+                <button type="button" onclick="loadSavedWorkflowsList()" title="Gespeicherte Workflows neu laden"
+                  class="text-slate-400 hover:text-amber-300 text-xs px-1.5 py-0.5 border border-slate-800 hover:border-slate-700 rounded transition font-mono">
+                  ⟳
+                </button>
+              </div>
             </div>
 
             <div class="flex items-center space-x-2 shrink-0">
@@ -793,10 +811,16 @@
 
             <!-- Action Buttons -->
             <div class="flex items-center justify-between space-x-2 pt-0.5">
+              <button type="button" onclick="openSaveWorkflowModal()"
+                class="bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/80 font-bold px-3 py-1.5 rounded text-[11px] font-mono transition flex items-center space-x-1.5 shadow-md shadow-cyan-950/40">
+                <span>💾</span>
+                <span>WORKFLOW SPEICHERN / EXPORTIEREN</span>
+              </button>
+
               <button type="button" onclick="openJsonExportModal()"
-                class="bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-800/60 font-bold px-3 py-1.5 rounded text-[11px] font-mono transition flex items-center space-x-1">
+                class="bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-cyan-300 border border-slate-700 font-bold px-3 py-1.5 rounded text-[11px] font-mono transition flex items-center space-x-1">
                 <span>📋</span>
-                <span>PROMPT-JSON EXPORT</span>
+                <span>PROMPT-JSON</span>
               </button>
 
               <button type="button" id="btnExecutePipeline" onclick="executePipeline()"
@@ -926,6 +950,253 @@
             </div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- Companion Bot Runtime Configuration & Hot-Reload Station -->
+    <section id="companionSettingsSection" class="bg-slate-950/90 border border-pink-900/60 rounded-lg p-4 space-y-4 shadow-2xl relative overflow-hidden">
+      <!-- Glow effect -->
+      <div class="absolute -top-24 -right-24 w-72 h-72 bg-pink-600/10 rounded-full blur-3xl pointer-events-none"></div>
+
+      <!-- Header -->
+      <div class="flex flex-wrap items-center justify-between pb-3 border-b border-slate-800 gap-3 relative z-10">
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-lg bg-pink-500/10 border border-pink-500/30 flex items-center justify-center text-pink-400 font-bold text-lg shadow-inner">
+            💋
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-sm font-bold tracking-wider text-pink-400 font-mono">COMPANION BOT RUNTIME CONFIGURATION</h2>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-950 border border-pink-700/80 text-pink-300 font-mono">HOT-RELOAD AKTIV</span>
+            </div>
+            <p class="text-[11px] text-slate-400 font-mono">LLM INFERENZ • COMFYUI RENDER-PARAMETER • SENSUAL NEURAL-TTS • PROAKTIVER TAGES-CHECKIN</p>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <span id="botConfigSaveNotice" class="text-[10px] font-mono text-emerald-400 hidden">✔ Gespeichert</span>
+          <button type="button" onclick="loadBotConfig()" class="px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1">
+            <span>🔄</span> <span>Neu laden</span>
+          </button>
+          <button type="button" onclick="saveBotConfig()" class="px-3.5 py-1 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-mono font-bold transition shadow-lg flex items-center space-x-1.5">
+            <span>💾</span> <span>EINSTELLUNGEN SPEICHERN</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Settings Grid: 4 Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10 text-xs font-mono">
+
+        <!-- 1. LLM Inferenz & Modell -->
+        <div class="bg-black/60 border border-slate-800 rounded-lg p-3.5 space-y-3 flex flex-col justify-between">
+          <div class="space-y-2.5">
+            <div class="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+              <span class="text-xs font-bold text-cyan-300 flex items-center space-x-1.5">
+                <span>🧠</span> <span>LLM INFERENZ (OLLAMA)</span>
+              </span>
+              <button type="button" onclick="loadOllamaModelsForBotConfig()" title="Ollama Modelle aktualisieren" class="text-[10px] text-slate-400 hover:text-cyan-300">⟳</button>
+            </div>
+
+            <div>
+              <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Ollama Modell</label>
+              <select id="botLlmModel" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-cyan-200 focus:border-cyan-400">
+                <option value="lexi-llama-3-8b-uncensored_q4_k_m:latest">lexi-llama-3-8b-uncensored (Empfohlen)</option>
+                <option value="darkidol-8b:latest">darkidol-8b:latest</option>
+              </select>
+            </div>
+
+            <div>
+              <div class="flex justify-between text-[10px] text-slate-400 mb-1">
+                <span>Temperature</span>
+                <span id="botLlmTempDisplay" class="text-cyan-300 font-bold">0.95</span>
+              </div>
+              <input type="range" id="botLlmTemp" min="0.1" max="1.5" step="0.05" value="0.95"
+                oninput="document.getElementById('botLlmTempDisplay').textContent=this.value"
+                class="w-full accent-cyan-400 bg-slate-900">
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Top-P</label>
+                <input type="number" id="botLlmTopP" step="0.05" min="0.1" max="1.0" value="0.90"
+                  class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200">
+              </div>
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Repeat Penalty</label>
+                <input type="number" id="botLlmRepPenalty" step="0.02" min="1.0" max="2.0" value="1.18"
+                  class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-[10px] uppercase text-slate-400 mb-1">Max Tokens (num_predict)</label>
+              <input type="number" id="botLlmMaxTokens" min="50" max="2000" step="50" value="300"
+                class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200">
+            </div>
+          </div>
+          <div class="pt-1 text-[10px] text-slate-500 italic">Unzensierte Persona-Inferenz auf Outer Heaven Arc A770.</div>
+        </div>
+
+        <!-- 2. ComfyUI Render Defaults -->
+        <div class="bg-black/60 border border-slate-800 rounded-lg p-3.5 space-y-3 flex flex-col justify-between">
+          <div class="space-y-2.5">
+            <div class="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+              <span class="text-xs font-bold text-amber-300 flex items-center space-x-1.5">
+                <span>🎨</span> <span>COMFYUI RENDERN</span>
+              </span>
+              <span class="text-[10px] text-slate-500">Arc A770 :8188</span>
+            </div>
+
+            <div>
+              <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Checkpoint</label>
+              <select id="botRenderCheckpoint" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-amber-200 focus:border-amber-400 truncate">
+                <option value="DreamShaper8_LCM.safetensors">DreamShaper8_LCM.safetensors (LCM Turbo)</option>
+                <option value="cyberrealistic_v42.safetensors">cyberrealistic_v42.safetensors (Photoreal)</option>
+                <option value="epicrealism_naturalSinRC1VAE.safetensors">epicrealism_naturalSinRC1VAE.safetensors</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Steps</label>
+                <input type="number" id="botRenderSteps" min="4" max="50" value="14"
+                  class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-amber-200">
+              </div>
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">CFG Scale</label>
+                <input type="number" id="botRenderCfg" min="1.0" max="15.0" step="0.5" value="6.0"
+                  class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-amber-200">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Sampler</label>
+                <select id="botRenderSampler" class="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs text-amber-200">
+                  <option value="euler_ancestral">euler_ancestral</option>
+                  <option value="euler">euler</option>
+                  <option value="dpmpp_2m">dpmpp_2m</option>
+                  <option value="lcm">lcm</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Scheduler</label>
+                <select id="botRenderScheduler" class="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs text-amber-200">
+                  <option value="karras">karras</option>
+                  <option value="normal">normal</option>
+                  <option value="sgm_uniform">sgm_uniform</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Auflösung (BxH)</label>
+                <div class="flex items-center space-x-1">
+                  <input type="number" id="botRenderWidth" value="512" step="64" class="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-1 text-xs text-amber-200 text-center">
+                  <span class="text-slate-500">×</span>
+                  <input type="number" id="botRenderHeight" value="768" step="64" class="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-1 text-xs text-amber-200 text-center">
+                </div>
+              </div>
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Denoise</label>
+                <input type="number" id="botRenderDenoise" min="0.1" max="1.0" step="0.05" value="1.0"
+                  class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-amber-200">
+              </div>
+            </div>
+          </div>
+          <div class="pt-1 text-[10px] text-slate-500 italic">Automatischer High-Key & Anti-Darkness Prompt-Filter aktiv.</div>
+        </div>
+
+        <!-- 3. Voice & Sensual Neural TTS -->
+        <div class="bg-black/60 border border-slate-800 rounded-lg p-3.5 space-y-3 flex flex-col justify-between">
+          <div class="space-y-2.5">
+            <div class="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+              <span class="text-xs font-bold text-pink-300 flex items-center space-x-1.5">
+                <span>🎙️</span> <span>VOICE & SENSUAL TTS</span>
+              </span>
+              <span class="text-[10px] text-slate-500">Edge-TTS</span>
+            </div>
+
+            <div>
+              <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Stimme (Englisch / Erotisch)</label>
+              <select id="botVoiceName" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-pink-200 focus:border-pink-400">
+                <option value="en-US-AvaMultilingualNeural">en-US-Ava (Sensual, Intimate & Sensitive) ⭐</option>
+                <option value="en-US-EmmaMultilingualNeural">en-US-Emma (Gentle, Caring, Soft)</option>
+                <option value="en-US-JennyNeural">en-US-Jenny (Warm, Natural, Expressive)</option>
+                <option value="en-US-AnaNeural">en-US-Ana (Soft Whisper, Tender)</option>
+                <option value="de-DE-SeraphinaMultilingualNeural">de-DE-Seraphina (Deutsch Intim)</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Sprech-Tempo</label>
+                <input type="text" id="botVoiceRate" value="-4%" placeholder="-4%"
+                  class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-pink-200">
+              </div>
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Tonhöhe (Pitch)</label>
+                <input type="text" id="botVoicePitch" value="-1Hz" placeholder="-1Hz"
+                  class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-pink-200">
+              </div>
+            </div>
+
+            <div class="pt-2">
+              <label class="flex items-center space-x-2 cursor-pointer p-2 rounded bg-slate-900/60 border border-slate-800">
+                <input type="checkbox" id="botVoiceAuto" checked class="rounded accent-pink-500">
+                <span class="text-xs text-pink-200 font-bold">Auto-Sprachnachricht</span>
+              </label>
+              <span class="text-[10px] text-slate-500 block mt-1">Sendet jede Antwort automatisch als intime Telegram-Audio-Notiz.</span>
+            </div>
+          </div>
+          <div class="pt-1 text-[10px] text-slate-500 italic">Weiblich, erotisch, sensibel abgestimmt.</div>
+        </div>
+
+        <!-- 4. Proaktiver Check-in & Beziehungsdynamik -->
+        <div class="bg-black/60 border border-slate-800 rounded-lg p-3.5 space-y-3 flex flex-col justify-between">
+          <div class="space-y-2.5">
+            <div class="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+              <span class="text-xs font-bold text-emerald-300 flex items-center space-x-1.5">
+                <span>💬</span> <span>PROAKTIVER CHECK-IN</span>
+              </span>
+              <span class="text-[10px] text-slate-500">Spontan</span>
+            </div>
+
+            <div>
+              <label class="flex items-center space-x-2 cursor-pointer p-2 rounded bg-slate-900/60 border border-slate-800">
+                <input type="checkbox" id="botProactiveEnabled" checked class="rounded accent-emerald-500">
+                <span class="text-xs text-emerald-200 font-bold">Tagsüber nachfragen</span>
+              </label>
+              <span class="text-[10px] text-slate-500 block mt-1">Haven meldet sich tagsüber eigenständig aus Interesse und Sehnsucht.</span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Inaktivität (Std)</label>
+                <input type="number" id="botProactiveIdleHours" min="1" max="24" value="4"
+                  class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-emerald-200">
+              </div>
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Cooldown (Std)</label>
+                <input type="number" id="botProactiveCooldownHours" min="1" max="48" value="6"
+                  class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-emerald-200">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-[9px] uppercase text-slate-400 mb-1">Aktives Zeitfenster (Uhrzeit)</label>
+              <div class="flex items-center space-x-2">
+                <input type="number" id="botProactiveStartHour" min="0" max="23" value="9" class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-emerald-200 text-center">
+                <span class="text-slate-500">bis</span>
+                <input type="number" id="botProactiveEndHour" min="0" max="23" value="22" class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-emerald-200 text-center">
+                <span class="text-slate-500 text-[10px]">Uhr</span>
+              </div>
+            </div>
+          </div>
+          <div class="pt-1 text-[10px] text-slate-500 italic">Interagiert basierend auf Gesprächsverlauf & Gedächtnis.</div>
+        </div>
+
       </div>
     </section>
 
@@ -1138,6 +1409,63 @@
       <!-- Node Candidate List -->
       <div id="addNodeList" class="flex-1 p-3 overflow-y-auto space-y-2 scrollbar-thin">
         <!-- Injected list of node cards -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Workflow Save & Export Modal (Dual-Mode: Direct Download or Persist to Server) -->
+  <div id="workflowSaveExportModal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+    <div class="relative max-w-xl w-full bg-slate-950 border border-cyan-500/60 rounded-lg p-4 space-y-3 font-mono text-xs shadow-2xl flex flex-col">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2 shrink-0">
+        <span class="text-cyan-300 font-bold uppercase flex items-center space-x-1.5">
+          <span>💾 WORKFLOW SPEICHERN & EXPORTIEREN</span>
+        </span>
+        <button type="button" onclick="closeSaveWorkflowModal()" class="text-slate-400 hover:text-white text-sm font-bold px-2">✕</button>
+      </div>
+
+      <div class="space-y-3 pt-1">
+        <div>
+          <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Workflow-Name (Dateiname)</label>
+          <input type="text" id="workflowSaveName" placeholder="z. B. sd15_portrait_photoreal_highkey"
+                 class="w-full bg-black border border-slate-700 rounded px-3 py-2 text-xs text-cyan-200 focus:outline-none focus:border-cyan-400">
+          <span class="text-[10px] text-slate-500 mt-1 block">Wird gespeichert unter: <code class="text-slate-400">/mnt/storage-beta/workflows/custom/&lt;name&gt;.json</code></span>
+        </div>
+
+        <div>
+          <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Beschreibung / Notizen (Optional)</label>
+          <input type="text" id="workflowSaveDesc" placeholder="z. B. 7-Step KSampler mit Face-Detailer & Karras-Schedule"
+                 class="w-full bg-black/80 border border-slate-800 rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-400">
+        </div>
+
+        <!-- Mode Selection / Action Buttons -->
+        <div class="p-3 rounded-lg bg-slate-900/60 border border-slate-800 space-y-2">
+          <span class="text-[10px] text-slate-400 uppercase font-bold block">Speicher- und Export-Optionen:</span>
+          
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+            <button type="button" onclick="saveWorkflowToServer()"
+                    class="p-2.5 rounded bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/80 text-cyan-300 font-bold text-xs flex items-center justify-center space-x-2 transition shadow">
+              <span>💾</span>
+              <span>AUF SERVER SPEICHERN</span>
+            </button>
+
+            <button type="button" onclick="downloadWorkflowJson()"
+                    class="p-2.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-200 font-bold text-xs flex items-center justify-center space-x-2 transition">
+              <span>📥</span>
+              <span>ALS JSON DOWNLOADEN</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="workflowSaveFeedback" class="text-[11px] font-mono min-h-[1.5rem] py-1"></div>
+
+        <div class="flex items-center justify-between border-t border-slate-800/80 pt-2">
+          <button type="button" onclick="openJsonExportModal(); closeSaveWorkflowModal();" class="text-[10px] text-slate-400 hover:text-cyan-300 underline font-mono">
+            📋 Natives ComfyUI Prompt-Format exportieren
+          </button>
+          <button type="button" onclick="closeSaveWorkflowModal()" class="px-3 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white transition">
+            Schließen
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -2415,8 +2743,20 @@
 
     const KNOWN_SLOT_TYPES = [
       "MODEL", "CLIP", "VAE", "CONDITIONING", "LATENT", "IMAGE", "MASK",
-      "CONTROL_NET", "STYLE_MODEL", "GLIGEN", "UPSCALE_MODEL"
+      "CONTROL_NET", "STYLE_MODEL", "GLIGEN", "UPSCALE_MODEL",
+      "IPADAPTER", "FACE_ANALYSIS", "BBOX_DETECTOR", "SEGS", "SAM_MODEL",
+      "DETAILER_HOOK", "LORA_STACK", "CONTROL_NET_STACK", "IMAGE_BOUNDS",
+      "GUIDER", "NOISE", "SIGMAS", "PHOTOMAKER", "INSIGHTFACE"
     ];
+
+    function isConnectionSlotType(t) {
+      if (!t || typeof t !== "string") return false;
+      const tClean = t.trim();
+      if (tClean === "*") return true;
+      if (KNOWN_SLOT_TYPES.includes(tClean)) return true;
+      const primitives = ["INT", "FLOAT", "STRING", "BOOLEAN", "COMBO", "INT_OR_FLOAT"];
+      return tClean === tClean.toUpperCase() && !primitives.includes(tClean) && tClean.length >= 2;
+    }
 
     const CATEGORY_COLORS = {
       "loaders": "bg-purple-950/80 text-purple-300 border-purple-700/60",
@@ -2436,6 +2776,8 @@
       if (o === "*" || i === "*") return true;
       if (o === i) return true;
       if ((o === "MASK" && i === "IMAGE") || (o === "IMAGE" && i === "MASK")) return true;
+      if ((o.includes("CONTROL_NET") && i.includes("CONTROL_NET")) ||
+          (o.includes("LORA_STACK") && i.includes("LORA_STACK"))) return true;
       return false;
     }
 
@@ -2652,7 +2994,7 @@
       const optInputs = schema.input_types?.optional || {};
       const allInputs = { ...reqInputs, ...optInputs };
 
-      const connectionSlots = Object.entries(allInputs).filter(([name, type]) => KNOWN_SLOT_TYPES.includes(type) || type === "*");
+      const connectionSlots = Object.entries(allInputs).filter(([name, type]) => isConnectionSlotType(type));
 
       if (connectionSlots.length === 0) {
         inputsCol.innerHTML += `<div class="text-[10px] text-slate-600 italic">Keine verdrahtbaren Eingangs-Slots</div>`;
@@ -3138,7 +3480,7 @@
         let matchedType = "";
 
         if (availableOutputs.size === 0) {
-          const requiredSlots = Object.entries(node.input_types?.required || {}).filter(([k, v]) => KNOWN_SLOT_TYPES.includes(v));
+          const requiredSlots = Object.entries(node.input_types?.required || {}).filter(([k, v]) => isConnectionSlotType(v));
           isCompatible = (requiredSlots.length === 0);
           matchedType = "Root/Loader";
         } else {
@@ -3222,7 +3564,7 @@
       const reqInputs = schema.input_types?.required || {};
 
       Object.entries(reqInputs).forEach(([inpName, inpType]) => {
-        if (!KNOWN_SLOT_TYPES.includes(inpType)) return;
+        if (!isConnectionSlotType(inpType)) return;
         for (let pIdx = precedingSteps.length - 1; pIdx >= 0; pIdx--) {
           const prevStep = precedingSteps[pIdx];
           const prevSchema = comfyNodesCatalog[prevStep.node_type] || {};
@@ -3283,6 +3625,335 @@
         btn.textContent = "✔ Kopiert!";
         setTimeout(() => { btn.textContent = prev; }, 2000);
       });
+    }
+
+    // --- Workflow Save & Export Functions ---
+    function openSaveWorkflowModal() {
+      const modal = document.getElementById("workflowSaveExportModal");
+      const nameInput = document.getElementById("workflowSaveName");
+      const descInput = document.getElementById("workflowSaveDesc");
+      const feedback = document.getElementById("workflowSaveFeedback");
+      if (feedback) feedback.textContent = "";
+
+      const currentName = (currentPipeline.name || "custom_workflow").replace(/[^a-zA-Z0-9_\-]/g, "_").toLowerCase();
+      if (nameInput) nameInput.value = currentName;
+      if (descInput) descInput.value = currentPipeline.description || "";
+      if (modal) modal.classList.remove("hidden");
+    }
+
+    function closeSaveWorkflowModal() {
+      const modal = document.getElementById("workflowSaveExportModal");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    async function saveWorkflowToServer() {
+      const nameInput = document.getElementById("workflowSaveName");
+      const descInput = document.getElementById("workflowSaveDesc");
+      const feedback = document.getElementById("workflowSaveFeedback");
+
+      let name = (nameInput?.value || "").trim();
+      if (!name) {
+        if (feedback) feedback.innerHTML = '<span class="text-rose-400">Bitte einen Namen für den Workflow eingeben.</span>';
+        return;
+      }
+      if (!name.endsWith(".json")) name += ".json";
+
+      const wfToSave = {
+        ...currentPipeline,
+        name: name.replace(/\.json$/, ""),
+        description: descInput?.value || currentPipeline.description || ""
+      };
+
+      if (feedback) feedback.innerHTML = '<span class="text-cyan-400 animate-pulse">Speichere auf Server...</span>';
+
+      try {
+        const res = await fetch("/api/workflows/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name,
+            workflow_json: wfToSave
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (feedback) feedback.innerHTML = `<span class="text-emerald-400">✔ Gespeichert unter ${data.filename} (${data.steps_count} Steps)</span>`;
+          loadSavedWorkflowsList();
+          setTimeout(() => {
+            closeSaveWorkflowModal();
+          }, 1200);
+        } else {
+          if (feedback) feedback.innerHTML = `<span class="text-rose-400">Fehler: ${data.error || "Speichern fehlgeschlagen"}</span>`;
+        }
+      } catch (e) {
+        if (feedback) feedback.innerHTML = `<span class="text-rose-400">Netzwerkfehler: ${e.message}</span>`;
+      }
+    }
+
+    function downloadWorkflowJson() {
+      const nameInput = document.getElementById("workflowSaveName");
+      const descInput = document.getElementById("workflowSaveDesc");
+      let name = (nameInput?.value || "").trim() || "comfyui_custom_workflow";
+      if (!name.endsWith(".json")) name += ".json";
+
+      const wfToSave = {
+        ...currentPipeline,
+        name: name.replace(/\.json$/, ""),
+        description: descInput?.value || currentPipeline.description || ""
+      };
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(wfToSave, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", name);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      const feedback = document.getElementById("workflowSaveFeedback");
+      if (feedback) feedback.innerHTML = '<span class="text-emerald-400">✔ Download als JSON-Datei gestartet!</span>';
+    }
+
+    async function loadSavedWorkflowsList() {
+      const select = document.getElementById("savedWorkflowsSelect");
+      if (!select) return;
+
+      try {
+        const res = await fetch("/api/workflows/list");
+        if (!res.ok) return;
+        const data = await res.json();
+        const workflows = data.workflows || [];
+
+        select.innerHTML = '<option value="">-- Workflow laden --</option>';
+
+        const customGroup = document.createElement("optgroup");
+        customGroup.label = "Custom Workflows (/mnt/storage-beta/)";
+
+        const archGroup = document.createElement("optgroup");
+        archGroup.label = "Standard Archetypen";
+
+        workflows.forEach(wf => {
+          const opt = document.createElement("option");
+          opt.value = wf.category === "archetype" ? wf.path : wf.filename;
+          opt.textContent = `${wf.name} (${wf.node_count} Nodes)`;
+          if (wf.category === "custom") {
+            customGroup.appendChild(opt);
+          } else {
+            archGroup.appendChild(opt);
+          }
+        });
+
+        if (customGroup.children.length > 0) select.appendChild(customGroup);
+        if (archGroup.children.length > 0) select.appendChild(archGroup);
+      } catch (e) {
+        console.warn("Failed to load saved workflows list:", e);
+      }
+    }
+
+    async function handleSelectSavedWorkflow(val) {
+      if (!val) return;
+      try {
+        const res = await fetch(`/api/workflows/load?name=${encodeURIComponent(val)}`);
+        if (!res.ok) {
+          alert(`Fehler beim Laden des Workflows: ${res.statusText}`);
+          return;
+        }
+        const wf = await res.json();
+        if (wf.steps) {
+          currentPipeline = JSON.parse(JSON.stringify(wf));
+          renderPipelineCanvas();
+          validateCurrentPipeline();
+          const badge = document.getElementById("pipelineValidationBadge");
+          if (badge) {
+            badge.textContent = `📂 GELADEN: ${wf.name || val}`;
+            badge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-cyan-950/80 text-cyan-300 border border-cyan-600/60 shadow";
+          }
+        } else {
+          alert("Geladenes JSON enthält keine gültige Pipeline-Struktur (steps).");
+        }
+      } catch (e) {
+        alert("Fehler beim Laden des Workflows: " + e.message);
+      }
+    }
+
+    // --- Companion Bot Runtime Configuration ---
+    async function loadOllamaModelsForBotConfig() {
+      const select = document.getElementById("botLlmModel");
+      if (!select) return;
+
+      try {
+        const res = await fetch("/api/ollama/models");
+        if (!res.ok) return;
+        const data = await res.json();
+        const models = data.models || [];
+        if (models.length > 0) {
+          const prevVal = select.value;
+          select.innerHTML = "";
+          models.forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m.name;
+            opt.textContent = m.name;
+            select.appendChild(opt);
+          });
+          if (prevVal && models.some(m => m.name === prevVal)) {
+            select.value = prevVal;
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to load Ollama models:", e);
+      }
+    }
+
+    async function loadBotConfig() {
+      try {
+        await loadOllamaModelsForBotConfig();
+        const res = await fetch("/api/bot/config");
+        if (!res.ok) return;
+        const data = await res.json();
+        const cfg = data.config || {};
+
+        // LLM
+        const llm = cfg.llm || {};
+        const llmModelEl = document.getElementById("botLlmModel");
+        if (llmModelEl && llm.model) {
+          if (![...llmModelEl.options].some(o => o.value === llm.model)) {
+            const opt = document.createElement("option");
+            opt.value = llm.model;
+            opt.textContent = llm.model;
+            llmModelEl.appendChild(opt);
+          }
+          llmModelEl.value = llm.model;
+        }
+        if (document.getElementById("botLlmTemp")) {
+          document.getElementById("botLlmTemp").value = llm.temperature ?? 0.95;
+          document.getElementById("botLlmTempDisplay").textContent = llm.temperature ?? 0.95;
+        }
+        if (document.getElementById("botLlmTopP")) document.getElementById("botLlmTopP").value = llm.top_p ?? 0.90;
+        if (document.getElementById("botLlmRepPenalty")) document.getElementById("botLlmRepPenalty").value = llm.repeat_penalty ?? 1.18;
+        if (document.getElementById("botLlmMaxTokens")) document.getElementById("botLlmMaxTokens").value = llm.num_predict ?? 300;
+
+        // Render
+        const rnd = cfg.render || {};
+        const rndCkptEl = document.getElementById("botRenderCheckpoint");
+        if (rndCkptEl && rnd.checkpoint) {
+          if (![...rndCkptEl.options].some(o => o.value === rnd.checkpoint)) {
+            const opt = document.createElement("option");
+            opt.value = rnd.checkpoint;
+            opt.textContent = rnd.checkpoint;
+            rndCkptEl.appendChild(opt);
+          }
+          rndCkptEl.value = rnd.checkpoint;
+        }
+        if (document.getElementById("botRenderSteps")) document.getElementById("botRenderSteps").value = rnd.steps ?? 14;
+        if (document.getElementById("botRenderCfg")) document.getElementById("botRenderCfg").value = rnd.cfg ?? 6.0;
+        if (document.getElementById("botRenderSampler")) document.getElementById("botRenderSampler").value = rnd.sampler_name || "euler_ancestral";
+        if (document.getElementById("botRenderScheduler")) document.getElementById("botRenderScheduler").value = rnd.scheduler || "karras";
+        if (document.getElementById("botRenderWidth")) document.getElementById("botRenderWidth").value = rnd.width || 512;
+        if (document.getElementById("botRenderHeight")) document.getElementById("botRenderHeight").value = rnd.height || 768;
+        if (document.getElementById("botRenderDenoise")) document.getElementById("botRenderDenoise").value = rnd.denoise ?? 1.0;
+
+        // Voice
+        const v = cfg.voice || {};
+        if (document.getElementById("botVoiceName")) document.getElementById("botVoiceName").value = v.voice_name || "en-US-AvaMultilingualNeural";
+        if (document.getElementById("botVoiceRate")) document.getElementById("botVoiceRate").value = v.rate || "-4%";
+        if (document.getElementById("botVoicePitch")) document.getElementById("botVoicePitch").value = v.pitch || "-1Hz";
+        if (document.getElementById("botVoiceAuto")) document.getElementById("botVoiceAuto").checked = v.auto_voice ?? true;
+
+        // Proactive
+        const pro = cfg.proactive || {};
+        if (document.getElementById("botProactiveEnabled")) document.getElementById("botProactiveEnabled").checked = pro.enabled ?? true;
+        if (document.getElementById("botProactiveIdleHours")) document.getElementById("botProactiveIdleHours").value = Math.round((pro.idle_seconds || 14400) / 3600);
+        if (document.getElementById("botProactiveCooldownHours")) document.getElementById("botProactiveCooldownHours").value = Math.round((pro.cooldown_seconds || 21600) / 3600);
+        if (document.getElementById("botProactiveStartHour")) document.getElementById("botProactiveStartHour").value = pro.start_hour ?? 9;
+        if (document.getElementById("botProactiveEndHour")) document.getElementById("botProactiveEndHour").value = pro.end_hour ?? 22;
+
+        const notice = document.getElementById("botConfigSaveNotice");
+        if (notice) {
+          notice.textContent = "✔ Geladen";
+          notice.className = "text-[10px] font-mono text-cyan-400";
+          notice.classList.remove("hidden");
+          setTimeout(() => notice.classList.add("hidden"), 2000);
+        }
+      } catch (e) {
+        console.warn("Failed to load bot config:", e);
+      }
+    }
+
+    async function saveBotConfig() {
+      const notice = document.getElementById("botConfigSaveNotice");
+      if (notice) {
+        notice.textContent = "Speichere...";
+        notice.className = "text-[10px] font-mono text-amber-400";
+        notice.classList.remove("hidden");
+      }
+
+      const idleHours = parseFloat(document.getElementById("botProactiveIdleHours")?.value || 4);
+      const cdHours = parseFloat(document.getElementById("botProactiveCooldownHours")?.value || 6);
+
+      const payload = {
+        config: {
+          llm: {
+            model: document.getElementById("botLlmModel")?.value || "lexi-llama-3-8b-uncensored_q4_k_m:latest",
+            temperature: parseFloat(document.getElementById("botLlmTemp")?.value || 0.95),
+            top_p: parseFloat(document.getElementById("botLlmTopP")?.value || 0.90),
+            repeat_penalty: parseFloat(document.getElementById("botLlmRepPenalty")?.value || 1.18),
+            num_predict: parseInt(document.getElementById("botLlmMaxTokens")?.value || 300),
+            num_ctx: 4096
+          },
+          render: {
+            workflow_template: "text_to_image",
+            checkpoint: document.getElementById("botRenderCheckpoint")?.value || "DreamShaper8_LCM.safetensors",
+            lora: "",
+            lora_strength: 0.8,
+            steps: parseInt(document.getElementById("botRenderSteps")?.value || 14),
+            cfg: parseFloat(document.getElementById("botRenderCfg")?.value || 6.0),
+            denoise: parseFloat(document.getElementById("botRenderDenoise")?.value || 1.0),
+            sampler_name: document.getElementById("botRenderSampler")?.value || "euler_ancestral",
+            scheduler: document.getElementById("botRenderScheduler")?.value || "karras",
+            width: parseInt(document.getElementById("botRenderWidth")?.value || 512),
+            height: parseInt(document.getElementById("botRenderHeight")?.value || 768)
+          },
+          voice: {
+            voice_name: document.getElementById("botVoiceName")?.value || "en-US-AvaMultilingualNeural",
+            rate: document.getElementById("botVoiceRate")?.value || "-4%",
+            pitch: document.getElementById("botVoicePitch")?.value || "-1Hz",
+            auto_voice: document.getElementById("botVoiceAuto")?.checked ?? true
+          },
+          proactive: {
+            enabled: document.getElementById("botProactiveEnabled")?.checked ?? true,
+            idle_seconds: Math.round(idleHours * 3600),
+            cooldown_seconds: Math.round(cdHours * 3600),
+            start_hour: parseInt(document.getElementById("botProactiveStartHour")?.value || 9),
+            end_hour: parseInt(document.getElementById("botProactiveEndHour")?.value || 22)
+          }
+        }
+      };
+
+      try {
+        const res = await fetch("/api/bot/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (notice) {
+            notice.textContent = "✔ Gespeichert & Hot-Reload aktiv!";
+            notice.className = "text-[10px] font-mono text-emerald-400 font-bold";
+            setTimeout(() => notice.classList.add("hidden"), 3000);
+          }
+        } else {
+          if (notice) {
+            notice.textContent = `Fehler: ${data.error || "Speichern fehlgeschlagen"}`;
+            notice.className = "text-[10px] font-mono text-rose-400";
+          }
+        }
+      } catch (e) {
+        if (notice) {
+          notice.textContent = `Netzwerkfehler: ${e.message}`;
+          notice.className = "text-[10px] font-mono text-rose-400";
+        }
+      }
     }
 
     // --- Pipeline Execution & Live Progress Tracking ---
@@ -3701,6 +4372,8 @@
 
     initComfyPipelineBuilder();
     loadComfyModels();
+    loadSavedWorkflowsList();
+    loadBotConfig();
     fetchClusterHealth();
     fetchBueroData();
     setInterval(updateTelemetry, 3000);

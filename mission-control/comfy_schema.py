@@ -18,13 +18,26 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger("mission-control.comfy-schema")
 
-# --- Standard Connection Types in ComfyUI ---
+# --- Standard & Advanced Connection Types in ComfyUI ---
 KNOWN_CONNECTION_TYPES = {
     "MODEL", "CLIP", "VAE", "CONDITIONING", "LATENT", "IMAGE", "MASK",
-    "CONTROL_NET", "STYLE_MODEL", "GLIGEN", "UPSCALE_MODEL", "MOTION_MODEL"
+    "CONTROL_NET", "STYLE_MODEL", "GLIGEN", "UPSCALE_MODEL", "MOTION_MODEL",
+    "IPADAPTER", "FACE_ANALYSIS", "BBOX_DETECTOR", "SEGS", "SAM_MODEL",
+    "DETAILER_HOOK", "LORA_STACK", "CONTROL_NET_STACK", "IMAGE_BOUNDS",
+    "GUIDER", "NOISE", "SIGMAS", "PHOTOMAKER", "INSIGHTFACE"
 }
 
 PRIMITIVE_TYPES = {"INT", "FLOAT", "STRING", "BOOLEAN", "COMBO"}
+
+
+def is_connection_slot_type(t: Any) -> bool:
+    """Returns True if the type represents a connectable slot rather than a widget."""
+    if not t or not isinstance(t, str):
+        return False
+    up = t.strip().upper()
+    if up in PRIMITIVE_TYPES or up.startswith("COMBO"):
+        return False
+    return True
 
 
 # --- Pydantic Schema Models ---
@@ -112,6 +125,14 @@ def are_types_compatible(out_type: str, in_type: str) -> bool:
 
     # ComfyUI specifics: MASK can sometimes connect to IMAGE or LATENT channel masks
     if (o == "MASK" and i == "IMAGE") or (o == "IMAGE" and i == "MASK"):
+        return True
+
+    # Stack & Advanced Model Compatibility
+    if (o == "CONTROL_NET" and "CONTROL_NET" in i) or ("CONTROL_NET" in o and i == "CONTROL_NET"):
+        return True
+    if (o == "LORA_STACK" and "MODEL" in i) or ("MODEL" in o and i == "LORA_STACK"):
+        return True
+    if (o == "IPADAPTER" and "MODEL" in i) or ("MODEL" in o and i == "IPADAPTER"):
         return True
 
     return False
@@ -482,7 +503,7 @@ def validate_pipeline(workflow: PipelineWorkflow, node_schemas: Dict[str, NodeSc
             all_in_types = {**to_schema.input_types.required, **to_schema.input_types.optional}
             if conn.input_name in all_in_types:
                 expected_in = all_in_types[conn.input_name]
-                if expected_in in KNOWN_CONNECTION_TYPES:
+                if is_connection_slot_type(expected_in):
                     in_type = expected_in
 
         # Check type compatibility
@@ -517,7 +538,7 @@ def validate_pipeline(workflow: PipelineWorkflow, node_schemas: Dict[str, NodeSc
             continue
 
         for req_slot, req_type in schema.input_types.required.items():
-            if req_type in KNOWN_CONNECTION_TYPES:
+            if is_connection_slot_type(req_type):
                 if (step.id, req_slot) not in incoming_connections:
                     err_msg = f"Fehlender Pflicht-Slot: '{step.title or step.id}' benötigt Eingang '{req_slot}' ({req_type})."
                     errors.append(err_msg)

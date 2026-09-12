@@ -58,24 +58,26 @@ DEFAULT_OPTIONS = {
 def query_uncensored_persona(
     messages: List[Dict[str, str]],
     custom_options: Optional[Dict[str, Any]] = None,
-    timeout: float = 60.0
+    timeout: float = 60.0,
+    override_model: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Dispatches a chat completion request through the cluster priority chain.
-    Returns:
-      {
-        "success": bool,
-        "content": str,
-        "model_used": str,
-        "endpoint_used": str,
-        "elapsed_seconds": float
-      }
     """
     options = {**DEFAULT_OPTIONS, **(custom_options or {})}
     start_time = time.time()
     last_error = None
 
-    for target in ROUTING_TARGETS:
+    targets = list(ROUTING_TARGETS)
+    if override_model and override_model.strip():
+        m = override_model.strip()
+        targets.insert(0, {
+            "hosts": LOCAL_OUTERHEAVEN_HOSTS,
+            "model": m,
+            "desc": f"Configured Model - {m}"
+        })
+
+    for target in targets:
         model_name = target["model"]
         desc = target["desc"]
 

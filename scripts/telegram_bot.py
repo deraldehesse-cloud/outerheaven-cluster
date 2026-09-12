@@ -245,6 +245,77 @@ def save_proactive_state(state: dict):
 
 PROACTIVE_STATE = load_proactive_state()
 
+# Dynamic Bot Configuration & Hot-Reload
+BOT_CONFIG_FILE = PROJECT_ROOT / "bot_config.json"
+_last_bot_config_mtime = 0.0
+
+
+def check_and_reload_bot_config():
+    """Dynamically reloads bot_config.json if modified without restart."""
+    global _last_bot_config_mtime
+    global OLLAMA_MODEL, OLLAMA_TEMPERATURE, OLLAMA_TOP_P, OLLAMA_REPEAT_PENALTY, OLLAMA_NUM_PREDICT
+    global ACTIVE_VOICE, ACTIVE_RATE, ACTIVE_PITCH, VOICE_MODE_ACTIVE
+    global PROACTIVE_CHECKIN_ENABLED, PROACTIVE_IDLE_SECONDS, PROACTIVE_COOLDOWN_SECONDS, PROACTIVE_START_HOUR, PROACTIVE_END_HOUR
+
+    if not BOT_CONFIG_FILE.is_file():
+        return
+
+    try:
+        st = BOT_CONFIG_FILE.stat()
+        if st.st_mtime <= _last_bot_config_mtime:
+            return
+        _last_bot_config_mtime = st.st_mtime
+
+        with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+
+        # LLM
+        llm = cfg.get("llm", {})
+        if "model" in llm and llm["model"]:
+            OLLAMA_MODEL = str(llm["model"])
+        if "temperature" in llm:
+            OLLAMA_TEMPERATURE = float(llm["temperature"])
+        if "top_p" in llm:
+            OLLAMA_TOP_P = float(llm["top_p"])
+        if "repeat_penalty" in llm:
+            OLLAMA_REPEAT_PENALTY = float(llm["repeat_penalty"])
+        if "num_predict" in llm:
+            OLLAMA_NUM_PREDICT = int(llm["num_predict"])
+
+        # Voice
+        voice = cfg.get("voice", {})
+        if "voice_name" in voice and voice["voice_name"]:
+            ACTIVE_VOICE = str(voice["voice_name"])
+        if "rate" in voice:
+            ACTIVE_RATE = str(voice["rate"])
+        if "pitch" in voice:
+            ACTIVE_PITCH = str(voice["pitch"])
+        if "auto_voice" in voice:
+            VOICE_MODE_ACTIVE = bool(voice["auto_voice"])
+            SESSION_STATE["voice_mode"] = VOICE_MODE_ACTIVE
+
+        # Proactive
+        pro = cfg.get("proactive", {})
+        if "enabled" in pro:
+            PROACTIVE_CHECKIN_ENABLED = bool(pro["enabled"])
+            PROACTIVE_STATE["enabled"] = PROACTIVE_CHECKIN_ENABLED
+        if "idle_seconds" in pro:
+            PROACTIVE_IDLE_SECONDS = int(pro["idle_seconds"])
+        if "cooldown_seconds" in pro:
+            PROACTIVE_COOLDOWN_SECONDS = int(pro["cooldown_seconds"])
+        if "start_hour" in pro:
+            PROACTIVE_START_HOUR = int(pro["start_hour"])
+        if "end_hour" in pro:
+            PROACTIVE_END_HOUR = int(pro["end_hour"])
+
+        print(f"[BotConfig] Hot-reloaded: LLM='{OLLAMA_MODEL}', Voice='{ACTIVE_VOICE}', Proactive={PROACTIVE_CHECKIN_ENABLED}")
+    except Exception as e:
+        print(f"[BotConfig] Error hot-reloading {BOT_CONFIG_FILE}: {e}")
+
+
+# Run initial hot-reload check
+check_and_reload_bot_config()
+
 
 # ==============================================================================
 # 2. Trigger Matching Helpers
@@ -798,6 +869,8 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str) -> s
         chat_messages.append({"role": entry["role"], "content": entry["content"]})
     chat_messages.append({"role": "user", "content": user_message})
 
+    check_and_reload_bot_config()
+
     options = {
         "temperature": OLLAMA_TEMPERATURE,
         "top_p": OLLAMA_TOP_P,
@@ -808,7 +881,7 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str) -> s
     }
 
     try:
-        router_res = query_uncensored_persona(chat_messages, custom_options=options, timeout=75)
+        router_res = query_uncensored_persona(chat_messages, custom_options=options, timeout=75, override_model=OLLAMA_MODEL)
         if router_res.get("success"):
             assistant_reply = router_res.get("content", "").strip()
 
@@ -894,17 +967,19 @@ def generate_proactive_checkin(chat_id: int, is_manual_test: bool = False) -> Op
         chat_messages.append({"role": entry["role"], "content": entry["content"]})
     chat_messages.append({"role": "user", "content": f"[Spontaneous Daytime Trigger: {instruction}]"})
 
+    check_and_reload_bot_config()
+
     options = {
-        "temperature": 0.95,
+        "temperature": OLLAMA_TEMPERATURE,
         "top_p": OLLAMA_TOP_P,
         "top_k": OLLAMA_TOP_K,
-        "repeat_penalty": 1.15,
+        "repeat_penalty": OLLAMA_REPEAT_PENALTY,
         "num_predict": 250,
         "num_ctx": OLLAMA_NUM_CTX,
     }
 
     try:
-        router_res = query_uncensored_persona(chat_messages, custom_options=options, timeout=75)
+        router_res = query_uncensored_persona(chat_messages, custom_options=options, timeout=75, override_model=OLLAMA_MODEL)
         if router_res.get("success"):
             checkin_text = router_res.get("content", "").strip()
             if "<think>" in checkin_text and "</think>" in checkin_text:
@@ -951,6 +1026,7 @@ def generate_proactive_checkin(chat_id: int, is_manual_test: bool = False) -> Op
 
 def check_proactive_checkin():
     """Evaluates whether it is time for a daytime proactive check-in message."""
+    check_and_reload_bot_config()
     if not PROACTIVE_STATE.get("enabled", True):
         return
 

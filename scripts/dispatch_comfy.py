@@ -68,15 +68,33 @@ RENDER_EXECUTOR = ThreadPoolExecutor(max_workers=3, thread_name_prefix="ComfyDis
 # 1. Configuration & Persona Loader
 # ==============================================================================
 
+BOT_CONFIG_PATH = BASE_DIR / "bot_config.json"
+
+
 def load_persona_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
-    """Loads persona.yaml configuration."""
+    """Loads persona.yaml configuration and overlays bot_config.json if present."""
     path = config_path or PERSONA_CONFIG_PATH
     if not path.is_file():
         raise FileNotFoundError(f"Konfigurationsdatei nicht gefunden: {path}")
 
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    return data.get("persona", {})
+    persona = data.get("persona", {})
+
+    # Overlay dynamic bot_config.json render defaults
+    if BOT_CONFIG_PATH.is_file():
+        try:
+            with open(BOT_CONFIG_PATH, "r", encoding="utf-8") as bf:
+                b_cfg = json.load(bf)
+                render_cfg = b_cfg.get("render", {})
+                if render_cfg and isinstance(render_cfg, dict):
+                    if "render_defaults" not in persona:
+                        persona["render_defaults"] = {}
+                    persona["render_defaults"].update(render_cfg)
+        except Exception as e:
+            logger.warning(f"Failed to overlay bot_config.json: {e}")
+
+    return persona
 
 
 # ==============================================================================
