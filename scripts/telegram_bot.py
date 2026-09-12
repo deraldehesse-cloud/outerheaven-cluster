@@ -15,6 +15,9 @@ import os
 import sys
 import re
 import time
+import base64
+import subprocess
+import shutil
 import requests
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
@@ -118,6 +121,21 @@ OLLAMA_TOP_K = int(os.environ.get("OLLAMA_TOP_K", 40))
 OLLAMA_REPEAT_PENALTY = float(os.environ.get("OLLAMA_REPEAT_PENALTY", 1.18))
 OLLAMA_NUM_PREDICT = int(os.environ.get("OLLAMA_NUM_PREDICT", 300))
 OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", 4096))
+
+# Vision Model Configuration
+OLLAMA_VISION_MODEL = os.environ.get("OLLAMA_VISION_MODEL", "").strip()
+DEFAULT_VISION_PROMPT = os.environ.get(
+    "DEFAULT_VISION_PROMPT",
+    "Beschreibe präzise und atmosphärisch, was auf diesem Bild zu sehen ist. "
+    "Gehe auf Personen, Kleidung, Pose, Mimik, Gegenstände, Umgebung und Lichtstimmung ein."
+)
+
+INBOUND_CACHE_DIR = PROJECT_ROOT / "tmp" / "inbound"
+try:
+    INBOUND_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    INBOUND_CACHE_DIR = Path("/tmp/companion_inbound")
+    INBOUND_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Persona Configuration & Triggers
 persona_cfg = load_persona_config(PROJECT_ROOT / "persona.yaml")
@@ -373,7 +391,7 @@ def download_telegram_file(file_id: str, dest_path: Path) -> bool:
         if r.status_code == 200:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             dest_path.write_bytes(r.content)
-            print(f"[✔] Audiodatei heruntergeladen ({len(r.content)} Bytes) -> {dest_path.name}")
+            print(f"[✔] Mediendatei heruntergeladen ({len(r.content)} Bytes) -> {dest_path.name}")
             return True
         else:
             print(f"[Fehler] Datei-Download fehlgeschlagen: HTTP {r.status_code}")
@@ -381,6 +399,191 @@ def download_telegram_file(file_id: str, dest_path: Path) -> bool:
     except Exception as e:
         print(f"[Fehler] Exception beim Datei-Download aus Telegram: {e}")
         return False
+
+
+# ==============================================================================
+# 3b. Multimodal Vision Analysis & Video Keyframe Extraction
+# ==============================================================================
+
+def get_user_display_name() -> str:
+    """Returns the preferred user nickname from local project memory or defaults to 'Big Boss'."""
+    if brain_engine:
+        try:
+            p_brain = brain_engine.load_project_brain(str(PROJECT_ROOT))
+            session_mem = p_brain.get("session", {})
+            nick = session_mem.get("preferences", {}).get("user_nickname")
+            if nick:
+                return nick
+        except Exception:
+            pass
+    return "Big Boss"
+
+
+def get_available_vision_model() -> str:
+    """
+    Finds an available vision model in Ollama.
+    Checks environment OLLAMA_VISION_MODEL first, then queries Ollama /api/tags
+    for known vision models (moondream, minicpm-v, qwen2-vl, llava, etc.).
+    Falls back to 'moondream:latest'.
+    """
+    if OLLAMA_VISION_MODEL:
+        return OLLAMA_VISION_MODEL
+
+    base_url = OLLAMA_URL.rsplit("/api/", 1)[0]
+    try:
+        res = requests.get(f"{base_url}/api/tags", timeout=5)
+        if res.status_code == 200:
+            installed = [m.get("name", "") for m in res.json().get("models", [])]
+            for cand in ["moondream", "minicpm-v", "qwen2-vl", "llava", "llama3.2-vision", "bakllava"]:
+                for m in installed:
+                    if cand in m.lower():
+                        return m
+    except Exception as e:
+        print(f"[Warnung] Fehler bei Vision-Modellsuche via /api/tags: {e}")
+
+    return "moondream:latest"
+
+
+def extract_video_frame(video_path: Path, output_frame_path: Path) -> bool:
+    """
+    Extracts a representative keyframe from a video or video note using ffmpeg thumbnail filter
+    or fallback seek / OpenCV.
+    """
+    v_path = Path(video_path)
+    o_path = Path(output_frame_path)
+    if not v_path.is_file():
+        return False
+
+    o_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 1. Primary: ffmpeg thumbnail filter
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-i", str(v_path),
+            "-vf", "thumbnail",
+            "-frames:v", "1",
+            str(o_path)
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        if res.returncode == 0 and o_path.is_file() and o_path.stat().st_size > 0:
+            print(f"[✔] Repräsentativer Keyframe via ffmpeg thumbnail extrahiert -> {o_path.name}")
+            return True
+    except Exception as e:
+        print(f"[Warnung] ffmpeg thumbnail fehlgeschlagen: {e}")
+
+    # 2. Fallback: ffmpeg seek 1s or first frame
+    for seek_opt in [["-ss", "00:00:01"], []]:
+        try:
+            cmd = ["ffmpeg", "-y"] + seek_opt + [
+                "-i", str(v_path),
+                "-vframes", "1",
+                "-q:v", "2",
+                str(o_path)
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+            if res.returncode == 0 and o_path.is_file() and o_path.stat().st_size > 0:
+                print(f"[✔] Frame via ffmpeg fallback extrahiert -> {o_path.name}")
+                return True
+        except Exception as e:
+            print(f"[Warnung] ffmpeg seek fallback fehlgeschlagen: {e}")
+
+    # 3. Fallback: OpenCV if available
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(v_path))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        target_frame = max(0, total_frames // 2)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+        ret, frame = cap.read()
+        if not ret:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, frame = cap.read()
+        cap.release()
+        if ret and frame is not None:
+            cv2.imwrite(str(o_path), frame)
+            print(f"[✔] Frame via OpenCV extrahiert -> {o_path.name}")
+            return True
+    except Exception as cv_err:
+        print(f"[Warnung] OpenCV Frame-Extraktion fehlgeschlagen: {cv_err}")
+
+    return False
+
+
+def analyze_image(
+    image_path: Path,
+    prompt: str = DEFAULT_VISION_PROMPT,
+    model: Optional[str] = None
+) -> str:
+    """
+    Analyzes an image using a local vision model in Ollama.
+    Sends base64 encoded image to Ollama /api/chat (or /api/generate fallback).
+    """
+    p = Path(image_path)
+    if not p.is_file():
+        print(f"[Fehler] analyze_image: Datei existiert nicht: {image_path}")
+        return ""
+
+    try:
+        with open(p, "rb") as img_f:
+            b64_img = base64.b64encode(img_f.read()).decode("utf-8")
+    except Exception as e:
+        print(f"[Fehler] analyze_image: Base64-Codierung fehlgeschlagen: {e}")
+        return ""
+
+    active_model = model or get_available_vision_model()
+    base_url = OLLAMA_URL.rsplit("/api/", 1)[0]
+    chat_url = f"{base_url}/api/chat"
+
+    payload = {
+        "model": active_model,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt,
+                "images": [b64_img]
+            }
+        ],
+        "stream": False,
+        "options": {
+            "temperature": 0.2,
+            "num_predict": 300
+        }
+    }
+
+    try:
+        print(f"[*] Sende Vision-Analyse für {p.name} an Ollama ({active_model})...")
+        res = requests.post(chat_url, json=payload, timeout=90)
+        if res.status_code == 200:
+            content = res.json().get("message", {}).get("content", "").strip()
+            if "<think>" in content and "</think>" in content:
+                content = content.split("</think>", 1)[1].strip()
+            print(f"[✔] Vision-Analyse erfolgreich ({len(content)} Zeichen)")
+            return content
+        else:
+            # Fallback to /api/generate
+            gen_url = f"{base_url}/api/generate"
+            gen_payload = {
+                "model": active_model,
+                "prompt": prompt,
+                "images": [b64_img],
+                "stream": False,
+                "options": {
+                    "temperature": 0.2,
+                    "num_predict": 300
+                }
+            }
+            res_gen = requests.post(gen_url, json=gen_payload, timeout=90)
+            if res_gen.status_code == 200:
+                content = res_gen.json().get("response", "").strip()
+                if "<think>" in content and "</think>" in content:
+                    content = content.split("</think>", 1)[1].strip()
+                print(f"[✔] Vision-Analyse via /api/generate erfolgreich ({len(content)} Zeichen)")
+                return content
+            print(f"[Fehler] Ollama Vision fehlgeschlagen (HTTP {res.status_code}): {res.text}")
+            return ""
+    except Exception as e:
+        print(f"[Fehler] Exception in analyze_image: {e}")
+        return ""
 
 
 # ==============================================================================
@@ -670,6 +873,7 @@ def main():
     print(f"[*] Starte Big Boss Haven Bot (Outer Heaven Local)...")
     print(f"[*] Token geladen aus: {PRIMARY_ENV_FILE} ({token_preview})")
     print(f"[*] Ollama: {OLLAMA_URL} | Modell: {OLLAMA_MODEL}")
+    print(f"[*] Ollama Vision: {get_available_vision_model()}")
     print(f"[*] ComfyUI Remote Host: {dispatch_comfy.DEFAULT_COMFYUI_HOST}")
     print(f"[*] Lovense LAN Bridge: {lovense_client.command_url}")
     print(f"[*] Intime TTS-Stimme: {ACTIVE_VOICE} (Rate: {ACTIVE_RATE}, Pitch: {ACTIVE_PITCH})")
@@ -700,19 +904,27 @@ def main():
                     chat_id = message.get("chat", {}).get("id")
                     user_id = str(message.get("from", {}).get("id"))
                     text = (message.get("text") or "").strip()
+                    caption = (message.get("caption") or "").strip()
                     voice_obj = message.get("voice") or message.get("audio")
+                    photo_arr = message.get("photo")
+                    video_note_obj = message.get("video_note")
+                    video_obj = message.get("video")
 
-                    if chat_id and user_id and (text or voice_obj):
+                    has_media = bool(voice_obj or photo_arr or video_note_obj or video_obj)
+
+                    if chat_id and user_id and (text or caption or has_media):
                         if user_id != ALLOWED_USER_ID:
                             print(f"[Blockiert] Unbefugter Zugriff von User-ID: {user_id}")
                             send_telegram_message(chat_id, "Zugriff verweigert.")
                             continue
 
+                        display_name = get_user_display_name()
+
                         # Inbound Voice Message Handler (Speech-to-Text)
                         if voice_obj:
                             file_id = voice_obj.get("file_id")
                             print(f"[User {user_id}] 🎙️ Sprachnachricht empfangen (File-ID: {file_id[:16]}...)")
-                            tmp_voice_file = PROJECT_ROOT / "tmp" / f"inbound_{update_id}.oga"
+                            tmp_voice_file = INBOUND_CACHE_DIR / f"inbound_{update_id}.oga"
                             downloaded = download_telegram_file(file_id, tmp_voice_file)
                             if downloaded:
                                 try:
@@ -739,6 +951,106 @@ def main():
                             else:
                                 send_telegram_message(chat_id, "⚠️ *Konnte deine Sprachnachricht nicht von Telegram herunterladen.*")
                                 continue
+
+                        # Inbound Photo Handler (filters.PHOTO)
+                        elif photo_arr:
+                            photo_item = photo_arr[-1]
+                            file_id = photo_item.get("file_id")
+                            print(f"[User {user_id}] 📸 Foto empfangen (File-ID: {file_id[:16]}...)")
+                            tmp_photo_file = INBOUND_CACHE_DIR / f"inbound_{update_id}.jpg"
+                            downloaded = download_telegram_file(file_id, tmp_photo_file)
+                            if downloaded:
+                                try:
+                                    vision_desc = analyze_image(tmp_photo_file)
+                                    if vision_desc:
+                                        obs_text = f"[Visueller Eindruck von {display_name}s Bild: {vision_desc}]"
+                                        text = f"{caption}\n\n{obs_text}".strip() if caption else obs_text
+                                    else:
+                                        text = caption if caption else f"[{display_name} hat ein Foto geschickt]"
+                                except Exception as img_err:
+                                    print(f"[Fehler] Foto-Verarbeitung fehlgeschlagen: {img_err}")
+                                    text = caption if caption else f"[{display_name} hat ein Foto geschickt, Bildanalyse fehlgeschlagen]"
+                                finally:
+                                    if tmp_photo_file.is_file():
+                                        try:
+                                            tmp_photo_file.unlink()
+                                        except Exception:
+                                            pass
+                            else:
+                                send_telegram_message(chat_id, "⚠️ *Konnte dein Foto nicht herunterladen.*")
+                                continue
+
+                        # Inbound Video-Note Handler (filters.VIDEO_NOTE - TeleScope round video)
+                        elif video_note_obj:
+                            file_id = video_note_obj.get("file_id")
+                            print(f"[User {user_id}] 🎥 Video-Notiz empfangen (File-ID: {file_id[:16]}...)")
+                            tmp_vnote_file = INBOUND_CACHE_DIR / f"inbound_vnote_{update_id}.mp4"
+                            tmp_frame_file = INBOUND_CACHE_DIR / f"inbound_vnote_frame_{update_id}.jpg"
+                            downloaded = download_telegram_file(file_id, tmp_vnote_file)
+                            if downloaded:
+                                try:
+                                    extracted = extract_video_frame(tmp_vnote_file, tmp_frame_file)
+                                    if extracted:
+                                        vision_desc = analyze_image(tmp_frame_file)
+                                        if vision_desc:
+                                            obs_text = f"[Visueller Eindruck von {display_name}s Video-Notiz: {vision_desc}]"
+                                            text = f"{caption}\n\n{obs_text}".strip() if caption else obs_text
+                                        else:
+                                            text = caption if caption else f"[{display_name} hat eine Video-Notiz geschickt]"
+                                    else:
+                                        print(f"[Warnung] Keyframe-Extraktion für Video-Notiz fehlgeschlagen")
+                                        text = caption if caption else f"[{display_name} hat eine Video-Notiz geschickt]"
+                                except Exception as vn_err:
+                                    print(f"[Fehler] Video-Notiz-Verarbeitung fehlgeschlagen: {vn_err}")
+                                    text = caption if caption else f"[{display_name} hat eine Video-Notiz geschickt, Analysefehler]"
+                                finally:
+                                    for f in [tmp_vnote_file, tmp_frame_file]:
+                                        if f.is_file():
+                                            try:
+                                                f.unlink()
+                                            except Exception:
+                                                pass
+                            else:
+                                send_telegram_message(chat_id, "⚠️ *Konnte deine Video-Notiz nicht herunterladen.*")
+                                continue
+
+                        # Inbound Video Handler (filters.VIDEO - video clips)
+                        elif video_obj:
+                            file_id = video_obj.get("file_id")
+                            print(f"[User {user_id}] 🎬 Video empfangen (File-ID: {file_id[:16]}...)")
+                            tmp_video_file = INBOUND_CACHE_DIR / f"inbound_video_{update_id}.mp4"
+                            tmp_frame_file = INBOUND_CACHE_DIR / f"inbound_video_frame_{update_id}.jpg"
+                            downloaded = download_telegram_file(file_id, tmp_video_file)
+                            if downloaded:
+                                try:
+                                    extracted = extract_video_frame(tmp_video_file, tmp_frame_file)
+                                    if extracted:
+                                        vision_desc = analyze_image(tmp_frame_file)
+                                        if vision_desc:
+                                            obs_text = f"[Visueller Eindruck von {display_name}s Video: {vision_desc}]"
+                                            text = f"{caption}\n\n{obs_text}".strip() if caption else obs_text
+                                        else:
+                                            text = caption if caption else f"[{display_name} hat ein Video geschickt]"
+                                    else:
+                                        print(f"[Warnung] Keyframe-Extraktion für Video fehlgeschlagen")
+                                        text = caption if caption else f"[{display_name} hat ein Video geschickt]"
+                                except Exception as v_err:
+                                    print(f"[Fehler] Video-Verarbeitung fehlgeschlagen: {v_err}")
+                                    text = caption if caption else f"[{display_name} hat ein Video geschickt, Analysefehler]"
+                                finally:
+                                    for f in [tmp_video_file, tmp_frame_file]:
+                                        if f.is_file():
+                                            try:
+                                                f.unlink()
+                                            except Exception:
+                                                pass
+                            else:
+                                send_telegram_message(chat_id, "⚠️ *Konnte dein Video nicht herunterladen.*")
+                                continue
+
+                        # Fallback for caption only (without media attachments)
+                        elif not text and caption:
+                            text = caption
 
                         print(f"[User {user_id}]: {text}")
 
