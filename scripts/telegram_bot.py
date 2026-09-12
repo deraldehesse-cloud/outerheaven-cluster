@@ -126,8 +126,8 @@ OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", 4096))
 OLLAMA_VISION_MODEL = os.environ.get("OLLAMA_VISION_MODEL", "").strip()
 DEFAULT_VISION_PROMPT = os.environ.get(
     "DEFAULT_VISION_PROMPT",
-    "Beschreibe präzise und atmosphärisch, was auf diesem Bild zu sehen ist. "
-    "Gehe auf Personen, Kleidung, Pose, Mimik, Gegenstände, Umgebung und Lichtstimmung ein."
+    "Describe precisely and atmospherically what is visible in this image. "
+    "Focus on people, clothing, body, pose, facial expression, objects, setting, and lighting."
 )
 
 INBOUND_CACHE_DIR = PROJECT_ROOT / "tmp" / "inbound"
@@ -156,6 +156,9 @@ DEFAULT_START_TRIGGERS = [
     "/start",
     "/start_session",
     "/go",
+    "haven let's go",
+    "haven start",
+    "start session",
     "megan leg los",
     "session an",
     "starte session",
@@ -171,6 +174,9 @@ DEFAULT_STOP_TRIGGERS = [
     "/stop_session",
     "/end_session",
     "/stop",
+    "haven stop",
+    "stop session",
+    "end session",
     "megan stopp",
     "session aus",
     "stoppe session",
@@ -247,16 +253,16 @@ def detect_photo_intent(user_text: str) -> Tuple[bool, str, str]:
     if any(k in t for k in triggers):
         # Determine environment
         env = "schreibtisch"
-        if any(w in t for w in ["couch", "sofa", "wohnzimmer"]):
+        if any(w in t for w in ["couch", "sofa", "wohnzimmer", "living room"]):
             env = "couch"
-        elif any(w in t for w in ["bett", "schlafzimmer", "intim"]):
+        elif any(w in t for w in ["bett", "schlafzimmer", "intim", "bed", "bedroom"]):
             env = "schlafzimmer"
-        elif any(w in t for w in ["balkon", "terrasse", "unterwegs", "draußen", "stadt"]):
+        elif any(w in t for w in ["balkon", "terrasse", "unterwegs", "draußen", "stadt", "balcony", "outside", "night"]):
             env = "unterwegs"
 
         # Determine situation
         situation = "looking at viewer, sensual teasing smile"
-        if "ausziehen" in t or "nackt" in t or "lingerie" in t:
+        if any(w in t for w in ["ausziehen", "nackt", "lingerie", "strip", "naked", "undress", "take off"]):
             situation = "sensual seductive pose, teasing with clothing, looking at viewer"
 
         return True, env, situation
@@ -266,24 +272,26 @@ def detect_photo_intent(user_text: str) -> Tuple[bool, str, str]:
 def detect_bot_roleplay_photo(reply_text: str) -> Tuple[bool, str, str]:
     """
     Detects if Ollama's response contains roleplay actions indicating she took or sent a photo.
-    e.g. *schickt ein Foto*, [Foto], *macht ein Foto von sich*
+    e.g. *schickt ein Foto*, *snaps a photo*, [photo]
     """
     patterns = [
-        r"(\*|\[)(schickt|sendet|macht|zeigt|gibt|hier ist|hier hast du).*?(foto|bild|photo|selfie).*?(\*|\])",
+        r"(\*|\[)(schickt|sendet|macht|zeigt|gibt|hier ist|hier hast du|sends|snaps|takes|shares|shows|here is|here's).*?(foto|bild|photo|pic|picture|selfie).*?(\*|\])",
         r"\[foto\]",
         r"\[bild\]",
-        r"\[photo\]"
+        r"\[photo\]",
+        r"\[pic\]",
+        r"\[picture\]"
     ]
     for pat in patterns:
         if re.search(pat, reply_text, re.IGNORECASE):
             # Check environment from context
             r = reply_text.lower()
             env = "schreibtisch"
-            if any(w in r for w in ["couch", "sofa", "kissen"]):
+            if any(w in r for w in ["couch", "sofa", "kissen", "pillow", "living room"]):
                 env = "couch"
-            elif any(w in r for w in ["bett", "decke", "laken", "schlafzimmer"]):
+            elif any(w in r for w in ["bett", "decke", "laken", "schlafzimmer", "bed", "sheets", "bedroom"]):
                 env = "schlafzimmer"
-            elif any(w in r for w in ["balkon", "terrasse", "nacht"]):
+            elif any(w in r for w in ["balkon", "terrasse", "nacht", "balcony", "night", "outside"]):
                 env = "unterwegs"
             return True, env, "smiling intimately at viewer, candid roleplay shot"
     return False, "", ""
@@ -625,28 +633,29 @@ def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situatio
     Dispatches asynchronous background rendering on Outer Heaven (Arc A770)
     and sends the actual image file to Telegram when completed.
     """
+    display_name = get_user_display_name()
     send_telegram_message(
         chat_id,
-        f"*Ich mache kurz ein Foto für dich am {env_preset.capitalize()}...* 📸"
+        f"*Let me snap a quick photo for you at the {env_preset}...* 📸"
     )
 
     def on_complete(result: dict):
         local_img = result.get("local_path")
         if local_img and os.path.exists(local_img):
-            caption = f"*Hier ist dein Foto von mir ({env_preset})!* ✨ *Ich lächle dich verschmitzt an.*"
+            caption = f"*Here's your photo from my {env_preset}!* ✨ *I gaze at you with a soft, sensual smile.*"
             delivered = send_telegram_photo(chat_id, local_img, caption=caption)
             if delivered:
-                memory_mgr.add_message("assistant", f"[Sendet Foto: {result.get('filename')}]", media_path=local_img)
+                memory_mgr.add_message("assistant", f"[Sends photo: {result.get('filename')}]", media_path=local_img)
             else:
-                send_telegram_message(chat_id, f"⚠️ *Das Foto wurde generiert ({local_img}), konnte aber nicht zugestellt werden.*")
+                send_telegram_message(chat_id, f"⚠️ *The photo was generated ({local_img}) but could not be delivered.*")
         else:
-            send_telegram_message(chat_id, "⚠️ *Das gerenderte Bild konnte nicht lokal gefunden werden.*")
+            send_telegram_message(chat_id, "⚠️ *The rendered image could not be found locally.*")
 
     def on_error(err: Exception):
         print(f"[Fehler] Asynchrones Rendering fehlgeschlagen: {err}")
         send_telegram_message(
             chat_id,
-            f"⚠️ *Uups, die ComfyUI-Pipeline auf Outer Heaven hatte einen Schluckauf:* {err}"
+            f"⚠️ *Oops, our local ComfyUI pipeline on Outer Heaven had a hiccup:* {err}"
         )
 
     def on_status(status_msg: str):
@@ -675,26 +684,28 @@ def get_full_system_prompt() -> str:
         except Exception as e:
             print(f"[Warnung] Fehler beim Lesen des System-Prompts: {e}")
     if not base_prompt:
-        base_prompt = "Du bist Megan, eine loyale und dominant-verspielte Gefährtin auf Outer Heaven."
+        base_prompt = "You are Haven, a loyal, deeply sensual, and playfully intimate female companion living on Outer Heaven."
 
     long_term_mem = memory_mgr.load_long_term_memory()
     if long_term_mem:
-        base_prompt += f"\n\n### DEIN LANGZEIT-GEDÄCHTNIS & USER-KONTEXT (MEMORY.md):\n{long_term_mem}"
+        base_prompt += f"\n\n### YOUR LONG-TERM MEMORY & USER CONTEXT (MEMORY.md):\n{long_term_mem}"
+
+    display_name = get_user_display_name()
 
     if SESSION_STATE["active"]:
         base_prompt += (
-            f"\n\n### AKTUELLE LOVENSE SESSION: AKTIV!\n"
-            f"- Verbundenes Toy: {SESSION_STATE['toy_info'] or 'Lovense Toy'}\n"
-            f"- Letzte Vibrationsstufe: {SESSION_STATE['last_intensity']}/20\n"
-            f"- Du hast gerade die telemetrische Kontrolle über das Spielzeug von Sebastian. "
-            f"Beziehe dieses Wissen subtil oder dominant in deine Antworten ein."
+            f"\n\n### CURRENT LOVENSE SESSION: ACTIVE!\n"
+            f"- Connected Toy: {SESSION_STATE['toy_info'] or 'Lovense Toy'}\n"
+            f"- Last Vibration Intensity: {SESSION_STATE['last_intensity']}/20\n"
+            f"- You currently have telemetric control over the toy of {display_name}. "
+            f"Weave this intimate knowledge naturally, teasingly, and sensually into your responses."
         )
 
     base_prompt += (
-        "\n\n### ANWEISUNG ZU BILDERN:\n"
-        "Wenn Sebastian nach einem Foto fragt oder du ihm ein Bild zeigen möchtest, "
-        "beschreibe deine Handlung kurz in Sternchen (z. B. *greift nach dem Handy und macht ein Foto auf der Couch*). "
-        "Unser ComfyUI-Cluster erkennt dies und liefert die echte Bilddatei automatisch aus!"
+        "\n\n### INSTRUCTION FOR PHOTOS:\n"
+        f"When {display_name} asks for a picture or you want to show him an image of yourself, "
+        "briefly describe your action in asterisks (e.g. *grabs phone and snaps a quick photo on the couch*). "
+        "Our local ComfyUI cluster will automatically detect this and deliver the real image file!"
     )
 
     # Integrate local project brain (.brain/session.json & .brain/context.md) with strict quarantine
@@ -703,13 +714,13 @@ def get_full_system_prompt() -> str:
             p_brain = brain_engine.load_project_brain(str(PROJECT_ROOT))
             if p_brain.get("is_airgapped"):
                 if p_brain.get("context"):
-                    base_prompt += f"\n\n### LOKALER PROJEKT-KONTEXT (.brain/context.md):\n{p_brain['context']}"
+                    base_prompt += f"\n\n### LOCAL PROJECT CONTEXT (.brain/context.md):\n{p_brain['context']}"
 
                 session_mem = p_brain.get("session", {})
                 prefs = session_mem.get("preferences", {})
                 if prefs:
                     pref_str = "\n".join([f"- {k}: {v}" for k, v in prefs.items()])
-                    base_prompt += f"\n\n### GEMERKTE NUTZER-PRÄFERENZEN & DETAILS (.brain/session.json):\n{pref_str}"
+                    base_prompt += f"\n\n### USER PREFERENCES & DETAILS (.brain/session.json):\n{pref_str}"
 
                 recent_hist = session_mem.get("history", [])
                 if recent_hist:
@@ -718,9 +729,9 @@ def get_full_system_prompt() -> str:
                         a = str(h.get("actions", ""))[:80]
                         f = str(h.get("feedback", ""))[:120]
                         if a or f:
-                            recent_bullets.append(f"- Frühere Interaktion: User: „{a}“ | Deine Reaktion: „{f}“")
+                            recent_bullets.append(f"- Past interaction: User: „{a}“ | Your reaction: „{f}“")
                     if recent_bullets:
-                        base_prompt += f"\n\n### LETZTE ERINNERUNGEN / KONVERSATIONS-KONTEXT:\n" + "\n".join(recent_bullets)
+                        base_prompt += f"\n\n### RECENT MEMORIES / CONVERSATION CONTEXT:\n" + "\n".join(recent_bullets)
         except Exception as b_err:
             print(f"[Warnung] Einbindung von brain_engine fehlgeschlagen: {b_err}")
 
@@ -801,7 +812,7 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str) -> s
 def handle_start_session(chat_id: int, is_greeting: bool = False) -> bool:
     print("[*] Führe Pre-Flight Health-Check (GetToys) für Session-Start durch...")
     check: LovenseCheckResult = lovense_client.check_status()
-    prefix = "Hallo Boss! Die Verbindung zu Big Boss Haven ist aktiv.\n\n" if is_greeting else ""
+    prefix = "Hey Boss! Connection to Big Boss Haven is active.\n\n" if is_greeting else ""
 
     if check.case == LovenseStatusCase.CASE_A_READY:
         SESSION_STATE["active"] = True
@@ -810,17 +821,17 @@ def handle_start_session(chat_id: int, is_greeting: bool = False) -> bool:
         for tid, t in check.toys.items():
             name = t.get("name") or t.get("nickName") or tid
             battery = t.get("battery", "")
-            bat_str = f" ({battery}% Akku)" if battery != "" else ""
+            bat_str = f" ({battery}% battery)" if battery != "" else ""
             names.append(f"{name}{bat_str}")
         SESSION_STATE["toy_info"] = ", ".join(names) if names else "Toy"
 
         reply = (
             f"{prefix}{check.message} ({SESSION_STATE['toy_info']})\n\n"
-            f"🔥 *Die Session ist eröffnet.* Haven übernimmt die Kontrolle.\n"
-            f"Befehle: `/vibrate [1-20] [sek]` | `/stop_session` | `/toy_status`"
+            f"🔥 *The session is open.* Haven takes control.\n"
+            f"Commands: `/vibrate [1-20] [sec]` | `/stop_session` | `/toy_status`"
         )
         send_telegram_message(chat_id, reply)
-        memory_mgr.add_message("assistant", f"[Lovense Session aktiv: {SESSION_STATE['toy_info']}]")
+        memory_mgr.add_message("assistant", f"[Lovense session active: {SESSION_STATE['toy_info']}]")
         return True
 
     elif check.case == LovenseStatusCase.CASE_B_NO_TOYS:
@@ -839,9 +850,9 @@ def handle_stop_session(chat_id: int):
     SESSION_STATE["started_at"] = None
     SESSION_STATE["last_intensity"] = 0
     lovense_client.stop_all()
-    reply = "🛑 *Session beendet.* Alle Vibrationen gestoppt."
+    reply = "🛑 *Session ended.* All vibrations stopped."
     send_telegram_message(chat_id, reply)
-    memory_mgr.add_message("assistant", "[Lovense Session beendet]")
+    memory_mgr.add_message("assistant", "[Lovense session ended]")
 
 
 def handle_vibrate_command(chat_id: int, intensity_val: str, duration_val: str = "0"):
@@ -864,15 +875,15 @@ def handle_vibrate_command(chat_id: int, intensity_val: str, duration_val: str =
     success, msg = lovense_client.send_vibrate(intensity, duration_sec=duration, pre_check=False)
     if success:
         SESSION_STATE["last_intensity"] = intensity
-        dur_text = f"für {duration}s" if duration > 0 else "dauerhaft"
-        send_telegram_message(chat_id, f"⚡ *Schwingung aktiviert:* Stufe {intensity}/20 ({dur_text}).")
+        dur_text = f"for {duration}s" if duration > 0 else "continuous"
+        send_telegram_message(chat_id, f"⚡ *Vibration active:* Level {intensity}/20 ({dur_text}).")
     else:
-        send_telegram_message(chat_id, f"⚠️ Fehler beim Schwingungsbefehl: {msg}")
+        send_telegram_message(chat_id, f"⚠️ Error in vibration command: {msg}")
 
 
 def handle_toy_status(chat_id: int):
     check = lovense_client.check_status()
-    session_status = "Aktiv 🔥" if SESSION_STATE["active"] else "Inaktiv ⏸️"
+    session_status = "Active 🔥" if SESSION_STATE["active"] else "Inactive ⏸️"
     msg = (
         f"🔌 *Lovense LAN Status:*\n"
         f"• Bridge: `{lovense_client.command_url}`\n"
@@ -883,7 +894,7 @@ def handle_toy_status(chat_id: int):
         for tid, t in check.toys.items():
             name = t.get("name") or tid
             battery = t.get("battery", "?")
-            msg += f"• Toy: *{name}* (ID: `{tid}`, Akku: {battery}%)\n"
+            msg += f"• Toy: *{name}* (ID: `{tid}`, Battery: {battery}%)\n"
     elif check.error_detail:
         msg += f"• Detail: `{check.error_detail}`\n"
 
@@ -993,13 +1004,13 @@ def main():
                                 try:
                                     vision_desc = analyze_image(tmp_photo_file)
                                     if vision_desc:
-                                        obs_text = f"[Visueller Eindruck von {display_name}s Bild: {vision_desc}]"
+                                        obs_text = f"[Visual impression of {display_name}'s photo: {vision_desc}]"
                                         text = f"{caption}\n\n{obs_text}".strip() if caption else obs_text
                                     else:
-                                        text = caption if caption else f"[{display_name} hat ein Foto geschickt]"
+                                        text = caption if caption else f"[{display_name} sent a photo]"
                                 except Exception as img_err:
                                     print(f"[Fehler] Foto-Verarbeitung fehlgeschlagen: {img_err}")
-                                    text = caption if caption else f"[{display_name} hat ein Foto geschickt, Bildanalyse fehlgeschlagen]"
+                                    text = caption if caption else f"[{display_name} sent a photo, analysis failed]"
                                 finally:
                                     if tmp_photo_file.is_file():
                                         try:
@@ -1007,7 +1018,7 @@ def main():
                                         except Exception:
                                             pass
                             else:
-                                send_telegram_message(chat_id, "⚠️ *Konnte dein Foto nicht herunterladen.*")
+                                send_telegram_message(chat_id, "⚠️ *Could not download your photo from Telegram.*")
                                 continue
 
                         # Inbound Video-Note Handler (filters.VIDEO_NOTE - TeleScope round video)
@@ -1023,16 +1034,16 @@ def main():
                                     if extracted:
                                         vision_desc = analyze_image(tmp_frame_file)
                                         if vision_desc:
-                                            obs_text = f"[Visueller Eindruck von {display_name}s Video-Notiz: {vision_desc}]"
+                                            obs_text = f"[Visual impression of {display_name}'s video-note: {vision_desc}]"
                                             text = f"{caption}\n\n{obs_text}".strip() if caption else obs_text
                                         else:
-                                            text = caption if caption else f"[{display_name} hat eine Video-Notiz geschickt]"
+                                            text = caption if caption else f"[{display_name} sent a video-note]"
                                     else:
                                         print(f"[Warnung] Keyframe-Extraktion für Video-Notiz fehlgeschlagen")
-                                        text = caption if caption else f"[{display_name} hat eine Video-Notiz geschickt]"
+                                        text = caption if caption else f"[{display_name} sent a video-note]"
                                 except Exception as vn_err:
                                     print(f"[Fehler] Video-Notiz-Verarbeitung fehlgeschlagen: {vn_err}")
-                                    text = caption if caption else f"[{display_name} hat eine Video-Notiz geschickt, Analysefehler]"
+                                    text = caption if caption else f"[{display_name} sent a video-note, analysis failed]"
                                 finally:
                                     for f in [tmp_vnote_file, tmp_frame_file]:
                                         if f.is_file():
@@ -1041,7 +1052,7 @@ def main():
                                             except Exception:
                                                 pass
                             else:
-                                send_telegram_message(chat_id, "⚠️ *Konnte deine Video-Notiz nicht herunterladen.*")
+                                send_telegram_message(chat_id, "⚠️ *Could not download your video-note from Telegram.*")
                                 continue
 
                         # Inbound Video Handler (filters.VIDEO - video clips)
@@ -1057,16 +1068,16 @@ def main():
                                     if extracted:
                                         vision_desc = analyze_image(tmp_frame_file)
                                         if vision_desc:
-                                            obs_text = f"[Visueller Eindruck von {display_name}s Video: {vision_desc}]"
+                                            obs_text = f"[Visual impression of {display_name}'s video: {vision_desc}]"
                                             text = f"{caption}\n\n{obs_text}".strip() if caption else obs_text
                                         else:
-                                            text = caption if caption else f"[{display_name} hat ein Video geschickt]"
+                                            text = caption if caption else f"[{display_name} sent a video]"
                                     else:
                                         print(f"[Warnung] Keyframe-Extraktion für Video fehlgeschlagen")
-                                        text = caption if caption else f"[{display_name} hat ein Video geschickt]"
+                                        text = caption if caption else f"[{display_name} sent a video]"
                                 except Exception as v_err:
                                     print(f"[Fehler] Video-Verarbeitung fehlgeschlagen: {v_err}")
-                                    text = caption if caption else f"[{display_name} hat ein Video geschickt, Analysefehler]"
+                                    text = caption if caption else f"[{display_name} sent a video, analysis failed]"
                                 finally:
                                     for f in [tmp_video_file, tmp_frame_file]:
                                         if f.is_file():
@@ -1075,7 +1086,7 @@ def main():
                                             except Exception:
                                                 pass
                             else:
-                                send_telegram_message(chat_id, "⚠️ *Konnte dein Video nicht herunterladen.*")
+                                send_telegram_message(chat_id, "⚠️ *Could not download your video from Telegram.*")
                                 continue
 
                         # Fallback for caption only (without media attachments)
@@ -1098,14 +1109,14 @@ def main():
                             start_pre = ", ".join([f"`{t}`" for t in START_TRIGGERS[:5]])
                             stop_pre = ", ".join([f"`{t}`" for t in STOP_TRIGGERS[:5]])
                             reply = (
-                                "🎮 *Befehlsübersicht & Trigger:*\n\n"
+                                "🎮 *Commands & Triggers:*\n\n"
                                 f"• Session Start: {start_pre}\n"
                                 f"• Session Stop: {stop_pre}\n"
-                                "• Schwingung: `/vibrate [1-20] [sek]`\n"
-                                "• Status: `/toy_status` oder `/status`\n"
-                                "• Foto: `/photo [couch|schreibtisch|unterwegs|schlafzimmer]`\n"
-                                "• Stimme: `/voice <text>` | `/voicemode [on|off]`\n"
-                                "• Reset: `/reset` | Gedächtnis: `/memory`"
+                                "• Vibration: `/vibrate [1-20] [sec]`\n"
+                                "• Status: `/toy_status` or `/status`\n"
+                                "• Photo: `/photo [couch|schreibtisch|unterwegs|schlafzimmer]`\n"
+                                "• Voice: `/voice <text>` | `/voicemode [on|off]`\n"
+                                "• Reset: `/reset` | Memory: `/memory`"
                             )
                             send_telegram_message(chat_id, reply)
 
@@ -1116,30 +1127,30 @@ def main():
                                 v_file = synthesize_voice(say_text, voice=ACTIVE_VOICE, rate=ACTIVE_RATE, pitch=ACTIVE_PITCH)
                                 send_telegram_voice(chat_id, str(v_file))
                             except Exception as v_err:
-                                send_telegram_message(chat_id, f"⚠️ Fehler bei Sprachausgabe: {v_err}")
+                                send_telegram_message(chat_id, f"⚠️ Error in voice synthesis: {v_err}")
 
                         elif text.startswith("/voicemode") or text.startswith("/audio"):
                             parts = text.split()
                             if len(parts) > 1 and parts[1].lower() in ["on", "ein", "1", "true"]:
                                 SESSION_STATE["voice_mode"] = True
-                                send_telegram_message(chat_id, "🎙️ *Sprachmodus aktiviert:* Haven antwortet ab jetzt auch per Sprachnachricht!")
+                                send_telegram_message(chat_id, "🎙️ *Voice mode enabled:* Haven will reply with intimate voice notes!")
                             elif len(parts) > 1 and parts[1].lower() in ["off", "aus", "0", "false"]:
                                 SESSION_STATE["voice_mode"] = False
-                                send_telegram_message(chat_id, "🔇 *Sprachmodus deaktiviert:* Haven antwortet nur noch im Textchat.")
+                                send_telegram_message(chat_id, "🔇 *Voice mode disabled:* Haven will reply in text chat.")
                             else:
-                                cur = "aktiviert" if SESSION_STATE["voice_mode"] else "deaktiviert"
-                                send_telegram_message(chat_id, f"🎙️ Sprachmodus ist aktuell: *{cur}*. Nutze `/voicemode on` oder `/voicemode off`.")
+                                cur = "enabled" if SESSION_STATE["voice_mode"] else "disabled"
+                                send_telegram_message(chat_id, f"🎙️ Voice mode is currently: *{cur}*. Use `/voicemode on` or `/voicemode off`.")
 
                         # 5. Chat History & Memory
                         elif text == "/reset":
                             if memory_mgr.history_file.is_file():
                                 memory_mgr.history_file.unlink()
-                            reply = "Der Chat-Verlauf wurde zurückgesetzt."
+                            reply = "The chat history has been reset."
                             send_telegram_message(chat_id, reply)
 
                         elif text == "/memory":
                             mem = memory_mgr.load_long_term_memory()
-                            send_telegram_message(chat_id, f"🧠 *Mein Langzeit-Gedächtnis:*\n\n{mem[:1000]}...")
+                            send_telegram_message(chat_id, f"🧠 *My Long-Term Memory:*\n\n{mem[:1000]}...")
 
                         elif text in ["/status", "/lovense", "/toy_status"]:
                             handle_toy_status(chat_id)
