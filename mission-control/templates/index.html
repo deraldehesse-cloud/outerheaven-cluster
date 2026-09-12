@@ -137,7 +137,7 @@
         </div>
       </div>
 
-      <!-- Center: Tactical Tool Launch Bar -->
+      <!-- Center: Tactical Tool Launch Bar (Desktop Direct Links) -->
       <div class="flex items-center space-x-2 text-xs">
         <span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider hidden lg:inline">TACTICAL DEPLOY:</span>
         <a href="http://127.0.0.1:3000" target="_blank" rel="noopener noreferrer"
@@ -154,21 +154,6 @@
            class="px-2.5 py-1 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 hover:border-amber-400 text-amber-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-amber"
            title="ComfyUI Studio auf Outer Heaven öffnen (:8188)">
           <span>🎨 ComfyUI Studio</span>
-        </a>
-        <a href="/3d-viewer" target="_blank" rel="noopener noreferrer"
-           class="px-2.5 py-1 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-800/60 hover:border-cyan-400 text-cyan-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-cyan"
-           title="3D Model Lab & Asset Inspector öffnen (/3d-viewer)">
-          <span>🧊 3D Asset Lab</span>
-        </a>
-        <a href="#bueroStation" onclick="document.getElementById('bueroStation')?.scrollIntoView({behavior: 'smooth'})"
-           class="px-2.5 py-1 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/60 hover:border-emerald-400 text-emerald-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-emerald"
-           title="Hermes Büro & Karriere Dashboard öffnen">
-          <span>🏢 Büro / Hermes</span>
-        </a>
-        <a href="#companionSettingsSection" onclick="document.getElementById('companionSettingsSection')?.scrollIntoView({behavior: 'smooth'})"
-           class="px-2.5 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink"
-           title="Companion Bot Konfiguration & Hot-Reload">
-          <span>💋 Bot Settings</span>
         </a>
       </div>
 
@@ -187,7 +172,7 @@
              title="Hover / Klick zum Aufdecken der IP">
           <span id="headerFoxDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
           <span class="text-slate-400 text-[11px]">FOX:</span>
-          <span class="font-bold text-amber-300 font-mono ip-text" data-full="{{ fox_ip }}" data-masked="100.***.184.87">100.***.184.87</span>
+          <span class="font-bold text-amber-300 font-mono ip-text" data-full="{{ fox_ip }}" data-masked="100.***.155.70">100.***.155.70</span>
           <span class="text-[10px] text-slate-500 group-hover:text-amber-400 transition">👁️</span>
         </div>
         <button type="button" id="btnGlobalRefresh" onclick="refreshAllDashboardData()"
@@ -198,8 +183,14 @@
           </svg>
           <span class="hidden sm:inline">REFRESH</span>
         </button>
-        <form action="/logout" method="post" class="inline">
-          <button type="submit" class="px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 text-xs rounded transition flex items-center space-x-1">
+        <button type="button" id="btnToggleAgentDrawer" onclick="toggleAgentDrawer()"
+                class="px-2.5 py-1 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-700/60 hover:border-cyan-400 text-cyan-300 text-xs rounded transition flex items-center space-x-1.5 font-mono font-bold glow-cyan"
+                title="Tactical Agent Konsole öffnen / schließen">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+          <span class="hidden md:inline">CONSOLE</span>
+        </button>
+        <form action="/logout" method="post" class="inline" onsubmit="document.cookie='mc_session=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';">
+          <button type="submit" class="px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 text-xs rounded transition flex items-center space-x-1" title="Sitzung beenden / Logout">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
             <span>LOCK</span>
           </button>
@@ -208,158 +199,158 @@
     </div>
   </header>
 
-  <!-- Main Container -->
-  <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 space-y-4">
+  <!-- Fixer Pfeil-Button Linke Seitenleiste (Workspaces Toggle) -->
+  <button id="btnToggleLeftSidebar" onclick="toggleCockpitSidebar()" type="button"
+          class="fixed left-0 top-1/2 -translate-y-1/2 z-40 bg-slate-900/90 hover:bg-slate-800 text-cyan-400 border border-l-0 border-slate-700/80 hover:border-cyan-400 rounded-r-md px-1.5 py-3 shadow-2xl transition-all duration-300 flex items-center justify-center font-bold text-xs group select-none"
+          title="Workspaces ein-/ausklappen (❯ / ❮)">
+    <span id="sidebarToggleIcon" class="group-hover:scale-125 transition-transform">❯</span>
+  </button>
 
-    <!-- Tactical Cluster Delegation & Task Status Bar -->
-    <section class="bg-slate-950/90 border border-slate-800 rounded-lg p-3 shadow-lg relative overflow-hidden transition-all duration-300" id="delegationContainer">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <!-- Left: Badge & State -->
-        <div class="flex items-center space-x-3">
-          <span class="text-[11px] uppercase font-bold tracking-wider text-slate-400 font-mono flex items-center space-x-1.5">
-            <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-            <span>CLUSTER DELEGATION:</span>
-          </span>
-          <div id="delegationBadge" class="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 bg-slate-900 border border-slate-700 text-slate-400 transition-all">
-            <span id="delegationDot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span id="delegationStateText">STANDBY // IDLE</span>
-          </div>
-        </div>
+  <!-- 3-Zone Cockpit Layout -->
+  <div class="flex-1 flex overflow-hidden w-full relative min-h-[calc(100vh-62px)]">
 
-        <!-- Center: Current Task Info -->
-        <div class="flex-1 min-w-[240px] text-xs font-mono flex items-center space-x-2 bg-slate-900/60 px-3 py-1.5 rounded border border-slate-800/80">
-          <span class="text-slate-500 text-[10px] uppercase font-bold">TASK:</span>
-          <span id="delegationTaskText" class="text-slate-300 truncate italic">Bereit für Cluster-Aufgaben</span>
-        </div>
-
-        <!-- Right: Current Compute Node & Active Model -->
-        <div class="flex items-center space-x-2 text-xs font-mono">
-          <div class="bg-slate-900 px-2 py-1 rounded border border-slate-800 flex items-center space-x-1.5">
-            <span class="text-slate-500 text-[10px]">KNOTEN:</span>
-            <span id="delegationNodeText" class="text-slate-300 font-bold">STANDBY</span>
-          </div>
-          <div class="bg-slate-900 px-2 py-1 rounded border border-slate-800 flex items-center space-x-1.5">
-            <span class="text-slate-500 text-[10px]">MODELL:</span>
-            <span id="delegationModelText" class="text-slate-400 font-bold">--</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Cluster Live Service Health Bar -->
-    <section class="bg-slate-950/80 border border-slate-800/80 rounded-lg p-3 shadow-md">
-      <div class="flex flex-wrap items-center justify-between gap-2.5">
-        <div class="flex items-center space-x-2 text-xs font-mono">
-          <span class="text-[11px] uppercase font-bold text-slate-400 flex items-center space-x-1.5">
+    <!-- ZONE 1: Linke Seitenleiste (Navigation: Workspaces) - standardmäßig eingeklappt -->
+    <aside id="cockpitSidebar" class="hidden w-56 lg:w-60 bg-slate-950/95 border-r border-slate-800 flex flex-col justify-between shrink-0 z-30 transition-all duration-300 font-mono select-none">
+      <div class="p-3 space-y-4">
+        <!-- Sidebar Header -->
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800/80">
+          <span class="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center space-x-1.5">
             <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-            <span>CLUSTER HEALTH MONITORS:</span>
+            <span>WORKSPACES</span>
           </span>
+          <button type="button" onclick="closeCockpitSidebar()" class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white text-xs transition" title="Seitenleiste einklappen">✕</button>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2 text-xs font-mono">
-          <!-- ComfyUI Service -->
-          <div id="healthComfyCard" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 flex items-center space-x-1.5 hover:border-cyan-500/40 transition">
-            <span class="text-slate-500 text-[10px]">COMFYUI (:8188):</span>
-            <span id="healthComfyDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
-            <span id="healthComfyStatus" class="font-bold text-slate-300">CHECKING...</span>
-          </div>
+        <!-- Navigation items -->
+        <nav class="space-y-1.5 text-xs">
+          <!-- Catlord -->
+          <button type="button" id="navItemCatlord" onclick="selectWorkspace('catlord')"
+                  class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-cyan-500/30 bg-cyan-950/20 text-cyan-300 transition text-left group">
+            <span class="text-base group-hover:scale-110 transition">🐱</span>
+            <div>
+              <div class="font-bold text-[12px] text-cyan-300">Catlord</div>
+              <div class="text-[10px] text-slate-400">Manga & Art Engine</div>
+            </div>
+          </button>
 
-          <!-- Ollama Service -->
-          <div id="healthOllamaCard" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 flex items-center space-x-1.5 hover:border-cyan-500/40 transition">
-            <span class="text-slate-500 text-[10px]">OLLAMA (:11434):</span>
-            <span id="healthOllamaDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
-            <span id="healthOllamaStatus" class="font-bold text-slate-300">CHECKING...</span>
-            <span id="healthOllamaModels" class="text-[10px] text-cyan-400 font-normal truncate max-w-[180px]"></span>
-          </div>
+          <!-- Büro / Hermes -->
+          <button type="button" id="navItemBuero" onclick="selectWorkspace('buero')"
+                  class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-transparent hover:border-emerald-500/40 hover:bg-emerald-950/20 text-slate-300 hover:text-emerald-300 transition text-left group">
+            <span class="text-base group-hover:scale-110 transition">🏢</span>
+            <div>
+              <div class="font-bold text-[12px] group-hover:text-emerald-300">Büro / Hermes</div>
+              <div class="text-[10px] text-slate-500">Invoices & Jobs Hub</div>
+            </div>
+          </button>
 
-          <!-- Hermes Invoices -->
-          <div id="healthInvoicesCard" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 flex items-center space-x-1.5 hover:border-emerald-500/40 transition">
-            <span class="text-slate-500 text-[10px]">RECHNUNGEN:</span>
-            <span id="healthInvoicesDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
-            <span id="healthInvoicesStatus" class="font-bold text-slate-300">CHECKING...</span>
-            <span class="text-[10px] text-slate-500">⏱️ 2m</span>
-          </div>
+          <!-- 3D Asset Lab -->
+          <a href="/3d-viewer" target="_blank" id="navItem3d"
+             class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-transparent hover:border-cyan-500/40 hover:bg-cyan-950/20 text-slate-300 hover:text-cyan-300 transition text-left group">
+            <span class="text-base group-hover:scale-110 transition">🧊</span>
+            <div>
+              <div class="font-bold text-[12px] group-hover:text-cyan-300">3D Asset Lab</div>
+              <div class="text-[10px] text-slate-500">Gaussian & Meshes ↗</div>
+            </div>
+          </a>
+        </nav>
+      </div>
 
-          <!-- Hermes Jobs -->
-          <div id="healthJobsCard" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 flex items-center space-x-1.5 hover:border-emerald-500/40 transition">
-            <span class="text-slate-500 text-[10px]">BEWERBUNG:</span>
-            <span id="healthJobsDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
-            <span id="healthJobsStatus" class="font-bold text-slate-300">CHECKING...</span>
-            <span class="text-[10px] text-slate-500">⏱️ 3m</span>
-          </div>
-
-          <!-- Big Boss Haven Bot -->
-          <div id="healthBotCard" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 flex items-center space-x-1.5 hover:border-amber-500/40 transition">
-            <span class="text-slate-500 text-[10px]">BOT:</span>
-            <span id="healthBotDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
-            <span id="healthBotStatus" class="font-bold text-slate-300">CHECKING...</span>
-          </div>
+      <!-- Sidebar Footer -->
+      <div class="p-3 border-t border-slate-900 bg-black/40 text-[10px] text-slate-500 space-y-1">
+        <div class="flex items-center justify-between">
+          <span>CLEARANCE:</span>
+          <span class="font-bold font-mono {% if is_restricted %}text-pink-400{% else %}text-cyan-400{% endif %}">{% if is_restricted %}LEVEL-2 [UNRESTRICTED]{% else %}LEVEL-1 [STANDARD]{% endif %}</span>
+        </div>
+        <div class="flex items-center justify-between text-slate-600">
+          <span>KNOTEN:</span>
+          <span>OH (7) • FOX (8)</span>
         </div>
       </div>
-    </section>
+    </aside>
 
-    <!-- Cluster Status Bar (Side by Side) -->
-    <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      
-      <!-- Outer Heaven Node Card -->
-      <div class="bg-slate-950/90 border border-cyan-dim rounded-lg p-4 glow-cyan relative overflow-hidden">
-        <div class="absolute top-0 right-0 w-24 h-24 bg-cyan-500/5 rounded-bl-full pointer-events-none"></div>
-        <div class="flex items-center justify-between pb-2 mb-3 border-b border-slate-800/80">
-          <div class="flex items-center space-x-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
-            <h2 class="text-sm font-bold tracking-wider text-cyan-300">NODE // OUTER HEAVEN</h2>
-          </div>
-          <span class="text-[10px] text-slate-500 font-mono">HP Z620 • DUAL XEON • ARC A770</span>
-        </div>
+    <!-- ZONE 2: Mittlerer Hauptbereich (Main Stage) -->
+    <main class="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 min-w-0">
 
-        <!-- Tactical Handover Queue & Task Banners for OH -->
-        <div id="ohQueuedTaskBanner" class="hidden mb-3 p-2.5 rounded bg-amber-950/80 border border-amber-500/80 text-[11px] text-amber-300 font-mono flex items-center justify-between animate-pulse glow-amber">
-          <div class="flex items-center space-x-2 truncate">
-            <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-            <span class="font-bold text-amber-400">[QUEUED TASK: <span id="ohQueuedTaskName">Drive Asset Sync</span>]</span>
-          </div>
-          <span class="text-[10px] text-amber-200/70 shrink-0 ml-2">⏳ Wartet auf ComfyUI Leerlauf</span>
-        </div>
-
-        <div id="ohWorkingTaskBanner" class="hidden mb-3 p-2.5 rounded bg-cyan-950/90 border border-cyan-400 text-[11px] text-cyan-300 font-mono flex items-center justify-between animate-pulse glow-cyan">
-          <div class="flex items-center space-x-2 truncate">
-            <svg class="w-3.5 h-3.5 text-cyan-400 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
-            <span class="font-bold text-cyan-300">⚡ WORKING ON FOX TASK: <span id="ohWorkingTaskName" class="text-slate-100"></span></span>
-          </div>
-          <span id="ohWorkingTaskModel" class="text-[10px] text-cyan-300/80 shrink-0 ml-2">{{ local_model }} Aktiv</span>
-        </div>
-
-        <!-- Active Task Highlight for OH -->
-        <div id="ohActiveTaskBadge" class="hidden mb-3 p-2 rounded bg-cyan-950/80 border border-cyan-500/80 text-[11px] text-cyan-300 font-mono flex items-center space-x-2 animate-pulse glow-cyan">
-          <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
-          <span class="font-bold">⚡ DELEGATED TO OH:</span>
-          <span id="ohActiveTaskName" class="truncate text-slate-100 font-semibold"></span>
-        </div>
-
-        <!-- Telemetry Gauges -->
-        <div class="space-y-3 text-xs font-mono">
-          <!-- GPU VRAM -->
-          <div>
-            <div class="flex justify-between text-[11px] mb-1">
-              <span class="text-cyan-400 font-semibold">ARC A770 VRAM (16 GB):</span>
-              <span id="ohVramText" class="text-slate-300">-- / 16.0 GB (--%)</span>
-            </div>
-            <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
-              <div id="ohVramBar" class="bg-gradient-to-r from-cyan-600 to-cyan-400 h-full w-0 transition-all duration-500"></div>
-            </div>
-          </div>
-
-          <!-- CPU & RAM -->
-          <div class="grid grid-cols-2 gap-3 pt-1">
-            <div>
-              <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                <span>LOAD:</span>
-                <span id="ohLoadText" class="text-slate-200">0.0, 0.0, 0.0</span>
+      <!-- Symmetrische Node-Karten (Raster 7 & 8) -->
+      <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        
+        <!-- Knoten 7: NODE // OUTER HEAVEN -->
+        <div class="bg-slate-950/90 border border-cyan-dim rounded-lg p-4 glow-cyan relative overflow-hidden flex flex-col justify-between">
+          <div class="absolute top-0 right-0 w-24 h-24 bg-cyan-500/5 rounded-bl-full pointer-events-none"></div>
+          
+          <!-- Kopfzeile -->
+          <div class="flex items-center justify-between pb-2.5 mb-3 border-b border-slate-800/80">
+            <div class="flex items-center space-x-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+              <div>
+                <h2 class="text-sm font-bold tracking-wider text-cyan-300 font-mono">NODE // OUTER HEAVEN</h2>
+                <span class="text-[10px] text-slate-500 font-mono block">HP Z620 • DUAL XEON • ARC A770</span>
               </div>
             </div>
+            <div class="flex flex-col items-end space-y-1">
+              <div class="text-[10px] text-cyan-400 font-mono bg-cyan-950/40 border border-cyan-800/40 px-2 py-0.5 rounded cursor-pointer select-none"
+                   onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)" title="Tailscale IP aufdecken">
+                <span class="ip-text" data-full="{{ outerheaven_ip }}" data-masked="100.***.***.29">{{ outerheaven_ip }}</span>
+              </div>
+              <div id="ohDelegationBadge" class="px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center space-x-1 bg-slate-900 border border-slate-700 text-slate-400">
+                <span id="ohDelegationDot" class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span id="ohDelegationText">DELEGATION: IDLE</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tactical Handover Queue & Task Banners for OH -->
+          <div id="ohQueuedTaskBanner" class="hidden mb-3 p-2 rounded bg-amber-950/80 border border-amber-500/80 text-[11px] text-amber-300 font-mono flex items-center justify-between animate-pulse glow-amber">
+            <div class="flex items-center space-x-2 truncate">
+              <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+              <span class="font-bold text-amber-400">[QUEUED TASK: <span id="ohQueuedTaskName">Drive Asset Sync</span>]</span>
+            </div>
+            <span class="text-[10px] text-amber-200/70 shrink-0 ml-2">⏳ Wartet auf ComfyUI</span>
+          </div>
+
+          <div id="ohWorkingTaskBanner" class="hidden mb-3 p-2 rounded bg-cyan-950/90 border border-cyan-400 text-[11px] text-cyan-300 font-mono flex items-center justify-between animate-pulse glow-cyan">
+            <div class="flex items-center space-x-2 truncate">
+              <svg class="w-3.5 h-3.5 text-cyan-400 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+              <span class="font-bold text-cyan-300">⚡ TASK: <span id="ohWorkingTaskName" class="text-slate-100"></span></span>
+            </div>
+            <span id="ohWorkingTaskModel" class="text-[10px] text-cyan-300/80 shrink-0 ml-2">{{ local_model }}</span>
+          </div>
+
+          <!-- Active Task Highlight for OH -->
+          <div id="ohActiveTaskBadge" class="hidden mb-3 p-2 rounded bg-cyan-950/80 border border-cyan-500/80 text-[11px] text-cyan-300 font-mono flex items-center space-x-2 animate-pulse glow-cyan">
+            <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+            <span class="font-bold">⚡ DELEGATED TO OH:</span>
+            <span id="ohActiveTaskName" class="truncate text-slate-100 font-semibold"></span>
+          </div>
+
+          <!-- Hardware-Metriken (Progress-Bars) -->
+          <div class="space-y-2.5 text-xs font-mono mb-3">
+            <!-- ARC A770 VRAM -->
+            <div>
+              <div class="flex justify-between text-[11px] mb-1">
+                <span class="text-cyan-400 font-semibold">ARC A770 VRAM (16 GB):</span>
+                <span id="ohVramText" class="text-slate-300">-- / 16.0 GB (--%)</span>
+              </div>
+              <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+                <div id="ohVramBar" class="bg-gradient-to-r from-cyan-600 to-cyan-400 h-full w-0 transition-all duration-500"></div>
+              </div>
+            </div>
+
+            <!-- CPU Load -->
             <div>
               <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                <span>RAM:</span>
+                <span>CPU LOAD:</span>
+                <span id="ohLoadText" class="text-slate-200">0.0, 0.0, 0.0</span>
+              </div>
+              <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                <div id="ohCpuBar" class="bg-cyan-500/80 h-full w-0 transition-all duration-500"></div>
+              </div>
+            </div>
+
+            <!-- System RAM -->
+            <div>
+              <div class="flex justify-between text-[10px] text-slate-400 mb-1">
+                <span>SYSTEM RAM:</span>
                 <span id="ohRamText" class="text-slate-200">-- GB (--%)</span>
               </div>
               <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
@@ -368,32 +359,38 @@
             </div>
           </div>
 
-          <!-- Outer Heaven Services -->
-          <div class="pt-2 border-t border-slate-800/60">
+          <!-- Modell-Integration -->
+          <div class="mb-3 p-2 bg-slate-900/60 rounded border border-slate-800 flex items-center justify-between text-[11px] font-mono">
+            <span class="text-slate-400">OLLAMA MODELL:</span>
+            <span id="ohModelBadge" class="font-bold text-cyan-300 truncate max-w-[200px]">{{ local_model }}</span>
+          </div>
+
+          <!-- Knoten-Dienste (2x2-Grid) -->
+          <div class="pt-2 border-t border-slate-800/60 font-mono">
             <div class="text-[10px] uppercase text-slate-500 tracking-wider mb-1.5">Knoten-Dienste</div>
             <div class="grid grid-cols-2 gap-2 text-[11px]">
-              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1 rounded border border-slate-800">
-                <span class="text-slate-300">ComfyUI (8188)</span>
+              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
+                <span class="text-slate-300">ComfyUI (:8188)</span>
                 <div class="flex items-center space-x-1.5">
                   <span id="svc_comfyui" class="px-1.5 py-0.2 text-[9px] rounded font-bold bg-slate-800 text-slate-400">...</span>
                   <button onclick="controlService('outerheaven', 'comfyui', 'restart')" title="Restart ComfyUI" class="text-slate-500 hover:text-cyan-300 transition">⟳</button>
                 </div>
               </div>
-              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1 rounded border border-slate-800">
-                <span class="text-slate-300">Ollama (11434)</span>
+              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
+                <span class="text-slate-300">Ollama (:11434)</span>
                 <div class="flex items-center space-x-1.5">
                   <span id="svc_ollama" class="px-1.5 py-0.2 text-[9px] rounded font-bold bg-slate-800 text-slate-400">...</span>
                   <button onclick="controlService('outerheaven', 'ollama', 'restart')" title="Restart Ollama" class="text-slate-500 hover:text-cyan-300 transition">⟳</button>
                 </div>
               </div>
-              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1 rounded border border-slate-800">
+              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
                 <span class="text-slate-300">Hermes Bot</span>
                 <div class="flex items-center space-x-1.5">
                   <span id="svc_hermes-telegram" class="px-1.5 py-0.2 text-[9px] rounded font-bold bg-slate-800 text-slate-400">...</span>
                   <button onclick="controlService('outerheaven', 'hermes-telegram', 'restart')" title="Restart Bot" class="text-slate-500 hover:text-cyan-300 transition">⟳</button>
                 </div>
               </div>
-              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1 rounded border border-slate-800">
+              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
                 <span class="text-slate-300">Watcher</span>
                 <div class="flex items-center space-x-1.5">
                   <span id="svc_ollama-model-watcher" class="px-1.5 py-0.2 text-[9px] rounded font-bold bg-slate-800 text-slate-400">...</span>
@@ -403,58 +400,67 @@
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Fox Node Card -->
-      <div class="bg-slate-950/90 border border-amber-dim rounded-lg p-4 glow-amber relative overflow-hidden">
-        <div class="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-bl-full pointer-events-none"></div>
-        <div class="flex items-center justify-between pb-2 mb-3 border-b border-slate-800/80">
-          <div class="flex items-center space-x-2">
-            <span id="foxStatusDot" class="w-2.5 h-2.5 rounded-full bg-slate-600"></span>
-            <h2 class="text-sm font-bold tracking-wider text-amber-400">NODE // FOX</h2>
-          </div>
-          <span class="text-[10px] text-slate-500 font-mono">HP ELITEDESK • AUX DELEGATE</span>
-        </div>
-
-        <!-- Active Task Highlight for Fox -->
-        <div id="foxActiveTaskBadge" class="hidden mb-3 p-2 rounded bg-amber-950/80 border border-amber-500/80 text-[11px] text-amber-300 font-mono flex items-center space-x-2 animate-pulse glow-amber">
-          <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-          <span class="font-bold">🦊 DELEGATED TO FOX:</span>
-          <span id="foxActiveTaskName" class="truncate text-slate-100 font-semibold"></span>
-        </div>
-
-        <!-- Telemetry Gauges -->
-        <div class="space-y-3 text-xs font-mono">
-          <!-- Active Ollama Model -->
-          <div>
-            <div class="flex justify-between text-[11px] mb-1">
-              <span class="text-amber-400 font-semibold">OLLAMA ENGINE (FOX):</span>
-              <span id="foxModelText" class="text-slate-300">hermes-3-3b-q4</span>
+        <!-- Knoten 8: NODE // FOX -->
+        <div class="bg-slate-950/90 border border-amber-dim rounded-lg p-4 glow-amber relative overflow-hidden flex flex-col justify-between">
+          <div class="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-bl-full pointer-events-none"></div>
+          
+          <!-- Kopfzeile -->
+          <div class="flex items-center justify-between pb-2.5 mb-3 border-b border-slate-800/80">
+            <div class="flex items-center space-x-2">
+              <span id="foxStatusDot" class="w-2.5 h-2.5 rounded-full bg-slate-600"></span>
+              <div>
+                <h2 class="text-sm font-bold tracking-wider text-amber-400 font-mono">NODE // FOX</h2>
+                <span class="text-[10px] text-slate-500 font-mono block">HP ELITEDESK • AUX DELEGATE</span>
+              </div>
             </div>
-            <div class="bg-slate-900 p-1.5 rounded border border-slate-800 text-[11px] text-slate-300 flex items-center justify-between cursor-pointer group hover:border-amber-500/40 transition select-none"
-                 onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)"
-                 title="Hover / Klick zum Aufdecken der IP">
-              <span class="text-slate-400">Tailscale API:</span>
-              <div class="flex items-center space-x-1 font-mono">
-                <span class="text-slate-400">http://</span>
-                <span class="text-amber-300 font-bold ip-text" data-full="{{ fox_ip }}" data-masked="100.***.184.87">100.***.184.87</span>
-                <span class="text-slate-400">:11434</span>
-                <span class="text-[10px] text-slate-500 group-hover:text-amber-400 transition ml-1">👁️</span>
+            <div class="flex flex-col items-end space-y-1">
+              <div class="text-[10px] text-amber-400 font-mono bg-amber-950/40 border border-amber-800/40 px-2 py-0.5 rounded cursor-pointer select-none"
+                   onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)" title="Tailscale IP aufdecken">
+                <span class="ip-text" data-full="{{ fox_ip }}" data-masked="100.***.155.70">{{ fox_ip }}</span>
+              </div>
+              <div id="foxDelegationBadge" class="px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center space-x-1 bg-slate-900 border border-slate-700 text-slate-400">
+                <span id="foxDelegationDot" class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span id="foxDelegationText">DELEGATION: IDLE</span>
               </div>
             </div>
           </div>
 
-          <!-- CPU & RAM -->
-          <div class="grid grid-cols-2 gap-3 pt-1">
+          <!-- Active Task Highlight for Fox -->
+          <div id="foxActiveTaskBadge" class="hidden mb-3 p-2 rounded bg-amber-950/80 border border-amber-500/80 text-[11px] text-amber-300 font-mono flex items-center space-x-2 animate-pulse glow-amber">
+            <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+            <span class="font-bold">🦊 DELEGATED:</span>
+            <span id="foxActiveTaskName" class="truncate text-slate-100 font-semibold"></span>
+          </div>
+
+          <!-- Hardware-Metriken (Progress-Bars, Symmetrisch zu OH) -->
+          <div class="space-y-2.5 text-xs font-mono mb-3">
+            <!-- Aux Compute Slot -->
+            <div>
+              <div class="flex justify-between text-[11px] mb-1">
+                <span class="text-amber-400 font-semibold">AUX COMPUTE / TS LINK:</span>
+                <span id="foxComputeText" class="text-slate-300">ACTIVE // 11434</span>
+              </div>
+              <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+                <div id="foxComputeBar" class="bg-gradient-to-r from-amber-600 to-amber-400 h-full w-full opacity-60 transition-all duration-500"></div>
+              </div>
+            </div>
+
+            <!-- CPU Load -->
             <div>
               <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                <span>LOAD:</span>
+                <span>CPU LOAD:</span>
                 <span id="foxLoadText" class="text-slate-200">--</span>
               </div>
+              <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                <div id="foxCpuBar" class="bg-amber-500/80 h-full w-0 transition-all duration-500"></div>
+              </div>
             </div>
+
+            <!-- System RAM -->
             <div>
               <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                <span>RAM:</span>
+                <span>SYSTEM RAM:</span>
                 <span id="foxRamText" class="text-slate-200">-- GB (--%)</span>
               </div>
               <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
@@ -463,130 +469,52 @@
             </div>
           </div>
 
-          <!-- Fox Services -->
-          <div class="pt-2 border-t border-slate-800/60">
+          <!-- Modell-Integration -->
+          <div class="mb-3 p-2 bg-slate-900/60 rounded border border-slate-800 flex items-center justify-between text-[11px] font-mono">
+            <span class="text-slate-400">OLLAMA ENGINE (FOX):</span>
+            <span id="foxModelText" class="font-bold text-amber-300 truncate max-w-[200px]">{{ fox_model }}</span>
+          </div>
+
+          <!-- Knoten-Dienste (2x2-Grid, identische Höhe wie Outer Heaven) -->
+          <div class="pt-2 border-t border-slate-800/60 font-mono">
             <div class="text-[10px] uppercase text-slate-500 tracking-wider mb-1.5">Knoten-Dienste</div>
             <div class="grid grid-cols-2 gap-2 text-[11px]">
-              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1 rounded border border-slate-800">
+              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
                 <span class="text-slate-300">Hermes Gateway</span>
                 <div class="flex items-center space-x-1.5">
                   <span id="svc_hermes-gateway" class="px-1.5 py-0.2 text-[9px] rounded font-bold bg-slate-800 text-slate-400">...</span>
                   <button onclick="controlService('fox', 'hermes-gateway', 'restart')" title="Restart Gateway" class="text-slate-500 hover:text-amber-300 transition">⟳</button>
                 </div>
               </div>
-              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1 rounded border border-slate-800">
+              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
                 <span class="text-slate-300">Ollama Daemon</span>
                 <div class="flex items-center space-x-1.5">
                   <span id="svc_fox_ollama" class="px-1.5 py-0.2 text-[9px] rounded font-bold bg-slate-800 text-slate-400">...</span>
                   <button onclick="controlService('fox', 'ollama', 'restart')" title="Restart Ollama" class="text-slate-500 hover:text-amber-300 transition">⟳</button>
                 </div>
               </div>
-              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1 rounded border border-slate-800 col-span-2">
+              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
                 <span class="text-slate-300">Tailscale Proxy (:11434)</span>
                 <div class="flex items-center space-x-1.5">
                   <span id="svc_ollama-tailscale-proxy" class="px-1.5 py-0.2 text-[9px] rounded font-bold bg-slate-800 text-slate-400">...</span>
                   <button onclick="controlService('fox', 'ollama-tailscale-proxy', 'restart')" title="Restart Proxy" class="text-slate-500 hover:text-amber-300 transition">⟳</button>
                 </div>
               </div>
+              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
+                <span class="text-slate-300">Cluster Sync</span>
+                <div class="flex items-center space-x-1.5">
+                  <span id="svc_fox_sync" class="px-1.5 py-0.2 text-[9px] rounded font-bold bg-slate-800 text-emerald-400">STANDBY</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-    </section>
-
-    <!-- Lower Workstation Grid: Dual-Agent Chat (Left) & ComfyUI Studio (Right) -->
-    <section class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-
-      <!-- Chat Station (7 cols on lg) -->
-      <div class="lg:col-span-7 bg-slate-950/90 border border-slate-800 rounded-lg flex flex-col h-[620px] overflow-hidden">
-        
-        <!-- Chat Header & Node Switcher -->
-        <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex flex-wrap items-center justify-between gap-2">
-          <div class="flex items-center space-x-1.5 bg-black/60 p-1 rounded-lg border border-slate-800 text-xs">
-            <button id="btnNodeOH" onclick="setChatNode('outerheaven')" class="px-3 py-1 rounded-md font-bold text-xs transition bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow">
-              <span id="btnNodeOHLabel">OUTER HEAVEN // {{ local_model }}</span>
-            </button>
-            <button id="btnNodeFox" onclick="setChatNode('fox')" class="px-3 py-1 rounded-md font-bold text-xs transition text-slate-400 hover:text-slate-200 border border-transparent">
-              FOX // Hermes-3 (3B)
-            </button>
-          </div>
-          <div class="flex items-center space-x-2">
-            <!-- TTS Toggle Switch -->
-            <label class="flex items-center cursor-pointer space-x-2 px-2.5 py-1 bg-black/60 border border-slate-800 rounded-lg hover:border-cyan-500/50 transition" title="Antworten auf Deutsch vorlesen">
-              <input type="checkbox" id="ttsToggle" class="sr-only peer">
-              <div class="w-7 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 peer-checked:after:bg-cyan-400 after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-950 peer-checked:border-cyan-500 relative"></div>
-              <span class="text-slate-400 peer-checked:text-cyan-300 text-xs font-bold flex items-center space-x-1 select-none">
-                <span>🔊 Sprachausgabe (TTS)</span>
-              </span>
-            </label>
-            <button onclick="clearChat()" class="text-xs text-slate-500 hover:text-rose-400 transition flex items-center space-x-1 px-2 py-1">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-              <span>CLEAR</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Chat Stream Area -->
-        <div id="chatMessages" class="flex-1 p-4 overflow-y-auto space-y-4 scrollbar-thin text-xs sm:text-sm">
-          <div id="tacticalChatWelcomeCard" class="p-3 bg-slate-900/50 border border-slate-800/80 rounded-lg text-slate-400">
-            <div class="text-cyan-400 font-bold mb-1 flex items-center space-x-2">
-              <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-              <span id="tacticalChatStatusTitle">TACTICAL AGENT CHAT READY (Ollama: {{ local_model }})</span>
-            </div>
-            <div id="tacticalChatStatusDesc">
-              Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">{{ local_model }}</span> auf Outer Heaven führt komplexe Überlegungen durch (Reasoning-Tags werden serverseitig gefiltert). Hermes-3 (3B) auf Fox bietet schnelle Assistenz.
-            </div>
-          </div>
-        </div>
-
-        <!-- Thinking Indicator -->
-        <div id="thinkingBadge" class="hidden px-4 py-1.5 bg-cyan-950/40 border-t border-cyan-800/40 text-[11px] text-cyan-300 flex items-center space-x-2">
-          <span class="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
-          <span id="thinkingBadgeText">{{ local_model }} reasoning in progress...</span>
-        </div>
-
-        <!-- MGS Codec Frequency Voice Stream Indicator -->
-        <div id="codecVoiceIndicator" class="hidden px-4 py-1.5 bg-emerald-950/70 border-t border-emerald-700/60 text-[11px] text-emerald-400 flex items-center justify-between font-mono">
-          <div class="flex items-center space-x-2">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-            <span class="font-bold tracking-wider">CODEC 140.85 MHz // AUDIO STREAM TRANSMITTING (de-DE)...</span>
-          </div>
-          <div class="flex items-end space-x-1 h-5">
-            <span class="inline-block w-1 bg-emerald-400 codec-bar-1 rounded-sm"></span>
-            <span class="inline-block w-1 bg-emerald-400 codec-bar-2 rounded-sm"></span>
-            <span class="inline-block w-1 bg-emerald-400 codec-bar-3 rounded-sm"></span>
-            <span class="inline-block w-1 bg-emerald-400 codec-bar-4 rounded-sm"></span>
-            <span class="inline-block w-1 bg-emerald-400 codec-bar-5 rounded-sm"></span>
-          </div>
-        </div>
-
-        <!-- Chat Input Bar -->
-        <div class="p-3 border-t border-slate-800 bg-slate-900/60">
-          <form id="chatForm" class="flex items-center space-x-2">
-            <button type="button" id="micBtn" onclick="toggleSpeechRecognition()"
-              title="MGS Codec Sprachaufnahme (Web Speech API - de-DE)"
-              class="p-2 rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition flex items-center justify-center relative select-none">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
-              </svg>
-              <span id="micPulseRing" class="hidden absolute inset-0 rounded border-2 border-emerald-400 animate-ping pointer-events-none"></span>
-            </button>
-            <input type="text" id="chatInput" autocomplete="off"
-              placeholder="Nachricht an ausgewählten Agenten..."
-              class="flex-1 bg-black/70 border border-slate-700 rounded px-3.5 py-2 text-xs sm:text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition font-mono">
-            <button type="submit" id="sendBtn"
-              class="bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-4 py-2 rounded text-xs tracking-wider uppercase transition shadow">
-              SEND
-            </button>
-          </form>
-        </div>
-
-      </div>
-
-            <!-- ComfyUI Bridge & Gallery Station (5 cols on lg, expandable) -->
-      <div id="comfyStudioStation" class="lg:col-span-5 bg-slate-950/90 border border-slate-800 rounded-lg flex flex-col h-[620px] overflow-hidden transition-all duration-300 relative">
+      <!-- View Container 1: Catlord Workspace (ComfyUI Studio) - Standard-Ansicht -->
+      <div id="catlordWorkspaceView" class="w-full">
+        <!-- Central ComfyUI Schnell-Render / Pipeline Canvas (Volle Breite) -->
+        <div id="comfyStudioStation" class="w-full bg-slate-950/90 border border-slate-800 rounded-lg flex flex-col min-h-[640px] overflow-hidden transition-all duration-300 relative shadow-xl">
         
         <!-- Tab Header & Mode Switcher -->
         <div class="p-2.5 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between shrink-0">
@@ -835,12 +763,12 @@
 
         </div>
 
-      </div>
+      </div> <!-- End catlordWorkspaceView -->
 
-    </section>
-
-    <!-- Büro / Hermes Automation Workstation -->
-    <section id="bueroStation" class="bg-slate-950/90 border border-slate-800 rounded-lg p-4 space-y-4 shadow-xl relative overflow-hidden">
+      <!-- View Container 2: Büro / Hermes Workspace (Nur aktiv wenn über Workspaces ausgewählt) -->
+      <div id="bueroWorkspaceView" class="w-full hidden">
+        <!-- Büro / Hermes Automation Workstation -->
+        <section id="bueroStation" class="bg-slate-950/90 border border-slate-800 rounded-lg p-4 space-y-4 shadow-xl relative overflow-hidden">
       <div class="flex flex-wrap items-center justify-between pb-3 border-b border-slate-800 gap-3">
         <div class="flex items-center space-x-3">
           <div class="w-8 h-8 rounded bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-base">
@@ -952,11 +880,133 @@
             </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
+      </div> <!-- End bueroWorkspaceView -->
 
-    <!-- Companion Bot Runtime Configuration & Hot-Reload Station -->
-    <section id="companionSettingsSection" class="bg-slate-950/90 border border-pink-900/60 rounded-lg p-4 space-y-4 shadow-2xl relative overflow-hidden">
+    </main>
+
+    <!-- Fixer Pfeil-Button Rechte Seitenleiste (Agent Console Toggle) -->
+    <button id="btnToggleRightDrawer" onclick="toggleAgentDrawer()" type="button"
+            class="fixed right-0 top-1/2 -translate-y-1/2 z-40 bg-slate-900/90 hover:bg-slate-800 text-cyan-400 border border-r-0 border-slate-700/80 hover:border-cyan-400 rounded-l-md px-1.5 py-3 shadow-2xl transition-all duration-300 flex items-center justify-center font-bold text-xs group select-none"
+            title="Agent Console ein-/ausklappen (❮ / ❯)">
+      <span id="drawerToggleIcon" class="group-hover:scale-125 transition-transform">❮</span>
+    </button>
+
+    <!-- ZONE 3: Rechte Seitenleiste (Kontext-Panel / Agent-Console Drawer) - standardmäßig eingeklappt -->
+    <aside id="agentDrawer" class="hidden w-80 md:w-96 bg-slate-950/95 border-l border-slate-800 flex flex-col h-full shrink-0 z-30 shadow-2xl transition-all duration-300 overflow-hidden font-mono">
+      <!-- Agent Console Header -->
+      <div class="p-3 border-b border-slate-800 bg-slate-900/70 flex items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center space-x-2">
+          <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+          <span class="text-xs font-bold tracking-wider text-cyan-300">AGENT CONSOLE</span>
+        </div>
+        <div class="flex items-center space-x-1.5">
+          {% if is_restricted %}
+          <button type="button" id="btnOpenBotSettings" onclick="openBotSettings()"
+                  class="px-2.5 py-1 rounded bg-pink-950/80 hover:bg-pink-900 border border-pink-600/70 text-pink-300 text-xs font-bold transition flex items-center space-x-1 shadow"
+                  title="Haven Companion Bot - Runtime Configuration & Lore Editor">
+            <span>💋</span>
+            <span class="text-[10px] tracking-wider font-mono">HAVEN // CONFIG</span>
+          </button>
+          {% endif %}
+          <button type="button" onclick="toggleAgentDrawer()"
+                  class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white text-xs transition"
+                  title="Konsole einklappen">
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- Node Switcher & Chat Controls -->
+      <div class="p-2 border-b border-slate-800/80 bg-slate-900/40 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
+        <div class="flex items-center space-x-1 bg-black/60 p-0.5 rounded border border-slate-800 text-[11px]">
+          <button id="btnNodeOH" onclick="setChatNode('outerheaven')" class="px-2.5 py-1 rounded font-bold transition bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow">
+            <span id="btnNodeOHLabel">OH // {{ local_model }}</span>
+          </button>
+          <button id="btnNodeFox" onclick="setChatNode('fox')" class="px-2.5 py-1 rounded font-bold transition text-slate-400 hover:text-slate-200 border border-transparent">
+            FOX // Hermes-3
+          </button>
+          {% if is_restricted %}
+          <button id="btnNodeHaven" onclick="openBotSettings()" class="px-2 py-1 rounded font-bold transition text-pink-400 hover:text-pink-200 border border-pink-900/60 hover:border-pink-600/60 bg-pink-950/40 flex items-center space-x-1" title="Haven Companion Bot Einstellungen & Lore">
+            <span>💋</span>
+            <span>HAVEN</span>
+          </button>
+          {% endif %}
+        </div>
+        <div class="flex items-center space-x-2">
+          <!-- TTS Toggle Switch -->
+          <label class="flex items-center cursor-pointer space-x-1.5 px-2 py-0.5 bg-black/60 border border-slate-800 rounded hover:border-cyan-500/50 transition text-[11px]" title="Antworten auf Deutsch vorlesen">
+            <input type="checkbox" id="ttsToggle" class="sr-only peer">
+            <div class="w-6 h-3.5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 peer-checked:after:bg-cyan-400 after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-cyan-950 peer-checked:border-cyan-500 relative"></div>
+            <span class="text-slate-400 peer-checked:text-cyan-300 font-bold select-none text-[10px]">🔊 TTS</span>
+          </label>
+          <button onclick="clearChat()" class="text-[11px] text-slate-500 hover:text-rose-400 transition flex items-center space-x-1 px-1.5 py-0.5">
+            <span>CLEAR</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Chat Stream Area -->
+      <div id="chatMessages" class="flex-1 p-3 overflow-y-auto space-y-3 scrollbar-thin text-xs">
+        <div id="tacticalChatWelcomeCard" class="p-2.5 bg-slate-900/50 border border-slate-800/80 rounded-lg text-slate-400 text-[11px]">
+          <div class="text-cyan-400 font-bold mb-1 flex items-center space-x-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span id="tacticalChatStatusTitle">TACTICAL AGENT READY</span>
+          </div>
+          <div id="tacticalChatStatusDesc">
+            Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">{{ local_model }}</span> auf Outer Heaven führt Inferenz auf Deutsch aus.
+          </div>
+        </div>
+      </div>
+
+      <!-- Thinking Indicator -->
+      <div id="thinkingBadge" class="hidden px-3 py-1.5 bg-cyan-950/40 border-t border-cyan-800/40 text-[10px] text-cyan-300 flex items-center space-x-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+        <span id="thinkingBadgeText">{{ local_model }} reasoning in progress...</span>
+      </div>
+
+      <!-- MGS Codec Frequency Voice Stream Indicator -->
+      <div id="codecVoiceIndicator" class="hidden px-3 py-1.5 bg-emerald-950/70 border-t border-emerald-700/60 text-[10px] text-emerald-400 flex items-center justify-between">
+        <div class="flex items-center space-x-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+          <span class="font-bold tracking-wider">CODEC 140.85 MHz // AUDIO STREAM</span>
+        </div>
+        <div class="flex items-end space-x-1 h-4">
+          <span class="inline-block w-1 bg-emerald-400 codec-bar-1 rounded-sm"></span>
+          <span class="inline-block w-1 bg-emerald-400 codec-bar-2 rounded-sm"></span>
+          <span class="inline-block w-1 bg-emerald-400 codec-bar-3 rounded-sm"></span>
+        </div>
+      </div>
+
+      <!-- Chat Input Bar -->
+      <div class="p-2.5 border-t border-slate-800 bg-slate-900/60 shrink-0">
+        <form id="chatForm" class="flex items-center space-x-2">
+          <button type="button" id="micBtn" onclick="toggleSpeechRecognition()"
+            title="MGS Codec Sprachaufnahme (Web Speech API - de-DE)"
+            class="p-2 rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition flex items-center justify-center relative select-none shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+            </svg>
+            <span id="micPulseRing" class="hidden absolute inset-0 rounded border-2 border-emerald-400 animate-ping pointer-events-none"></span>
+          </button>
+          <input type="text" id="chatInput" autocomplete="off"
+            placeholder="Nachricht an Agenten..."
+            class="flex-1 bg-black/70 border border-slate-700 rounded px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition font-mono">
+          <button type="submit" id="sendBtn"
+            class="bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-2 rounded text-xs tracking-wider uppercase transition shadow shrink-0">
+            SEND
+          </button>
+        </form>
+      </div>
+    </aside>
+
+  </div> <!-- End 3-Zone Cockpit Layout -->
+
+  {% if is_restricted %}
+  <!-- [RESTRICTED] Companion Bot Runtime Configuration & Hot-Reload Modal / Drawer -->
+  <div id="companionSettingsModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end">
+    <div class="w-full max-w-4xl bg-slate-950 border-l border-pink-900/60 p-4 sm:p-6 overflow-y-auto h-full shadow-2xl space-y-4 font-mono relative">
       <!-- Glow effect -->
       <div class="absolute -top-24 -right-24 w-72 h-72 bg-pink-600/10 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -982,6 +1032,9 @@
           </button>
           <button type="button" onclick="saveBotConfig()" class="px-3.5 py-1 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-mono font-bold transition shadow-lg flex items-center space-x-1.5">
             <span>💾</span> <span>EINSTELLUNGEN SPEICHERN</span>
+          </button>
+          <button type="button" onclick="closeBotSettings()" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-400 hover:text-white rounded text-xs font-mono transition">
+            ✕
           </button>
         </div>
       </div>
@@ -1278,11 +1331,46 @@
           </div>
           <div class="pt-1 text-[10px] text-slate-500 italic">Interagiert basierend auf Gesprächsverlauf & Gedächtnis.</div>
         </div>
-
       </div>
-    </section>
 
-  </main>
+      <!-- [RESTRICTED] 📜 CHARAKTER-LORE & SYSTEM-PROMPT (HAVEN) -->
+      <div class="bg-black/70 border border-pink-500/40 rounded-lg p-4 space-y-3 relative z-10 shadow-lg font-mono">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-pink-900/60 pb-2">
+          <div class="flex items-center space-x-2">
+            <span class="text-xs font-bold text-pink-300 flex items-center space-x-1.5">
+              <span>📜</span> <span>CHARAKTER-LORE & SYSTEM-PROMPT (HAVEN)</span>
+            </span>
+            <span id="botLorePathBadge" class="px-2 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-700 text-slate-400 font-bold" title="/mnt/storage-beta/projekte/projekt-sexchat/character.json">character.json</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span id="botLoreStatusNotice" class="text-[10px] font-mono text-emerald-400 hidden">✔ Geladen</span>
+            <button type="button" onclick="loadBotLore()" class="px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1">
+              <span>🔄</span> <span>Lore neu laden</span>
+            </button>
+            <button type="button" onclick="saveBotLore()" class="px-3.5 py-1 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-mono font-bold transition shadow-lg flex items-center space-x-1.5">
+              <span>💾</span> <span>Lore speichern</span>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex justify-between items-center text-[10px] text-slate-400 mb-1">
+            <span>System-Prompt & Rollen-Definition (Wird bei jedem Bot-Call & Neustart ausgewertet)</span>
+            <span id="botLoreCharCount" class="text-slate-500 font-mono">0 Zeichen</span>
+          </div>
+          <textarea id="characterLoreText" rows="12"
+            class="w-full bg-slate-950 border border-slate-800 rounded p-3 text-xs font-mono text-pink-100 placeholder-slate-600 focus:border-pink-500 focus:outline-none resize-y leading-relaxed"
+            placeholder="System-Prompt / Charakter-Lore hier eingeben..."
+            oninput="updateLoreCharCount()"></textarea>
+        </div>
+        <div class="flex flex-wrap items-center justify-between text-[10px] text-slate-500 gap-2">
+          <span>Dateipfad: <code class="text-pink-400/80">/mnt/storage-beta/projekte/projekt-sexchat/character.json</code> (Sync mit <code class="text-cyan-400/80">docs/haven_system_prompt.txt</code>)</span>
+          <span class="text-emerald-400/80 font-bold">⚡ Sofortige Hot-Reload Synchronisation</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- Lightbox Modal with PNG Metadata Inspector & Replay -->
   <div id="lightbox" class="fixed inset-0 bg-black/95 backdrop-blur-md z-50 hidden flex items-center justify-center p-2 sm:p-4">
@@ -1587,9 +1675,161 @@
     let currentAssistantBubble = null;
     let currentActiveOllamaModel = "{{ local_model }}";
 
+    // --- 3-Zone Cockpit Workspace Navigation ---
+    let currentActiveWorkspace = 'catlord';
+
+    function selectWorkspace(workspace) {
+      currentActiveWorkspace = workspace;
+      const navCatlord = document.getElementById('navItemCatlord');
+      const navBuero = document.getElementById('navItemBuero');
+      const catlordView = document.getElementById('catlordWorkspaceView');
+      const bueroView = document.getElementById('bueroWorkspaceView');
+
+      const defaultClass = "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white transition text-left group";
+      if (navCatlord) navCatlord.className = (workspace === 'catlord') ?
+        "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-cyan-500/40 bg-cyan-950/40 text-cyan-300 transition text-left group" :
+        defaultClass;
+      if (navBuero) navBuero.className = (workspace === 'buero') ?
+        "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-emerald-500/40 bg-emerald-950/40 text-emerald-300 transition text-left group" :
+        defaultClass;
+
+      if (workspace === 'catlord') {
+        if (catlordView) catlordView.classList.remove('hidden');
+        if (bueroView) bueroView.classList.add('hidden');
+      } else if (workspace === 'buero') {
+        if (catlordView) catlordView.classList.add('hidden');
+        if (bueroView) bueroView.classList.remove('hidden');
+        if (typeof fetchBueroData === 'function') {
+          fetchBueroData();
+        }
+      {% if is_restricted %}
+      } else if (workspace === 'companion') {
+        openAgentDrawer();
+        openBotSettings();
+      {% endif %}
+      }
+    }
+
+    // --- Cockpit Left Sidebar Controls ---
+    function updateSidebarToggleBtn(isOpen) {
+      const btn = document.getElementById('btnToggleLeftSidebar');
+      const icon = document.getElementById('sidebarToggleIcon');
+      if (!btn || !icon) return;
+      if (isOpen) {
+        icon.textContent = '❮';
+        btn.style.left = '14rem';
+      } else {
+        icon.textContent = '❯';
+        btn.style.left = '0px';
+      }
+    }
+
+    function toggleCockpitSidebar() {
+      const sidebar = document.getElementById('cockpitSidebar');
+      if (!sidebar) return;
+      const isCurrentlyHidden = sidebar.classList.contains('hidden');
+      if (isCurrentlyHidden) {
+        sidebar.classList.remove('hidden');
+        updateSidebarToggleBtn(true);
+      } else {
+        sidebar.classList.add('hidden');
+        updateSidebarToggleBtn(false);
+      }
+    }
+
+    function openCockpitSidebar() {
+      const sidebar = document.getElementById('cockpitSidebar');
+      if (sidebar) sidebar.classList.remove('hidden');
+      updateSidebarToggleBtn(true);
+    }
+
+    function closeCockpitSidebar() {
+      const sidebar = document.getElementById('cockpitSidebar');
+      if (sidebar) sidebar.classList.add('hidden');
+      updateSidebarToggleBtn(false);
+    }
+
+    // --- Tactical Agent Console Drawer Controls ---
+    function updateDrawerToggleBtn(isOpen) {
+      const btn = document.getElementById('btnToggleRightDrawer');
+      const icon = document.getElementById('drawerToggleIcon');
+      if (!btn || !icon) return;
+      if (isOpen) {
+        icon.textContent = '❯';
+        const w = window.innerWidth >= 768 ? '24rem' : '20rem';
+        btn.style.right = w;
+      } else {
+        icon.textContent = '❮';
+        btn.style.right = '0px';
+      }
+    }
+
+    function toggleAgentDrawer() {
+      const drawer = document.getElementById('agentDrawer');
+      if (!drawer) return;
+      const isCurrentlyHidden = drawer.classList.contains('hidden');
+      if (isCurrentlyHidden) {
+        drawer.classList.remove('hidden');
+        updateDrawerToggleBtn(true);
+      } else {
+        drawer.classList.add('hidden');
+        updateDrawerToggleBtn(false);
+      }
+    }
+
+    function openAgentDrawer() {
+      const drawer = document.getElementById('agentDrawer');
+      if (drawer) drawer.classList.remove('hidden');
+      updateDrawerToggleBtn(true);
+    }
+
+    function closeAgentDrawer() {
+      const drawer = document.getElementById('agentDrawer');
+      if (drawer) drawer.classList.add('hidden');
+      updateDrawerToggleBtn(false);
+    }
+
+    window.addEventListener('resize', () => {
+      const drawer = document.getElementById('agentDrawer');
+      if (drawer && !drawer.classList.contains('hidden')) {
+        updateDrawerToggleBtn(true);
+      }
+      const sidebar = document.getElementById('cockpitSidebar');
+      if (sidebar && !sidebar.classList.contains('hidden')) {
+        updateSidebarToggleBtn(true);
+      }
+    });
+
+    {% if is_restricted %}
+    // --- Bot Settings Modal Controls (Level-2 / Restricted) ---
+    function openBotSettings() {
+      const modal = document.getElementById('companionSettingsModal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        if (typeof loadBotConfig === 'function') {
+          loadBotConfig();
+        }
+        if (typeof loadBotLore === 'function') {
+          loadBotLore();
+        }
+      }
+    }
+
+    function closeBotSettings() {
+      const modal = document.getElementById('companionSettingsModal');
+      if (modal) modal.classList.add('hidden');
+    }
+    {% endif %}
+
     function updateTacticalAgentModelUI(modelName) {
       if (!modelName || typeof modelName !== 'string') return;
       currentActiveOllamaModel = modelName;
+
+      // 0. Node Card Model Badge
+      const ohModelBadge = document.getElementById('ohModelBadge');
+      if (ohModelBadge) {
+        ohModelBadge.textContent = modelName;
+      }
 
       // 1. Tactical Chat Ready Title / Status Label
       const chatStatusTitle = document.getElementById('tacticalChatStatusTitle');
@@ -1984,6 +2224,10 @@
           // Load & RAM
           if (oh.load) {
             document.getElementById('ohLoadText').textContent = oh.load.map(n => n.toFixed(2)).join(', ');
+            const load1 = oh.load[0] || 0;
+            const cpuPercent = Math.min(100, Math.round((load1 / 12) * 100));
+            const cpuBar = document.getElementById('ohCpuBar');
+            if (cpuBar) cpuBar.style.width = `${cpuPercent}%`;
           }
           if (oh.ram) {
             const ramUsedGb = (oh.ram.used / (1024**3)).toFixed(1);
@@ -2018,11 +2262,29 @@
 
           if (fox.load) {
             document.getElementById('foxLoadText').textContent = fox.load.map(n => n.toFixed(2)).join(', ');
+            const load1 = fox.load[0] || 0;
+            const cpuPercent = Math.min(100, Math.round((load1 / 4) * 100));
+            const cpuBar = document.getElementById('foxCpuBar');
+            if (cpuBar) cpuBar.style.width = `${cpuPercent}%`;
           }
           if (fox.ram) {
             const ramUsedGb = (fox.ram.used / (1024**3)).toFixed(1);
             document.getElementById('foxRamText').textContent = `${ramUsedGb} GB (${fox.ram.percent}%)`;
             document.getElementById('foxRamBar').style.width = `${fox.ram.percent}%`;
+          }
+
+          const computeBar = document.getElementById('foxComputeBar');
+          const computeText = document.getElementById('foxComputeText');
+          if (computeBar && computeText) {
+            if (fox.online) {
+              computeText.textContent = "ACTIVE // 11434 LINKED";
+              computeBar.style.width = "100%";
+              computeBar.className = "bg-gradient-to-r from-amber-600 to-amber-400 h-full opacity-80 transition-all duration-500";
+            } else {
+              computeText.textContent = "OFFLINE // UNREACHABLE";
+              computeBar.style.width = "0%";
+              computeBar.className = "bg-slate-700 h-full opacity-40 transition-all duration-500";
+            }
           }
 
           // Services
@@ -2065,6 +2327,13 @@
           const foxTaskBadge = document.getElementById('foxActiveTaskBadge');
           const foxTaskName = document.getElementById('foxActiveTaskName');
 
+          const ohDelBadge = document.getElementById('ohDelegationBadge');
+          const ohDelDot = document.getElementById('ohDelegationDot');
+          const ohDelText = document.getElementById('ohDelegationText');
+          const foxDelBadge = document.getElementById('foxDelegationBadge');
+          const foxDelDot = document.getElementById('foxDelegationDot');
+          const foxDelText = document.getElementById('foxDelegationText');
+
           if (del.active && del.delegated_to === 'OH') {
             if (delContainer) delContainer.className = "bg-slate-950/90 border border-cyan-500/80 rounded-lg p-3 shadow-lg relative overflow-hidden transition-all duration-300 glow-cyan";
             if (delBadge) delBadge.className = "px-2.5 py-0.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 bg-cyan-950 border border-cyan-400 text-cyan-300 glow-cyan animate-pulse";
@@ -2078,6 +2347,14 @@
               if (ohTaskName) ohTaskName.textContent = del.task || "Berechnung aktiv";
             }
             if (foxTaskBadge) foxTaskBadge.classList.add('hidden');
+
+            if (ohDelBadge) ohDelBadge.className = "px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center space-x-1 bg-cyan-950 border border-cyan-400 text-cyan-300 glow-cyan animate-pulse";
+            if (ohDelDot) ohDelDot.className = "w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping";
+            if (ohDelText) ohDelText.textContent = "DELEGATION: ACTIVE";
+
+            if (foxDelBadge) foxDelBadge.className = "px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center space-x-1 bg-slate-900 border border-slate-700 text-slate-400";
+            if (foxDelDot) foxDelDot.className = "w-1.5 h-1.5 rounded-full bg-slate-600";
+            if (foxDelText) foxDelText.textContent = "DELEGATION: IDLE";
           } else if (del.active && del.delegated_to === 'FOX') {
             if (delContainer) delContainer.className = "bg-slate-950/90 border border-amber-500/80 rounded-lg p-3 shadow-lg relative overflow-hidden transition-all duration-300 glow-amber";
             if (delBadge) delBadge.className = "px-2.5 py-0.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 bg-amber-950 border border-amber-400 text-amber-300 glow-amber animate-pulse";
@@ -2091,6 +2368,14 @@
               if (foxTaskName) foxTaskName.textContent = del.task || "Autonome Berechnung aktiv";
             }
             if (ohTaskBadge) ohTaskBadge.classList.add('hidden');
+
+            if (foxDelBadge) foxDelBadge.className = "px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center space-x-1 bg-amber-950 border border-amber-400 text-amber-300 glow-amber animate-pulse";
+            if (foxDelDot) foxDelDot.className = "w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping";
+            if (foxDelText) foxDelText.textContent = "DELEGATION: ACTIVE";
+
+            if (ohDelBadge) ohDelBadge.className = "px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center space-x-1 bg-slate-900 border border-slate-700 text-slate-400";
+            if (ohDelDot) ohDelDot.className = "w-1.5 h-1.5 rounded-full bg-slate-600";
+            if (ohDelText) ohDelText.textContent = "DELEGATION: IDLE";
           } else {
             // Idle / Completed
             if (delContainer) delContainer.className = "bg-slate-950/90 border border-slate-800 rounded-lg p-3 shadow-lg relative overflow-hidden transition-all duration-300";
@@ -2102,6 +2387,14 @@
             if (delModelText) { delModelText.textContent = del.model || "--"; delModelText.className = "text-slate-400 font-bold"; }
             if (ohTaskBadge) ohTaskBadge.classList.add('hidden');
             if (foxTaskBadge) foxTaskBadge.classList.add('hidden');
+
+            if (ohDelBadge) ohDelBadge.className = "px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center space-x-1 bg-slate-900 border border-slate-700 text-slate-400";
+            if (ohDelDot) ohDelDot.className = "w-1.5 h-1.5 rounded-full bg-emerald-500";
+            if (ohDelText) ohDelText.textContent = "DELEGATION: IDLE";
+
+            if (foxDelBadge) foxDelBadge.className = "px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center space-x-1 bg-slate-900 border border-slate-700 text-slate-400";
+            if (foxDelDot) foxDelDot.className = "w-1.5 h-1.5 rounded-full bg-emerald-500";
+            if (foxDelText) foxDelText.textContent = "DELEGATION: IDLE";
           }
         }
 
@@ -3906,6 +4199,7 @@
       }
     }
 
+    {% if is_restricted %}
     // --- Companion Bot Runtime Configuration ---
     async function loadOllamaModelsForBotConfig() {
       const select = document.getElementById("botLlmModel");
@@ -4151,6 +4445,90 @@
         }
       }
     }
+
+    function updateLoreCharCount() {
+      const txt = document.getElementById('characterLoreText')?.value || '';
+      const countEl = document.getElementById('botLoreCharCount');
+      if (countEl) {
+        countEl.textContent = `${txt.length} Zeichen`;
+      }
+    }
+
+    async function loadBotLore() {
+      const notice = document.getElementById('botLoreStatusNotice');
+      if (notice) {
+        notice.textContent = 'Lade...';
+        notice.className = 'text-[10px] font-mono text-cyan-400';
+        notice.classList.remove('hidden');
+      }
+      try {
+        const res = await fetch('/api/bot/lore');
+        if (!res.ok) {
+          if (notice) {
+            notice.textContent = `Fehler: HTTP ${res.status}`;
+            notice.className = 'text-[10px] font-mono text-rose-400';
+          }
+          return;
+        }
+        const data = await res.json();
+        const loreEl = document.getElementById('characterLoreText');
+        if (loreEl) {
+          loreEl.value = data.lore || '';
+          updateLoreCharCount();
+        }
+        const pathBadge = document.getElementById('botLorePathBadge');
+        if (pathBadge && data.file) {
+          pathBadge.textContent = data.file.split('/').pop();
+          pathBadge.title = data.file;
+        }
+        if (notice) {
+          notice.textContent = '✔ Lore geladen';
+          notice.className = 'text-[10px] font-mono text-emerald-400';
+          setTimeout(() => notice.classList.add('hidden'), 2500);
+        }
+      } catch (err) {
+        if (notice) {
+          notice.textContent = `Netzwerkfehler: ${err.message}`;
+          notice.className = 'text-[10px] font-mono text-rose-400';
+        }
+      }
+    }
+
+    async function saveBotLore() {
+      const notice = document.getElementById('botLoreStatusNotice');
+      if (notice) {
+        notice.textContent = 'Speichere Lore...';
+        notice.className = 'text-[10px] font-mono text-amber-400';
+        notice.classList.remove('hidden');
+      }
+      const loreText = document.getElementById('characterLoreText')?.value || '';
+      try {
+        const res = await fetch('/api/bot/lore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lore: loreText })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (notice) {
+            notice.textContent = '✔ Lore gespeichert & Hot-Reload aktiv!';
+            notice.className = 'text-[10px] font-mono text-emerald-400 font-bold';
+            setTimeout(() => notice.classList.add('hidden'), 3500);
+          }
+        } else {
+          if (notice) {
+            notice.textContent = `Fehler: ${data.error || 'Speichern fehlgeschlagen'}`;
+            notice.className = 'text-[10px] font-mono text-rose-400';
+          }
+        }
+      } catch (err) {
+        if (notice) {
+          notice.textContent = `Netzwerkfehler: ${err.message}`;
+          notice.className = 'text-[10px] font-mono text-rose-400';
+        }
+      }
+    }
+    {% endif %}
 
     // --- Pipeline Execution & Live Progress Tracking ---
     async function executePipeline() {
@@ -4569,6 +4947,7 @@
       }
     }
 
+    {% if is_restricted %}
     const botLlmModelSelect = document.getElementById("botLlmModel");
     if (botLlmModelSelect) {
       botLlmModelSelect.addEventListener("change", function(e) {
@@ -4577,11 +4956,16 @@
         }
       });
     }
+    loadBotConfig();
+    {% endif %}
+
+    updateSidebarToggleBtn(false);
+    updateDrawerToggleBtn(false);
+    selectWorkspace('catlord');
 
     initComfyPipelineBuilder();
     loadComfyModels();
     loadSavedWorkflowsList();
-    loadBotConfig();
     fetchClusterHealth();
     fetchBueroData();
     setInterval(updateTelemetry, 3000);

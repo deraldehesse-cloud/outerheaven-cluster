@@ -110,7 +110,7 @@ comfy_schema_mgr = ComfySchemaManager(
 )
 
 LOCAL_TS_IP = os.environ.get("OUTERHEAVEN_TS_IP", "100.116.38.29")
-FOX_TS_IP = os.environ.get("FOX_TS_IP", "100.93.184.87")
+FOX_TS_IP = os.environ.get("FOX_TS_IP", "100.117.155.70")
 LOVENSE_IP = os.environ.get("LOVENSE_IP", "192.168.188.34").strip().strip('"').strip("'")
 LOVENSE_PORT = int(os.environ.get("LOVENSE_PORT", 20010))
 PORT = 8080
@@ -150,7 +150,7 @@ logging.basicConfig(
 logger = logging.getLogger("mission-control")
 
 # --- Load Secrets ---
-def load_secrets() -> Tuple[str, str]:
+def load_secrets() -> Tuple[str, str, str]:
     secrets_dir = SECRETS_DIR
     if not secrets_dir.is_dir():
         local_secrets = BASE_DIR / "secrets"
@@ -162,6 +162,7 @@ def load_secrets() -> Tuple[str, str]:
 
     pw_file = secrets_dir / "dashboard_password.txt"
     key_file = secrets_dir / "cluster_api.key"
+    restricted_file = secrets_dir / "restricted_password.txt"
 
     password = ""
     if pw_file.is_file():
@@ -189,37 +190,68 @@ def load_secrets() -> Tuple[str, str]:
         except Exception as e:
             logger.warning(f"Could not persist temporary cluster key to disk: {e}")
 
-    return password, cluster_key
+    restricted_pw = os.environ.get("RESTRICTED_PASSWORD", "")
+    if not restricted_pw and restricted_file.is_file():
+        restricted_pw = restricted_file.read_text().strip()
+    if not restricted_pw:
+        restricted_pw = "OH-RESTRICTED-" + secrets.token_urlsafe(12)
+        try:
+            restricted_file.parent.mkdir(parents=True, exist_ok=True)
+            restricted_file.write_text(restricted_pw + "\n")
+            os.chmod(restricted_file, 0o600)
+        except Exception as e:
+            logger.warning(f"Could not persist restricted password to disk: {e}")
 
-DASHBOARD_PASSWORD, CLUSTER_API_KEY = load_secrets()
+    return password, cluster_key, restricted_pw
+
+DASHBOARD_PASSWORD, CLUSTER_API_KEY, RESTRICTED_PASSWORD = load_secrets()
 SERVER_SECRET = secrets.token_hex(32)
 
-def generate_session_cookie() -> str:
+def generate_session_cookie(is_restricted: bool = False) -> str:
     timestamp = str(int(time.time()))
+    mode = "restricted" if is_restricted else "standard"
     signature = hmac.new(
         SERVER_SECRET.encode(),
-        f"valid_session:{timestamp}:{DASHBOARD_PASSWORD}".encode(),
+        f"valid_session:{timestamp}:{mode}:{DASHBOARD_PASSWORD}".encode(),
         hashlib.sha256
     ).hexdigest()
-    return f"{timestamp}.{signature}"
+    return f"{timestamp}.{mode}.{signature}"
 
-def verify_session_cookie(cookie: Optional[str]) -> bool:
+def verify_session_cookie(cookie: Optional[str]) -> Tuple[bool, bool]:
+    """Returns (is_valid, is_restricted)."""
     if not cookie or "." not in cookie:
-        return False
+        return False, False
+    parts = cookie.split(".")
     try:
-        ts_str, signature = cookie.split(".", 1)
-        ts = int(ts_str)
-        # Session valid for 7 days
-        if time.time() - ts > 7 * 86400:
-            return False
-        expected = hmac.new(
-            SERVER_SECRET.encode(),
-            f"valid_session:{ts_str}:{DASHBOARD_PASSWORD}".encode(),
-            hashlib.sha256
-        ).hexdigest()
-        return hmac.compare_digest(signature, expected)
+        if len(parts) == 3:
+            ts_str, mode, signature = parts
+            ts = int(ts_str)
+            if time.time() - ts > 7 * 86400:
+                return False, False
+            expected = hmac.new(
+                SERVER_SECRET.encode(),
+                f"valid_session:{ts_str}:{mode}:{DASHBOARD_PASSWORD}".encode(),
+                hashlib.sha256
+            ).hexdigest()
+            if hmac.compare_digest(signature, expected):
+                return True, (mode == "restricted")
+            return False, False
+        elif len(parts) == 2:
+            ts_str, signature = parts
+            ts = int(ts_str)
+            if time.time() - ts > 7 * 86400:
+                return False, False
+            expected = hmac.new(
+                SERVER_SECRET.encode(),
+                f"valid_session:{ts_str}:{DASHBOARD_PASSWORD}".encode(),
+                hashlib.sha256
+            ).hexdigest()
+            if hmac.compare_digest(signature, expected):
+                return True, False
+            return False, False
+        return False, False
     except Exception:
-        return False
+        return False, False
 
 # --- Global Telemetry Cache ---
 telemetry_cache = {
@@ -583,19 +615,19 @@ class ThinkFilter:
 async def auth_middleware(request: web.Request, handler):
     path = request.path
 
-    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path.startswith("/output/3d/") or path == "/manifest.json" or path == "/sw.js" or path == "/3d-viewer" or path in ["/api/health", "/api/cluster/health"] or path.startswith("/api/buero/") or path.startswith("/api/images/") or path.startswith("/api/prompts/") or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or request.remote in ["127.0.0.1", "::1"]:
-        return await handler(request)
-
     authenticated = False
+    is_restricted = False
+
+    session_cookie = request.cookies.get("mc_session")
+    valid_cookie, cookie_restricted = verify_session_cookie(session_cookie)
+    if valid_cookie:
+        authenticated = True
+        is_restricted = cookie_restricted
 
     cluster_hdr = request.headers.get("X-Cluster-Key", "")
     if cluster_hdr and hmac.compare_digest(cluster_hdr, CLUSTER_API_KEY):
         authenticated = True
-
-    if not authenticated:
-        session_cookie = request.cookies.get("mc_session")
-        if verify_session_cookie(session_cookie):
-            authenticated = True
+        is_restricted = True
 
     if not authenticated:
         auth_hdr = request.headers.get("Authorization", "")
@@ -603,8 +635,12 @@ async def auth_middleware(request: web.Request, handler):
             try:
                 decoded = base64.b64decode(auth_hdr[6:]).decode("utf-8")
                 _, pw = decoded.split(":", 1)
-                if hmac.compare_digest(pw, DASHBOARD_PASSWORD):
+                if hmac.compare_digest(pw, RESTRICTED_PASSWORD):
                     authenticated = True
+                    is_restricted = True
+                elif hmac.compare_digest(pw, DASHBOARD_PASSWORD):
+                    authenticated = True
+                    is_restricted = False
             except Exception:
                 pass
 
@@ -612,6 +648,19 @@ async def auth_middleware(request: web.Request, handler):
         peer = request.remote
         if peer in ("127.0.0.1", "::1", LOCAL_TS_IP, FOX_TS_IP):
             authenticated = True
+
+    request["authenticated"] = authenticated
+    request["is_restricted"] = is_restricted
+
+    # [RESTRICTED] Plausible Deniability Check:
+    # If endpoint belongs to companion bot / sexchat / lovense and user is not in Level-2 RESTRICTED mode,
+    # return 404 (endpoint appears non-existent to standard users)
+    restricted_prefixes = ["/api/bot/config", "/api/bot/lore", "/api/lovense/"]
+    if any(path.startswith(rp) for rp in restricted_prefixes) and not is_restricted:
+        return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
+
+    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path == "/manifest.json" or path == "/sw.js" or path in ["/api/health", "/api/cluster/health"] or path.startswith("/api/buero/") or path.startswith("/api/images/") or path.startswith("/api/prompts/") or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or path.startswith("/output/3d/") or path == "/3d-viewer" or request.remote in ["127.0.0.1", "::1"]:
+        return await handler(request)
 
     if authenticated:
         return await handler(request)
@@ -625,7 +674,8 @@ async def auth_middleware(request: web.Request, handler):
 
 async def handle_login_page(request: web.Request) -> web.Response:
     session_cookie = request.cookies.get("mc_session")
-    if verify_session_cookie(session_cookie):
+    valid_cookie, _ = verify_session_cookie(session_cookie)
+    if valid_cookie:
         raise web.HTTPFound("/")
     
     template = jinja_env.get_template("login.html")
@@ -640,27 +690,61 @@ async def handle_login_submit(request: web.Request) -> web.Response:
         data = dict(post)
 
     password = data.get("password", "").strip()
-    if hmac.compare_digest(password, DASHBOARD_PASSWORD):
-        cookie = generate_session_cookie()
-        resp = web.json_response({"success": True, "redirect": "/"})
+    is_restricted = False
+    authenticated = False
+    if hmac.compare_digest(password, RESTRICTED_PASSWORD):
+        authenticated = True
+        is_restricted = True
+    elif hmac.compare_digest(password, DASHBOARD_PASSWORD):
+        authenticated = True
+        is_restricted = False
+
+    if authenticated:
+        cookie = generate_session_cookie(is_restricted=is_restricted)
+        resp = web.json_response({"success": True, "redirect": "/", "restricted": is_restricted})
         resp.set_cookie("mc_session", cookie, max_age=7*86400, httponly=True, samesite="Lax")
         return resp
     else:
         return web.json_response({"success": False, "error": "Ungültiges Zugangspasswort"}, status=403)
 
+async def handle_auth_elevate(request: web.Request) -> web.Response:
+    """POST /api/auth/elevate - Elevate session to Level-2 / RESTRICTED clearance."""
+    try:
+        data = await request.json()
+        password = data.get("password", "").strip()
+        if hmac.compare_digest(password, RESTRICTED_PASSWORD):
+            cookie = generate_session_cookie(is_restricted=True)
+            resp = web.json_response({"success": True, "message": "Level-2 Clearance gewährt."})
+            resp.set_cookie("mc_session", cookie, max_age=7*86400, httponly=True, samesite="Lax")
+            return resp
+        return web.json_response({"success": False, "error": "Ungültiger Clearance-Key"}, status=403)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
 async def handle_logout(request: web.Request) -> web.Response:
     resp = web.HTTPFound("/login")
-    resp.del_cookie("mc_session")
+    resp.del_cookie("mc_session", path="/")
+    resp.set_cookie(
+        "mc_session",
+        "",
+        max_age=0,
+        expires="Thu, 01 Jan 1970 00:00:00 GMT",
+        path="/",
+        httponly=True,
+        samesite="Lax"
+    )
     return resp
 
 async def handle_index(request: web.Request) -> web.Response:
     template = jinja_env.get_template("index.html")
     active_oh_model = get_active_ollama_model()
+    is_restricted = bool(request.get("is_restricted", False))
     return web.Response(text=template.render(
         outerheaven_ip=LOCAL_TS_IP,
         fox_ip=FOX_TS_IP,
         local_model=active_oh_model,
-        fox_model=FOX_MODEL
+        fox_model=FOX_MODEL,
+        is_restricted=is_restricted
     ), content_type="text/html")
 
 async def handle_telemetry(request: web.Request) -> web.Response:
@@ -1241,6 +1325,89 @@ async def handle_bot_config_post(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
+LORE_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/character.json")
+HAVEN_PROMPT_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/docs/haven_system_prompt.txt")
+MEGAN_PROMPT_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/docs/megan_system_prompt.txt")
+
+
+async def handle_bot_lore_get(request: web.Request) -> web.Response:
+    """GET /api/bot/lore - Reads /mnt/storage-beta/projekte/projekt-sexchat/character.json or active prompt."""
+    if not request.get("is_restricted", False):
+        return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
+
+    lore_text = ""
+    # 1. Try reading character.json
+    if LORE_FILE.is_file():
+        try:
+            raw = LORE_FILE.read_text(encoding="utf-8").strip()
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                lore_text = data.get("system_prompt") or data.get("lore") or json.dumps(data, indent=2, ensure_ascii=False)
+            elif isinstance(data, str):
+                lore_text = data
+        except Exception:
+            lore_text = raw
+
+    # 2. Fallback to active haven_system_prompt.txt
+    if not lore_text and HAVEN_PROMPT_FILE.is_file():
+        try:
+            lore_text = HAVEN_PROMPT_FILE.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            logger.warning(f"Error reading {HAVEN_PROMPT_FILE}: {e}")
+
+    # 3. Fallback to megan_system_prompt.txt
+    if not lore_text and MEGAN_PROMPT_FILE.is_file():
+        try:
+            lore_text = MEGAN_PROMPT_FILE.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            logger.warning(f"Error reading {MEGAN_PROMPT_FILE}: {e}")
+
+    return web.json_response({"success": True, "lore": lore_text})
+
+
+async def handle_bot_lore_post(request: web.Request) -> web.Response:
+    """POST /api/bot/lore - Writes character.json and active prompt, triggering hot-reload."""
+    if not request.get("is_restricted", False):
+        return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
+
+    try:
+        data = await request.json()
+        lore_text = (data.get("lore") or data.get("text") or data.get("system_prompt") or "").strip()
+        if not lore_text:
+            return web.json_response({"success": False, "error": "Lore darf nicht leer sein."}, status=400)
+
+        # 1. Overwrite /mnt/storage-beta/projekte/projekt-sexchat/character.json safely
+        LORE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        char_data = {
+            "name": "Big Boss Haven",
+            "system_prompt": lore_text,
+            "updated_at": datetime.datetime.now().isoformat()
+        }
+        LORE_FILE.write_text(json.dumps(char_data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        # 2. Also write active prompt files so telegram_bot.py uses it immediately on next query
+        if HAVEN_PROMPT_FILE.parent.is_dir():
+            HAVEN_PROMPT_FILE.write_text(lore_text, encoding="utf-8")
+        if MEGAN_PROMPT_FILE.parent.is_dir():
+            MEGAN_PROMPT_FILE.write_text(lore_text, encoding="utf-8")
+
+        # 3. Touch bot_config.json to notify telegram_bot.py file-watcher
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                os.utime(BOT_CONFIG_FILE, None)
+            except Exception:
+                pass
+
+        logger.info("Character lore & system prompt updated and hot-reloaded successfully.")
+        return web.json_response({
+            "success": True,
+            "message": "Charakter-Lore & System-Prompt erfolgreich gespeichert und hot-reloaded."
+        })
+    except Exception as e:
+        logger.error(f"Error saving bot lore: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
 async def handle_comfy_models(request: web.Request) -> web.Response:
     """Dynamically query available checkpoints and loras from ComfyUI /object_info."""
     checkpoints = []
@@ -1561,10 +1728,14 @@ async def handle_gallery_delete(request: web.Request) -> web.Response:
 
 async def handle_3d_models_list(request: web.Request) -> web.Response:
     """Returns list of 3D models (.glb) with metadata, counts and preview assets."""
+    is_restricted = bool(request.get("is_restricted", False))
     models = []
     if DIR_3D_OUTPUT.is_dir():
         for f in sorted(DIR_3D_OUTPUT.glob("*.glb"), key=lambda p: p.stat().st_mtime, reverse=True):
             stem = f.stem
+            # In standard (non-restricted) mode, filter out any companion/sexchat/nsfw models
+            if not is_restricted and any(w in stem.lower() for w in ["companion", "sexchat", "megan", "nsfw", "erotic", "adult"]):
+                continue
             try:
                 stat = f.stat()
                 paired_obj = DIR_3D_OUTPUT / f"{stem}.obj"
@@ -1619,6 +1790,10 @@ async def handle_3d_file(request: web.Request) -> web.Response:
         return web.HTTPBadRequest(text="Invalid filename")
 
     filename = urllib.parse.unquote(raw_filename)
+    is_restricted = bool(request.get("is_restricted", False))
+    if not is_restricted and any(w in filename.lower() for w in ["companion", "sexchat", "megan", "nsfw", "erotic", "adult"]):
+        return web.HTTPNotFound(text=f"3D file '{filename}' not found")
+
     file_path = (DIR_3D_OUTPUT / filename).resolve()
     try:
         file_path.relative_to(DIR_3D_OUTPUT.resolve())
@@ -2295,17 +2470,11 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
             if node == "outerheaven":
                 target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
                 model_name = get_active_ollama_model()
-                system_instruction = (
-                    "Du bist Hermes Outer Heaven, der taktische KI-Agent auf outerheaven (HP Z620 Dual Xeon, Sparkle Arc A770 16GB). "
-                    "Antworte präzise, professionell, im Stil von Mission Control. Deutsch bevorzugt."
-                )
+                system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
             else:
                 target_url = f"{FOX_OLLAMA_URL}/api/chat"
                 model_name = FOX_MODEL
-                system_instruction = (
-                    f"Du bist Hermes Fox, der KI-Agent auf Node Fox (HP EliteDesk, Tailscale {FOX_TS_IP}). "
-                    "Antworte präzise, taktische Unterstützung. Deutsch bevorzugt."
-                )
+                system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
 
             payload = {
                 "model": model_name,
@@ -2392,6 +2561,8 @@ def create_app() -> web.Application:
     app.router.add_get("/login", handle_login_page)
     app.router.add_post("/login/submit", handle_login_submit)
     app.router.add_post("/logout", handle_logout)
+    app.router.add_get("/logout", handle_logout)
+    app.router.add_post("/api/auth/elevate", handle_auth_elevate)
 
     # API endpoints
     app.router.add_get("/api/telemetry", handle_telemetry)
@@ -2420,6 +2591,8 @@ def create_app() -> web.Application:
     app.router.add_get("/api/ollama/models", handle_ollama_models)
     app.router.add_get("/api/bot/config", handle_bot_config_get)
     app.router.add_post("/api/bot/config", handle_bot_config_post)
+    app.router.add_get("/api/bot/lore", handle_bot_lore_get)
+    app.router.add_post("/api/bot/lore", handle_bot_lore_post)
 
     # Lovense LAN Bridge Pre-Flight & Status
     app.router.add_get("/api/lovense/status", handle_lovense_status)
