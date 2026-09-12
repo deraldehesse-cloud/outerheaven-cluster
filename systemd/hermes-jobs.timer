@@ -1,9 +1,9 @@
 [Unit]
-Description=Hermes Job Application Generator Timer (Every 3 min)
+Description=Hermes Job Application Generator Timer (Every 5 min)
 
 [Timer]
 OnBootSec=1min
-OnUnitActiveSec=3min
+OnUnitActiveSec=5min
 AccuracySec=10s
 
 [Install]

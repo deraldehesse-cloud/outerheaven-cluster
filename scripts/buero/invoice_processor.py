@@ -16,6 +16,7 @@ import time
 import shutil
 import logging
 import argparse
+import fcntl
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple
@@ -60,21 +61,28 @@ def ensure_environment():
     ERROR_DIR.mkdir(parents=True, exist_ok=True)
 
     if not INDEX_CSV_PATH.is_file():
-        with open(INDEX_CSV_PATH, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f, delimiter=";")
-            writer.writerow([
-                "erfasst_am",
-                "absender",
-                "rechnungsnummer",
-                "rechnungsdatum",
-                "faelligkeitsdatum",
-                "gesamtbetrag",
-                "iban",
-                "verwendungszweck",
-                "archiv_pfad",
-                "original_name"
-            ])
-        logger.info(f"Created new invoice index at {INDEX_CSV_PATH}")
+        with open(INDEX_CSV_PATH, "a+", newline="", encoding="utf-8") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                f.seek(0, os.SEEK_END)
+                if f.tell() == 0:
+                    writer = csv.writer(f, delimiter=";")
+                    writer.writerow([
+                        "erfasst_am",
+                        "absender",
+                        "rechnungsnummer",
+                        "rechnungsdatum",
+                        "faelligkeitsdatum",
+                        "gesamtbetrag",
+                        "iban",
+                        "verwendungszweck",
+                        "archiv_pfad",
+                        "original_name"
+                    ])
+                    f.flush()
+                    logger.info(f"Created new invoice index at {INDEX_CSV_PATH}")
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def extract_text_from_pdf(pdf_path: Path) -> str:
@@ -288,19 +296,24 @@ def process_single_invoice(file_path: Path) -> bool:
     rel_archive_path = f"{year_str}/{target_filename}"
 
     with open(INDEX_CSV_PATH, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f, delimiter=";")
-        writer.writerow([
-            now_str,
-            str(data.get("absender", "")).strip(),
-            str(data.get("rechnungsnummer", "")).strip(),
-            parsed_date.strftime("%Y-%m-%d"),
-            str(data.get("faelligkeitsdatum", "")).strip(),
-            f"{float(data.get('gesamtbetrag', 0.0)):.2f}",
-            str(data.get("iban", "")).strip(),
-            str(data.get("verwendungszweck", "")).strip(),
-            rel_archive_path,
-            file_path.name
-        ])
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow([
+                now_str,
+                str(data.get("absender", "")).strip(),
+                str(data.get("rechnungsnummer", "")).strip(),
+                parsed_date.strftime("%Y-%m-%d"),
+                str(data.get("faelligkeitsdatum", "")).strip(),
+                f"{float(data.get('gesamtbetrag', 0.0)):.2f}",
+                str(data.get("iban", "")).strip(),
+                str(data.get("verwendungszweck", "")).strip(),
+                rel_archive_path,
+                file_path.name
+            ])
+            f.flush()
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     logger.info(f"✔ Invoice successfully indexed: {data.get('absender')} - {data.get('gesamtbetrag')} EUR")
     return True
