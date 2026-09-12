@@ -434,7 +434,7 @@ def get_available_vision_model() -> str:
         res = requests.get(f"{base_url}/api/tags", timeout=5)
         if res.status_code == 200:
             installed = [m.get("name", "") for m in res.json().get("models", [])]
-            for cand in ["moondream", "minicpm-v", "qwen2-vl", "llava", "llama3.2-vision", "bakllava"]:
+            for cand in ["llava", "minicpm-v", "qwen2-vl", "moondream", "llama3.2-vision", "bakllava"]:
                 for m in installed:
                     if cand in m.lower():
                         return m
@@ -533,35 +533,40 @@ def analyze_image(
     active_model = model or get_available_vision_model()
     base_url = OLLAMA_URL.rsplit("/api/", 1)[0]
     chat_url = f"{base_url}/api/chat"
+    gen_url = f"{base_url}/api/generate"
 
-    payload = {
-        "model": active_model,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt,
-                "images": [b64_img]
-            }
-        ],
-        "stream": False,
-        "options": {
-            "temperature": 0.2,
-            "num_predict": 300
-        }
-    }
+    content = ""
 
+    # Attempt 1: /api/chat with requested prompt
     try:
+        payload = {
+            "model": active_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                    "images": [b64_img]
+                }
+            ],
+            "stream": False,
+            "options": {
+                "temperature": 0.2,
+                "num_predict": 300
+            }
+        }
         print(f"[*] Sende Vision-Analyse für {p.name} an Ollama ({active_model})...")
         res = requests.post(chat_url, json=payload, timeout=90)
         if res.status_code == 200:
             content = res.json().get("message", {}).get("content", "").strip()
             if "<think>" in content and "</think>" in content:
                 content = content.split("</think>", 1)[1].strip()
-            print(f"[✔] Vision-Analyse erfolgreich ({len(content)} Zeichen)")
-            return content
-        else:
-            # Fallback to /api/generate
-            gen_url = f"{base_url}/api/generate"
+    except Exception as e:
+        print(f"[Warnung] Exception bei /api/chat Vision-Anfrage: {e}")
+
+    # Attempt 2: /api/generate fallback if empty or failed
+    if not content:
+        try:
+            print(f"[*] Fallback auf /api/generate für {p.name} ({active_model})...")
             gen_payload = {
                 "model": active_model,
                 "prompt": prompt,
@@ -577,12 +582,37 @@ def analyze_image(
                 content = res_gen.json().get("response", "").strip()
                 if "<think>" in content and "</think>" in content:
                     content = content.split("</think>", 1)[1].strip()
-                print(f"[✔] Vision-Analyse via /api/generate erfolgreich ({len(content)} Zeichen)")
-                return content
-            print(f"[Fehler] Ollama Vision fehlgeschlagen (HTTP {res.status_code}): {res.text}")
-            return ""
-    except Exception as e:
-        print(f"[Fehler] Exception in analyze_image: {e}")
+        except Exception as e:
+            print(f"[Warnung] Exception bei /api/generate Vision-Anfrage: {e}")
+
+    # Attempt 3: Fallback with English prompt if German resulted in empty text (e.g. for moondream)
+    if not content:
+        try:
+            english_prompt = "Describe in detail what is visible in this image: people, clothing, pose, objects, and environment."
+            print(f"[*] Fallback mit englischem Vision-Prompt für {p.name} ({active_model})...")
+            gen_payload = {
+                "model": active_model,
+                "prompt": english_prompt,
+                "images": [b64_img],
+                "stream": False,
+                "options": {
+                    "temperature": 0.2,
+                    "num_predict": 300
+                }
+            }
+            res_gen = requests.post(gen_url, json=gen_payload, timeout=90)
+            if res_gen.status_code == 200:
+                content = res_gen.json().get("response", "").strip()
+                if "<think>" in content and "</think>" in content:
+                    content = content.split("</think>", 1)[1].strip()
+        except Exception as e:
+            print(f"[Warnung] Exception bei englischem Vision-Prompt: {e}")
+
+    if content:
+        print(f"[✔] Vision-Analyse erfolgreich ({len(content)} Zeichen)")
+        return content
+    else:
+        print(f"[Warnung] Ollama Vision lieferte leere Beschreibung für {p.name}")
         return ""
 
 
