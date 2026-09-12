@@ -196,31 +196,39 @@ def extract_and_save_preferences(project_path: str, user_text: str) -> Dict[str,
     lower = user_text.lower()
 
     # Nickname / Name detection
-    if any(p in lower for p in ["nenn mich ", "ich heiße ", "mein name ist "]):
-        for prefix in ["nenn mich ", "ich heiße ", "mein name ist "]:
+    name_prefixes = [
+        "nenn mich ", "ich heiße ", "mein name ist ",
+        "call me ", "my name is ", "i am ", "i'm "
+    ]
+    if any(p in lower for p in name_prefixes):
+        for prefix in name_prefixes:
             if prefix in lower:
                 name_cand = user_text[lower.find(prefix) + len(prefix):].split()[0].strip(".,!?:;\"'")
-                if name_cand:
+                if name_cand and name_cand.lower() not in ["a", "an", "the", "so", "very"]:
                     extracted["user_nickname"] = name_cand
                     save_user_preference(project_path, "user_nickname", name_cand)
                 break
 
     # Favorite location / setting
-    if any(p in lower for p in ["lieblingsort", "am liebsten auf der couch", "am liebsten im bett", "am liebsten am schreibtisch"]):
-        if "couch" in lower:
+    env_triggers = [
+        "lieblingsort", "am liebsten auf der couch", "am liebsten im bett", "am liebsten am schreibtisch",
+        "favorite place", "favorite spot", "on the couch", "in bed", "at the desk", "at my desk"
+    ]
+    if any(p in lower for p in env_triggers):
+        if any(w in lower for w in ["couch", "sofa"]):
             extracted["preferred_environment"] = "couch"
             save_user_preference(project_path, "preferred_environment", "couch")
-        elif "bett" in lower or "schlafzimmer" in lower:
+        elif any(w in lower for w in ["bett", "schlafzimmer", "bed", "bedroom"]):
             extracted["preferred_environment"] = "schlafzimmer"
             save_user_preference(project_path, "preferred_environment", "schlafzimmer")
-        elif "schreibtisch" in lower or "battlestation" in lower:
+        elif any(w in lower for w in ["schreibtisch", "battlestation", "desk"]):
             extracted["preferred_environment"] = "schreibtisch"
             save_user_preference(project_path, "preferred_environment", "schreibtisch")
 
     # Toy intensity preference
-    if "stufe" in lower or "intensität" in lower:
+    if any(w in lower for w in ["stufe", "intensität", "level", "intensity"]):
         import re
-        m = re.search(r'(?:stufe|intensität)\s*(\d{1,2})', lower)
+        m = re.search(r'(?:stufe|intensität|level|intensity)\s*(\d{1,2})', lower)
         if m:
             lvl = int(m.group(1))
             extracted["preferred_toy_intensity"] = lvl
