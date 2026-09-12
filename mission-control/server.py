@@ -1806,7 +1806,7 @@ async def handle_image_metadata(request: web.Request) -> web.Response:
             except Exception as pe:
                 logger.debug(f"Error parsing prompt metadata: {pe}")
 
-        return web.json_response({
+        meta_dict = {
             "success": True,
             "filename": cand_path.name,
             "path": str(cand_path),
@@ -1822,6 +1822,11 @@ async def handle_image_metadata(request: web.Request) -> web.Response:
             "sampler_name": sampler_name,
             "scheduler": scheduler,
             "has_workflow": bool(workflow_raw)
+        }
+        return web.json_response({
+            **meta_dict,
+            "found": True,
+            "extracted": meta_dict
         })
     except Exception as e:
         logger.error(f"Error extracting metadata from {cand_path}: {e}")
@@ -1830,71 +1835,153 @@ async def handle_image_metadata(request: web.Request) -> web.Response:
 
 async def handle_prompts_presets_get(request: web.Request) -> web.Response:
     """GET /api/prompts/presets"""
-    if PROMPT_PRESETS_FILE.is_file():
+    data = {}
+    target_file = PROMPT_PRESETS_FILE if PROMPT_PRESETS_FILE.is_file() else (BASE_DIR / "workflows" / "prompt_presets.json")
+    if target_file.is_file():
         try:
-            data = json.loads(PROMPT_PRESETS_FILE.read_text(encoding="utf-8"))
-            return web.json_response({"success": True, "presets": data.get("presets", [])})
+            data = json.loads(target_file.read_text(encoding="utf-8"))
         except Exception as e:
-            return web.json_response({"success": False, "error": str(e)}, status=500)
+            logger.error(f"Error loading presets file: {e}")
 
-    local_presets = BASE_DIR / "workflows" / "prompt_presets.json"
-    if local_presets.is_file():
-        try:
-            data = json.loads(local_presets.read_text(encoding="utf-8"))
-            return web.json_response({"success": True, "presets": data.get("presets", [])})
-        except Exception:
-            pass
+    positive_list = data.get("positive", [])
+    negative_list = data.get("negative", [])
+    presets_list = data.get("presets", [])
 
-    return web.json_response({"success": True, "presets": []})
+    # Auto-derive if only presets list is present
+    if not positive_list and presets_list:
+        positive_list = [
+            {"id": p.get("id", ""), "name": p.get("title", p.get("id", "")), "text": p.get("positive", "")}
+            for p in presets_list if p.get("positive")
+        ]
+    if not negative_list and presets_list:
+        negative_list = [
+            {"id": f"{p.get('id', '')}_neg", "name": f"{p.get('title', p.get('id', ''))} (Negativ)", "text": p.get("negative", "")}
+            for p in presets_list if p.get("negative")
+        ]
+
+    return web.json_response({
+        "success": True,
+        "positive": positive_list,
+        "negative": negative_list,
+        "presets": presets_list
+    })
 
 
 async def handle_prompts_presets_post(request: web.Request) -> web.Response:
     """POST /api/prompts/presets"""
     try:
         body = await request.json()
-        title = body.get("title") or body.get("name") or "Neues Preset"
+        category = (body.get("category") or "positive").strip().lower()
+        name = (body.get("name") or body.get("title") or "Neues Preset").strip()
+        text = body.get("text", "").strip()
         positive = body.get("positive", "").strip()
         negative = body.get("negative", "").strip()
-        steps = body.get("steps", 26)
-        cfg = body.get("cfg", 6.5)
-        sampler = body.get("sampler", "dpmpp_2m")
-        scheduler = body.get("scheduler", "karras")
 
-        preset_entry = {
-            "id": re.sub(r'[^a-zA-Z0-9_]', '_', title.lower()).strip('_'),
-            "title": title,
-            "positive": positive,
-            "negative": negative,
-            "steps": steps,
-            "cfg": cfg,
-            "sampler": sampler,
-            "scheduler": scheduler,
-            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")
-        }
+        if not text:
+            if category == "negative" and negative:
+                text = negative
+            elif positive:
+                text = positive
+            elif negative:
+                text = negative
 
-        presets_list = []
+        preset_id = body.get("id") or re.sub(r'[^a-zA-Z0-9_]', '_', name.lower()).strip('_')
+        if not preset_id:
+            preset_id = f"preset_{int(time.time())}"
+
+        data = {"positive": [], "negative": [], "presets": []}
         if PROMPT_PRESETS_FILE.is_file():
             try:
-                existing = json.loads(PROMPT_PRESETS_FILE.read_text(encoding="utf-8"))
-                presets_list = existing.get("presets", [])
+                data = json.loads(PROMPT_PRESETS_FILE.read_text(encoding="utf-8"))
             except Exception:
-                presets_list = []
+                pass
 
-        updated = False
-        for idx, p in enumerate(presets_list):
-            if p.get("id") == preset_entry["id"] or p.get("title") == preset_entry["title"]:
-                presets_list[idx] = preset_entry
-                updated = True
-                break
-        if not updated:
-            presets_list.append(preset_entry)
+        if "positive" not in data or not isinstance(data["positive"], list):
+            data["positive"] = []
+        if "negative" not in data or not isinstance(data["negative"], list):
+            data["negative"] = []
+        if "presets" not in data or not isinstance(data["presets"], list):
+            data["presets"] = []
+
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        if category == "negative":
+            entry = {
+                "id": preset_id,
+                "name": name,
+                "text": text,
+                "updated_at": now_str
+            }
+            data["negative"] = [p for p in data["negative"] if p.get("id") != preset_id]
+            data["negative"].append(entry)
+        else:
+            entry = {
+                "id": preset_id,
+                "name": name,
+                "text": text,
+                "updated_at": now_str
+            }
+            data["positive"] = [p for p in data["positive"] if p.get("id") != preset_id]
+            data["positive"].append(entry)
+
+            combined_entry = {
+                "id": preset_id,
+                "title": name,
+                "positive": text,
+                "negative": negative if negative else body.get("negative", ""),
+                "steps": body.get("steps", 26),
+                "cfg": body.get("cfg", 6.5),
+                "sampler": body.get("sampler", "dpmpp_2m"),
+                "scheduler": body.get("scheduler", "karras"),
+                "updated_at": now_str
+            }
+            data["presets"] = [p for p in data["presets"] if p.get("id") != preset_id]
+            data["presets"].append(combined_entry)
 
         PROMPT_PRESETS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PROMPT_PRESETS_FILE.write_text(json.dumps({"presets": presets_list}, indent=2, ensure_ascii=False), encoding="utf-8")
+        PROMPT_PRESETS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-        return web.json_response({"success": True, "preset": preset_entry, "total": len(presets_list)})
+        return web.json_response({
+            "success": True,
+            "category": category,
+            "preset": entry,
+            "total_positive": len(data["positive"]),
+            "total_negative": len(data["negative"])
+        })
     except Exception as e:
         logger.error(f"Error saving preset: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_prompts_presets_delete(request: web.Request) -> web.Response:
+    """DELETE /api/prompts/presets/{id}"""
+    preset_id = request.match_info.get("id", "").strip()
+    if not preset_id:
+        return web.json_response({"success": False, "error": "Preset ID erforderlich"}, status=400)
+
+    try:
+        data = {"positive": [], "negative": [], "presets": []}
+        if PROMPT_PRESETS_FILE.is_file():
+            try:
+                data = json.loads(PROMPT_PRESETS_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+        deleted = False
+        for k in ["positive", "negative", "presets"]:
+            if k in data and isinstance(data[k], list):
+                orig_len = len(data[k])
+                data[k] = [p for p in data[k] if p.get("id") != preset_id]
+                if len(data[k]) < orig_len:
+                    deleted = True
+
+        if deleted:
+            PROMPT_PRESETS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            return web.json_response({"success": True, "deleted": preset_id})
+        else:
+            return web.json_response({"success": False, "error": f"Preset '{preset_id}' nicht gefunden"}, status=404)
+    except Exception as e:
+        logger.error(f"Error deleting preset {preset_id}: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 # --- Dual-Agent WebSocket Chat ---
@@ -2081,6 +2168,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/images/metadata", handle_image_metadata)
     app.router.add_get("/api/prompts/presets", handle_prompts_presets_get)
     app.router.add_post("/api/prompts/presets", handle_prompts_presets_post)
+    app.router.add_delete("/api/prompts/presets/{id}", handle_prompts_presets_delete)
 
     # Direct static outputs route
     app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)

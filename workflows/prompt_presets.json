@@ -1,4 +1,53 @@
 {
+  "positive": [
+    {
+      "id": "megan_realistic_base",
+      "name": "Megan Realistic Base",
+      "text": "1girl, photorealistic portrait, detailed skin texture, natural eye catchlight, soft cinematic lighting, 8k uhd, hyper-detailed, masterpiece"
+    },
+    {
+      "id": "catlord_comic",
+      "name": "Catlord Comic",
+      "text": "catlord comic style, dynamic superhero action pose, graphic novel illustration, ink contours, saturated comic colors, cinematic angles"
+    },
+    {
+      "id": "tactical_stealth",
+      "name": "Tactical Stealth (Outer Heaven)",
+      "text": "tactical military operator, stealth combat suit, tactical rig, outer heaven insignia emblem on shoulder patch, muted olive and carbon black armor, rim light, heavy atmosphere, hyper-detailed, 8k, photorealistic"
+    },
+    {
+      "id": "cyberpunk_neon",
+      "name": "Cyberpunk Neon Atmosphere",
+      "text": "cyberpunk cyborg operative in rain-slick alleyway, glowing cyan and amber holographic HUD interface, wet pavement reflections, volumetric fog, intricate cybernetic enhancements, cinematic film still, octane render"
+    },
+    {
+      "id": "photoreal_portrait",
+      "name": "Photorealistic Studio Portrait",
+      "text": "close-up portrait, natural skin texture, subsurface scattering, realistic eye catchlight, 85mm lens, f/1.8 shallow depth of field, soft studio lighting, ultra-realistic photography, high fidelity"
+    },
+    {
+      "id": "game_asset_3d",
+      "name": "3D Game Asset / Multi-Angle",
+      "text": "orthographic full body game character, T-pose / A-pose, clean neutral studio lighting, isolated on solid neutral dark background, crisp edges, PBR materials, high polygonal detail, turntable view"
+    }
+  ],
+  "negative": [
+    {
+      "id": "default_quality",
+      "name": "Default Quality",
+      "text": "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark"
+    },
+    {
+      "id": "universal_negative",
+      "name": "Universal Negative",
+      "text": "lowres, bad hands, missing fingers, extra digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, mutation, duplicate"
+    },
+    {
+      "id": "anti_cgi_plastic",
+      "name": "Anti-CGI / Plastic Skin",
+      "text": "plastic skin, 3d render, doll, toy, wax, smooth skin, airbrushed, cartoon, anime, artificial, oversaturated"
+    }
+  ],
   "presets": [
     {
       "id": "tactical_stealth",
@@ -21,22 +70,12 @@
       "scheduler": "karras"
     },
     {
-      "id": "photoreal_portrait",
-      "title": "Photorealistic Studio Portrait",
-      "positive": "close-up portrait, natural skin texture, subsurface scattering, realistic eye catchlight, 85mm lens, f/1.8 shallow depth of field, soft studio lighting, ultra-realistic photography, high fidelity",
-      "negative": "plastic skin, airbrushed, doll-like, extra ears, unnatural eyes, cartoon, low quality, oversaturated",
+      "id": "megan_realistic_base",
+      "title": "Megan Realistic Base",
+      "positive": "1girl, photorealistic portrait, detailed skin texture, natural eye catchlight, soft cinematic lighting, 8k uhd, hyper-detailed, masterpiece",
+      "negative": "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark",
       "steps": 25,
       "cfg": 6.0,
-      "sampler": "dpmpp_2m",
-      "scheduler": "karras"
-    },
-    {
-      "id": "game_asset_3d",
-      "title": "3D Game Asset / Multi-Angle",
-      "positive": "orthographic full body game character, T-pose / A-pose, clean neutral studio lighting, isolated on solid neutral dark background, crisp edges, PBR materials, high polygonal detail, turntable view",
-      "negative": "perspective distortion, cut off limbs, cropped, background clutter, noisy texture, blurry, motion blur",
-      "steps": 30,
-      "cfg": 7.5,
       "sampler": "dpmpp_2m",
       "scheduler": "karras"
     }

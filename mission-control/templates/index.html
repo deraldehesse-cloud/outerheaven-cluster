@@ -650,7 +650,13 @@
                     <option value="">Negativ-Preset...</option>
                   </select>
                 </div>
-                <button type="button" onclick="resetNegativePrompt()" class="text-[9px] text-slate-500 hover:text-slate-400 transition">Standard</button>
+                <div class="flex items-center space-x-1.5">
+                  <button type="button" onclick="openSavePresetDialog('negative')" title="Aktuellen Negativ-Prompt als Preset abspeichern"
+                    class="text-[10px] font-bold text-slate-400 hover:text-rose-300 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-rose-500/40 px-2 py-0.5 rounded transition font-mono">
+                    💾 Als Preset
+                  </button>
+                  <button type="button" onclick="resetNegativePrompt()" class="text-[9px] text-slate-500 hover:text-slate-400 transition">Standard</button>
+                </div>
               </div>
               <input type="text" id="renderNegativePrompt"
                 value="ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark"
@@ -738,19 +744,21 @@
           </div>
 
           <!-- Clickable Step Navigation Breadcrumb Bar -->
-          <div class="px-3 py-1.5 bg-black/60 border-b border-slate-800 flex items-center space-x-1 overflow-x-auto scrollbar-none text-[10px] font-mono shrink-0">
-            <span class="text-slate-500 uppercase font-bold shrink-0 mr-1">STEPS:</span>
-            <button type="button" onclick="jumpToPipelineStep(0)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-cyan-300 font-bold shrink-0 transition">1: Model</button>
+          <div id="pipelineBreadcrumbBar" class="px-3 py-1.5 bg-black/60 border-b border-slate-800 flex items-center space-x-1.5 overflow-x-auto scrollbar-thin text-[10px] font-mono shrink-0">
+            <span class="px-2 py-0.5 rounded bg-cyan-950/90 border border-cyan-700/70 text-cyan-300 font-bold text-[9px] shrink-0">
+              Step 1 von 7
+            </span>
+            <button type="button" onclick="jumpToPipelineStep(0)" class="px-2 py-0.5 rounded bg-cyan-950/40 hover:bg-cyan-950 border border-cyan-800/80 text-cyan-300 font-bold shrink-0 transition">1: Model</button>
             <span class="text-slate-600">›</span>
             <button type="button" onclick="jumpToPipelineStep(1)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-slate-300 shrink-0 transition">2: LoRA</button>
             <span class="text-slate-600">›</span>
             <button type="button" onclick="jumpToPipelineStep(2)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-slate-300 shrink-0 transition">3: Latent</button>
             <span class="text-slate-600">›</span>
-            <button type="button" onclick="jumpToPipelineStep(3)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-emerald-400 font-bold shrink-0 transition">4: Prompt (+)</button>
+            <button type="button" onclick="jumpToPipelineStep(3)" class="px-2 py-0.5 rounded bg-emerald-950/40 hover:bg-emerald-950 border border-emerald-800/80 text-emerald-400 font-bold shrink-0 transition">4: Prompt (+)</button>
             <span class="text-slate-600">›</span>
-            <button type="button" onclick="jumpToPipelineStep(4)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-rose-400 font-bold shrink-0 transition">5: Neg (-)</button>
+            <button type="button" onclick="jumpToPipelineStep(4)" class="px-2 py-0.5 rounded bg-rose-950/40 hover:bg-rose-950 border border-rose-800/80 text-rose-400 font-bold shrink-0 transition">5: Neg (-)</button>
             <span class="text-slate-600">›</span>
-            <button type="button" onclick="jumpToPipelineStep(5)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-amber-400 font-bold shrink-0 transition">6: KSampler</button>
+            <button type="button" onclick="jumpToPipelineStep(5)" class="px-2 py-0.5 rounded bg-amber-950/40 hover:bg-amber-950 border border-amber-800/80 text-amber-400 font-bold shrink-0 transition">6: KSampler</button>
             <span class="text-slate-600">›</span>
             <button type="button" onclick="jumpToPipelineStep(6)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-cyan-300 font-bold shrink-0 transition">7: Decode/Save</button>
           </div>
@@ -1004,28 +1012,53 @@
   </div>
 
   <!-- Prompt Preset Save Modal -->
+  <!-- Prompt Preset Save & Manager Modal -->
   <div id="savePresetModal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
-    <div class="relative max-w-md w-full bg-slate-950 border border-cyan-500/50 rounded-lg p-4 space-y-3 font-mono text-xs shadow-2xl">
-      <div class="flex items-center justify-between border-b border-slate-800 pb-2">
-        <span class="text-cyan-300 font-bold uppercase">💾 ALS PROMPT-PRESET SPEICHERN</span>
-        <button type="button" onclick="closeSavePresetModal()" class="text-slate-400 hover:text-white">✕</button>
+    <div class="relative max-w-lg w-full bg-slate-950 border border-cyan-500/50 rounded-lg p-4 space-y-3 font-mono text-xs shadow-2xl max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2 shrink-0">
+        <span class="text-cyan-300 font-bold uppercase flex items-center space-x-1.5">
+          <span>💾 PROMPT-PRESET VERWALTUNG</span>
+        </span>
+        <button type="button" onclick="closeSavePresetModal()" class="text-slate-400 hover:text-white text-sm font-bold px-2">✕</button>
       </div>
-      <div>
-        <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Preset-Titel</label>
-        <input type="text" id="newPresetTitle" placeholder="z. B. Tactical Cyber Infiltration"
-               class="w-full bg-black border border-slate-700 rounded px-2.5 py-1.5 text-xs text-cyan-200 focus:outline-none focus:border-cyan-400">
-      </div>
-      <div>
-        <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Positiver Prompt (Aktuell)</label>
-        <textarea id="newPresetPositive" rows="3" class="w-full bg-black/60 border border-slate-800 rounded p-2 text-[11px] text-slate-300 focus:outline-none focus:border-cyan-400"></textarea>
-      </div>
-      <div>
-        <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Negativer Prompt</label>
-        <input type="text" id="newPresetNegative" class="w-full bg-black/60 border border-slate-800 rounded px-2.5 py-1 text-[11px] text-slate-400 focus:outline-none">
-      </div>
-      <div class="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
-        <button type="button" onclick="closeSavePresetModal()" class="px-3 py-1.5 rounded bg-slate-900 text-slate-400 hover:text-white transition">Abbrechen</button>
-        <button type="button" onclick="submitSavePreset()" class="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold transition">Speichern</button>
+      
+      <div class="overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Kategorie</label>
+            <select id="newPresetCategory" class="w-full bg-black border border-slate-700 rounded px-2 py-1.5 text-xs text-cyan-200 focus:outline-none focus:border-cyan-400">
+              <option value="positive">🟢 Positiver Prompt</option>
+              <option value="negative">🔴 Negativer Prompt</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Preset-Name / Titel</label>
+            <input type="text" id="newPresetTitle" placeholder="z. B. Megan Realistic Base"
+                   class="w-full bg-black border border-slate-700 rounded px-2.5 py-1.5 text-xs text-cyan-200 focus:outline-none focus:border-cyan-400">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Prompt-Text</label>
+          <textarea id="newPresetText" rows="3" placeholder="Prompt Inhalt..."
+                    class="w-full bg-black/80 border border-slate-800 rounded p-2 text-[11px] text-slate-200 font-mono focus:outline-none focus:border-cyan-400"></textarea>
+        </div>
+
+        <div class="flex items-center justify-end space-x-2 pt-1 border-b border-slate-800/80 pb-2">
+          <button type="button" onclick="closeSavePresetModal()" class="px-3 py-1.5 rounded bg-slate-900 text-slate-400 hover:text-white transition">Abbrechen</button>
+          <button type="button" onclick="submitSavePreset()" class="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold transition">Preset Speichern</button>
+        </div>
+
+        <!-- Preset Deletion / Management List -->
+        <div class="pt-1 space-y-1.5">
+          <div class="text-[10px] uppercase text-slate-500 font-bold flex items-center justify-between">
+            <span>Gespeicherte Presets (Löschen / Verwalten):</span>
+            <span id="presetManagerCount" class="text-cyan-400">--</span>
+          </div>
+          <div id="presetManagerList" class="max-h-40 overflow-y-auto space-y-1 scrollbar-thin text-[10px]">
+            <!-- Injected dynamically -->
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1961,27 +1994,28 @@
           return;
         }
         const data = await res.json();
-        if (data.found && data.extracted) {
-          currentLightboxMetadata = data.extracted;
-          if (posEl) posEl.textContent = currentLightboxMetadata.positive_prompt || "Kein Prompt extrahiert";
-          if (negEl) negEl.textContent = currentLightboxMetadata.negative_prompt || "--";
-          if (ckptEl) ckptEl.textContent = currentLightboxMetadata.checkpoint || "--";
+        const meta = data.extracted || data;
+        if (data.success && (meta.positive_prompt || meta.checkpoint || meta.steps || meta.sampler_name)) {
+          currentLightboxMetadata = meta;
+          if (posEl) posEl.textContent = meta.positive_prompt || "Kein Prompt extrahiert";
+          if (negEl) negEl.textContent = meta.negative_prompt || "--";
+          if (ckptEl) ckptEl.textContent = meta.checkpoint || "--";
           if (samplerEl) {
-            const smp = currentLightboxMetadata.sampler || "";
-            const sch = currentLightboxMetadata.scheduler ? ` / ${currentLightboxMetadata.scheduler}` : "";
+            const smp = meta.sampler_name || meta.sampler || "";
+            const sch = meta.scheduler ? ` / ${meta.scheduler}` : "";
             samplerEl.textContent = (smp + sch) || "--";
           }
-          if (stepsEl) stepsEl.textContent = currentLightboxMetadata.steps ?? "--";
-          if (cfgEl) cfgEl.textContent = currentLightboxMetadata.cfg ?? "--";
-          if (seedEl) seedEl.textContent = currentLightboxMetadata.seed ?? "--";
+          if (stepsEl) stepsEl.textContent = meta.steps ?? "--";
+          if (cfgEl) cfgEl.textContent = meta.cfg ?? "--";
+          if (seedEl) seedEl.textContent = (meta.seed !== undefined && meta.seed !== null) ? meta.seed : "--";
 
-          if (lorasRow && lorasList && currentLightboxMetadata.loras && currentLightboxMetadata.loras.length > 0) {
-            lorasList.innerHTML = currentLightboxMetadata.loras.map(l => 
-              `<div class="p-1 bg-black/60 rounded border border-slate-800 flex justify-between my-0.5">
-                <span class="truncate max-w-[200px]" title="${l.name}">${l.name}</span>
-                <span class="text-amber-400 font-bold ml-1">M:${l.strength_model} / C:${l.strength_clip}</span>
-              </div>`
-            ).join('');
+          if (lorasRow && lorasList && meta.loras && meta.loras.length > 0) {
+            lorasList.innerHTML = meta.loras.map(l => {
+              const label = typeof l === 'string' ? l : `${l.name} (M:${l.strength_model}/C:${l.strength_clip})`;
+              return `<div class="p-1 bg-black/60 rounded border border-slate-800 flex justify-between my-0.5">
+                <span class="truncate max-w-[220px]" title="${label}">${label}</span>
+              </div>`;
+            }).join('');
             lorasRow.classList.remove('hidden');
           }
         } else {
@@ -1998,26 +2032,28 @@
         alert("Keine Metadaten zum Laden vorhanden.");
         return;
       }
-      if (currentLightboxMetadata.positive_prompt) {
+      const meta = currentLightboxMetadata.extracted || currentLightboxMetadata;
+
+      if (meta.positive_prompt) {
         const pInput = document.getElementById('renderPrompt');
-        if (pInput) pInput.value = currentLightboxMetadata.positive_prompt;
+        if (pInput) pInput.value = meta.positive_prompt;
       }
-      if (currentLightboxMetadata.negative_prompt) {
+      if (meta.negative_prompt) {
         const nInput = document.getElementById('renderNegativePrompt');
-        if (nInput) nInput.value = currentLightboxMetadata.negative_prompt;
+        if (nInput) nInput.value = meta.negative_prompt;
       }
-      if (currentLightboxMetadata.steps) {
+      if (meta.steps) {
         const sInput = document.getElementById('renderSteps');
-        if (sInput) sInput.value = currentLightboxMetadata.steps;
+        if (sInput) sInput.value = meta.steps;
       }
-      if (currentLightboxMetadata.cfg) {
+      if (meta.cfg) {
         const cInput = document.getElementById('renderCfg');
-        if (cInput) cInput.value = currentLightboxMetadata.cfg;
+        if (cInput) cInput.value = meta.cfg;
       }
-      if (currentLightboxMetadata.checkpoint) {
+      if (meta.checkpoint) {
         const ckptSelect = document.getElementById('renderCheckpoint');
         if (ckptSelect) {
-          const target = currentLightboxMetadata.checkpoint.toLowerCase();
+          const target = meta.checkpoint.toLowerCase();
           for (let opt of ckptSelect.options) {
             if (opt.value.toLowerCase().includes(target) || target.includes(opt.value.toLowerCase())) {
               ckptSelect.value = opt.value;
@@ -2040,7 +2076,7 @@
     }
 
     // --- Prompt Presets Manager ---
-    let promptPresetsData = { presets: [], negative_presets: [] };
+    let promptPresetsData = { positive: [], negative: [], presets: [] };
 
     async function loadPromptPresets() {
       try {
@@ -2048,25 +2084,44 @@
         if (!res.ok) return;
         promptPresetsData = await res.json();
 
-        // Positive Presets Dropdown
+        const posList = promptPresetsData.positive || promptPresetsData.presets || [];
+        const negList = promptPresetsData.negative || promptPresetsData.negative_presets || [];
+
+        // Positive Presets Dropdown in Schnell-Render
         const posSel = document.getElementById('promptPresetSelect');
-        if (posSel && promptPresetsData.presets) {
+        if (posSel) {
           let html = `<option value="">⚡ Preset wählen...</option>`;
-          promptPresetsData.presets.forEach(p => {
-            html += `<option value="${p.id}">${p.title || p.id}</option>`;
+          posList.forEach(p => {
+            html += `<option value="${p.id}">${p.name || p.title || p.id}</option>`;
           });
           posSel.innerHTML = html;
         }
 
-        // Negative Presets Dropdown
+        // Negative Presets Dropdown in Schnell-Render
         const negSel = document.getElementById('negPresetSelect');
-        if (negSel && promptPresetsData.negative_presets) {
+        if (negSel) {
           let html = `<option value="">Negativ-Preset...</option>`;
-          promptPresetsData.negative_presets.forEach(n => {
-            html += `<option value="${n.id}">${n.title || n.id}</option>`;
+          negList.forEach(n => {
+            html += `<option value="${n.id}">${n.name || n.title || n.id}</option>`;
           });
           negSel.innerHTML = html;
         }
+
+        // Also update any open pipeline canvas prompt selects
+        document.querySelectorAll('[id^="step-preset-"]').forEach(sel => {
+          const isPos = sel.id.includes("pos") || !sel.id.includes("neg");
+          const currentVal = sel.value;
+          const list = isPos ? posList : negList;
+          let html = `<option value="">⚡ Preset wählen...</option>`;
+          list.forEach(item => {
+            html += `<option value="${item.id}">${item.name || item.title || item.id}</option>`;
+          });
+          sel.innerHTML = html;
+          if (currentVal) sel.value = currentVal;
+        });
+
+        // Update manager list if modal is open
+        renderPresetManagerList();
       } catch (e) {
         console.warn("Fehler beim Laden der Prompt-Presets:", e);
       }
@@ -2074,11 +2129,13 @@
 
     function applyPromptPreset(presetId) {
       if (!presetId) return;
-      const preset = (promptPresetsData.presets || []).find(p => p.id === presetId);
+      const posList = promptPresetsData.positive || promptPresetsData.presets || [];
+      const preset = posList.find(p => p.id === presetId);
       if (!preset) return;
 
       const pInput = document.getElementById('renderPrompt');
-      if (pInput && preset.positive) pInput.value = preset.positive;
+      const text = preset.text || preset.positive || "";
+      if (pInput && text) pInput.value = text;
 
       if (preset.negative) {
         const nInput = document.getElementById('renderNegativePrompt');
@@ -2099,23 +2156,57 @@
 
     function applyNegativePreset(presetId) {
       if (!presetId) return;
-      const item = (promptPresetsData.negative_presets || []).find(n => n.id === presetId);
+      const negList = promptPresetsData.negative || promptPresetsData.negative_presets || [];
+      const item = negList.find(n => n.id === presetId);
       if (!item) return;
 
       const nInput = document.getElementById('renderNegativePrompt');
-      if (nInput && item.negative) nInput.value = item.negative;
+      const text = item.text || item.negative || "";
+      if (nInput && text) nInput.value = text;
     }
 
-    function openSavePresetDialog() {
-      const pInput = document.getElementById('renderPrompt');
-      const nInput = document.getElementById('renderNegativePrompt');
-      const targetPos = document.getElementById('newPresetPositive');
-      const targetNeg = document.getElementById('newPresetNegative');
-      const titleInput = document.getElementById('newPresetTitle');
+    function applyPresetToStep(stepId, category, presetId) {
+      if (!presetId) return;
+      const list = category === 'positive' ? (promptPresetsData.positive || promptPresetsData.presets || []) : (promptPresetsData.negative || promptPresetsData.negative_presets || []);
+      const item = list.find(p => p.id === presetId);
+      if (!item) return;
 
-      if (targetPos && pInput) targetPos.value = pInput.value;
-      if (targetNeg && nInput) targetNeg.value = nInput.value;
+      const text = item.text || (category === 'positive' ? item.positive : item.negative) || "";
+      const el = document.getElementById(`step-prompt-${stepId}`);
+      if (el) el.value = text;
+      if (typeof updateStepParam === 'function') {
+        updateStepParam(stepId, 'text', text);
+      }
+    }
+
+    let activePresetSourceId = null;
+
+    function openSavePresetDialog(category = 'positive', sourceInputId = null) {
+      activePresetSourceId = sourceInputId;
+      const catSelect = document.getElementById('newPresetCategory');
+      if (catSelect) catSelect.value = category;
+
+      let currentText = "";
+      if (sourceInputId) {
+        const el = document.getElementById(sourceInputId);
+        if (el) currentText = el.value || "";
+      } else {
+        if (category === 'negative') {
+          const el = document.getElementById('renderNegativePrompt');
+          if (el) currentText = el.value || "";
+        } else {
+          const el = document.getElementById('renderPrompt');
+          if (el) currentText = el.value || "";
+        }
+      }
+
+      const targetText = document.getElementById('newPresetText');
+      if (targetText) targetText.value = currentText;
+
+      const titleInput = document.getElementById('newPresetTitle');
       if (titleInput) titleInput.value = "";
+
+      renderPresetManagerList();
 
       const modal = document.getElementById('savePresetModal');
       if (modal) modal.classList.remove('hidden');
@@ -2124,23 +2215,26 @@
     function closeSavePresetModal() {
       const modal = document.getElementById('savePresetModal');
       if (modal) modal.classList.add('hidden');
+      activePresetSourceId = null;
     }
 
     async function submitSavePreset() {
       const titleInput = document.getElementById('newPresetTitle');
-      const targetPos = document.getElementById('newPresetPositive');
-      const targetNeg = document.getElementById('newPresetNegative');
+      const textInput = document.getElementById('newPresetText');
+      const catSelect = document.getElementById('newPresetCategory');
 
-      const title = titleInput ? titleInput.value.trim() : "";
-      if (!title) {
-        alert("Bitte einen Titel für das Preset angeben.");
+      const name = titleInput ? titleInput.value.trim() : "";
+      if (!name) {
+        alert("Bitte einen Namen für das Preset angeben.");
         return;
       }
+      const text = textInput ? textInput.value.trim() : "";
+      const category = catSelect ? catSelect.value : "positive";
 
       const payload = {
-        title: title,
-        positive: targetPos ? targetPos.value.trim() : "",
-        negative: targetNeg ? targetNeg.value.trim() : ""
+        category: category,
+        name: name,
+        text: text
       };
 
       try {
@@ -2154,11 +2248,79 @@
           await loadPromptPresets();
         } else {
           const err = await res.json();
-          alert("Fehler beim Speichern: " + (err.detail || "Unbekannter Fehler"));
+          alert("Fehler beim Speichern: " + (err.error || err.detail || "Unbekannter Fehler"));
         }
       } catch (e) {
         alert("Netzwerkfehler: " + e.message);
       }
+    }
+
+    async function deletePreset(presetId) {
+      if (!presetId) return;
+      if (!confirm(`Preset '${presetId}' wirklich unwiderruflich löschen?`)) return;
+
+      try {
+        const res = await fetch(`/api/prompts/presets/${encodeURIComponent(presetId)}`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          await loadPromptPresets();
+        } else {
+          const err = await res.json();
+          alert("Fehler beim Löschen: " + (err.error || "Unbekannter Fehler"));
+        }
+      } catch (e) {
+        alert("Netzwerkfehler: " + e.message);
+      }
+    }
+
+    function renderPresetManagerList() {
+      const container = document.getElementById('presetManagerList');
+      const countEl = document.getElementById('presetManagerCount');
+      if (!container) return;
+
+      const posList = promptPresetsData.positive || [];
+      const negList = promptPresetsData.negative || [];
+      const total = posList.length + negList.length;
+      if (countEl) countEl.textContent = `${total} Presets`;
+
+      if (total === 0) {
+        container.innerHTML = `<div class="text-slate-600 italic p-1">Keine Presets gespeichert.</div>`;
+        return;
+      }
+
+      let html = '';
+      posList.forEach(p => {
+        html += `
+          <div class="flex items-center justify-between p-1 rounded bg-black/60 border border-slate-800 hover:border-cyan-500/40">
+            <div class="flex items-center space-x-1.5 truncate max-w-[320px]">
+              <span class="px-1 py-0.2 rounded text-[8px] bg-emerald-950 text-emerald-300 font-bold">POS</span>
+              <span class="text-slate-200 truncate" title="${p.name || p.id}">${p.name || p.title || p.id}</span>
+            </div>
+            <button type="button" onclick="deletePreset('${p.id}')" title="Preset löschen"
+              class="text-rose-400 hover:text-rose-200 px-1 py-0.2 hover:bg-rose-950/60 rounded transition">
+              🗑️
+            </button>
+          </div>
+        `;
+      });
+
+      negList.forEach(n => {
+        html += `
+          <div class="flex items-center justify-between p-1 rounded bg-black/60 border border-slate-800 hover:border-rose-500/40">
+            <div class="flex items-center space-x-1.5 truncate max-w-[320px]">
+              <span class="px-1 py-0.2 rounded text-[8px] bg-rose-950 text-rose-300 font-bold">NEG</span>
+              <span class="text-slate-200 truncate" title="${n.name || n.id}">${n.name || n.title || n.id}</span>
+            </div>
+            <button type="button" onclick="deletePreset('${n.id}')" title="Preset löschen"
+              class="text-rose-400 hover:text-rose-200 px-1 py-0.2 hover:bg-rose-950/60 rounded transition">
+              🗑️
+            </button>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
     }
 
     function jumpToPipelineStep(idx) {
@@ -2170,6 +2332,51 @@
       } else {
         console.warn(`Step card ${idx} nicht gefunden.`);
       }
+    }
+
+    function updatePipelineBreadcrumbs(steps) {
+      const bar = document.getElementById("pipelineBreadcrumbBar");
+      if (!bar) return;
+      if (!steps || steps.length === 0) {
+        bar.innerHTML = `<span class="text-slate-500 italic text-[10px]">Keine Schritte in der Pipeline</span>`;
+        return;
+      }
+
+      let html = `
+        <div class="flex items-center space-x-1 shrink-0 mr-1">
+          <span class="px-2 py-0.5 rounded bg-cyan-950/90 border border-cyan-700/70 text-cyan-300 font-bold text-[9px]">
+            Step 1 von ${steps.length}
+          </span>
+        </div>
+      `;
+
+      steps.forEach((step, idx) => {
+        const num = idx + 1;
+        let label = step.title || step.node_type;
+        if (label.length > 14) label = label.slice(0, 13) + '…';
+
+        const isPos = step.role === "positive_prompt" || (step.title && step.title.toLowerCase().includes("pos"));
+        const isNeg = step.role === "negative_prompt" || (step.title && step.title.toLowerCase().includes("neg"));
+        const isSampler = step.node_type === "KSampler";
+        const isModel = idx === 0 || step.node_type.includes("Checkpoint");
+
+        let colorClass = "text-slate-300 border-slate-800 bg-slate-900";
+        if (isModel) colorClass = "text-cyan-300 border-cyan-800/80 bg-cyan-950/40 font-bold";
+        else if (isPos) colorClass = "text-emerald-400 border-emerald-800/80 bg-emerald-950/40 font-bold";
+        else if (isNeg) colorClass = "text-rose-400 border-rose-800/80 bg-rose-950/40 font-bold";
+        else if (isSampler) colorClass = "text-amber-400 border-amber-800/80 bg-amber-950/40 font-bold";
+
+        html += `
+          ${idx > 0 ? '<span class="text-slate-600 text-[10px]">›</span>' : ''}
+          <button type="button" onclick="jumpToPipelineStep(${idx})"
+            class="px-2 py-0.5 rounded hover:bg-cyan-950 border ${colorClass} hover:border-cyan-500/60 text-[10px] shrink-0 transition"
+            title="Springe zu Step ${num}: ${step.title || step.node_type}">
+            ${num}: ${label}
+          </button>
+        `;
+      });
+
+      bar.innerHTML = html;
     }
 
     // --- PWA Service Worker Registration ---
@@ -2357,6 +2564,7 @@
 
       const steps = currentPipeline.steps || [];
       document.getElementById("pipelineStepCounter").textContent = `${steps.length} Nodes`;
+      updatePipelineBreadcrumbs(steps);
 
       if (steps.length === 0) {
         container.innerHTML = `
@@ -2530,11 +2738,11 @@
           const outRow = document.createElement("div");
           outRow.className = "p-1.5 rounded border border-slate-800/80 bg-black/40 flex items-center justify-between";
           outRow.innerHTML = `
-            <div class="flex items-center space-x-1.5">
+            <div class="flex items-center space-x-1.5 select-none">
               <span class="text-emerald-300 font-bold">${outN}</span>
-              ${isSignalSource ? '<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-800/60 font-semibold" title="Reine Signal-Quelle zur Weiterleitung an Folgesteps">[READ-ONLY SIGNAL]</span>' : ''}
+              ${isSignalSource ? '<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/90 text-cyan-300 border border-cyan-700/70 font-semibold cursor-default pointer-events-none shadow-sm" title="Reine Signal-Quelle zur Weiterleitung an Folgesteps (Read-Only Statusanzeige)">🔒 READ-ONLY STATUS</span>' : ''}
             </div>
-            <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-800 text-cyan-300 border border-slate-700">
+            <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-800 text-cyan-300 border border-slate-700 select-none pointer-events-none">
               ${outT}
             </span>
           `;
@@ -2579,20 +2787,43 @@
       else if (step.node_type === "CLIPTextEncode") {
         hasParams = true;
         const isPos = (step.role === "positive_prompt") || (step.title && step.title.toLowerCase().includes("pos"));
+        const stepTextareaId = `step-prompt-${step.id}`;
+        const stepSelectId = `step-preset-${step.id}`;
+
+        const presetOptions = isPos ? (promptPresetsData.positive || promptPresetsData.presets || []) : (promptPresetsData.negative || promptPresetsData.negative_presets || []);
+
+        let optsHtml = `<option value="">⚡ Preset wählen...</option>`;
+        presetOptions.forEach(p => {
+          optsHtml += `<option value="${p.id}">${p.name || p.title || p.id}</option>`;
+        });
+
         wrapper.innerHTML = `
           <div>
-            <div class="flex items-center justify-between mb-1">
-              <label class="block text-[10px] uppercase ${isPos ? 'text-cyan-400' : 'text-slate-400'} font-bold">
-                ${isPos ? 'Positive Prompt Text' : 'Negative Prompt Text'}
-              </label>
-              ${isPos ? `
-                <button type="button" onclick="enhanceStepPrompt('${step.id}')"
-                  class="text-[9px] font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 border border-amber-600/60 px-1.5 py-0.2 rounded transition">
-                  ✨ Magic Prompt (R1)
+            <div class="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+              <div class="flex items-center space-x-1.5">
+                <label class="block text-[10px] uppercase ${isPos ? 'text-cyan-400' : 'text-slate-400'} font-bold">
+                  ${isPos ? 'Positive Prompt' : 'Negative Prompt'}
+                </label>
+                <select id="${stepSelectId}" onchange="applyPresetToStep('${step.id}', '${isPos ? 'positive' : 'negative'}', this.value)"
+                  class="bg-black border border-slate-700 rounded px-1.5 py-0.5 text-[9px] ${isPos ? 'text-cyan-300' : 'text-slate-400'} font-mono focus:outline-none focus:border-cyan-400">
+                  ${optsHtml}
+                </select>
+              </div>
+              <div class="flex items-center space-x-1">
+                <button type="button" onclick="openSavePresetDialog('${isPos ? 'positive' : 'negative'}', '${stepTextareaId}')"
+                  title="Aktuellen Prompt als Preset abspeichern"
+                  class="text-[9px] font-bold text-slate-300 hover:text-cyan-300 bg-slate-900 hover:bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded transition font-mono">
+                  💾 Als Preset
                 </button>
-              ` : ''}
+                ${isPos ? `
+                  <button type="button" onclick="enhanceStepPrompt('${step.id}')"
+                    class="text-[9px] font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 border border-amber-600/60 px-1.5 py-0.5 rounded transition">
+                    ✨ Magic Prompt
+                  </button>
+                ` : ''}
+              </div>
             </div>
-            <textarea rows="2" onchange="updateStepParam('${step.id}', 'text', this.value)"
+            <textarea id="${stepTextareaId}" rows="2" onchange="updateStepParam('${step.id}', 'text', this.value)"
               class="w-full bg-black border border-slate-700 rounded p-1.5 text-[11px] text-cyan-200 font-mono focus:outline-none focus:border-cyan-400">${step.params.text || ''}</textarea>
           </div>
         `;
