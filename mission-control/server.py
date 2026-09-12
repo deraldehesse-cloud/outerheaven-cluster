@@ -1172,6 +1172,12 @@ async def handle_bot_config_get(request: web.Request) -> web.Response:
             "cooldown_seconds": 21600,
             "start_hour": 9,
             "end_hour": 22
+        },
+        "personality": {
+            "dominance": 50,
+            "explicitness": 70,
+            "detail_depth": 60,
+            "language": "de"
         }
     }
 

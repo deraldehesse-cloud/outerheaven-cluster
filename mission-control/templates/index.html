@@ -984,6 +984,86 @@
         </div>
       </div>
 
+      <!-- Dynamic Personality & Explicitness Sliders (0 - 100) -->
+      <div class="bg-black/70 border border-pink-500/40 rounded-lg p-3.5 space-y-3 relative z-10 shadow-lg font-mono">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-pink-900/60 pb-2">
+          <div class="flex items-center space-x-2">
+            <span class="text-xs font-bold text-pink-300 flex items-center space-x-1.5">
+              <span>🎭</span> <span>DYNAMISCHE PERSÖNLICHKEIT & EXPLIZITHEIT (0 - 100)</span>
+            </span>
+            <span class="px-2 py-0.5 rounded text-[10px] bg-pink-950/80 border border-pink-700/60 text-pink-300 font-bold">ECHTZEIT-INJEKTION IN PROMPT</span>
+          </div>
+          <div class="flex items-center space-x-2 text-[11px] text-slate-400">
+            <span>Ausgabe-Sprache:</span>
+            <span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-emerald-300 font-bold flex items-center space-x-1">
+              <span>🇩🇪</span> <span>Deutsch (Rechtschreibung aktiv)</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
+          <!-- 1. Dominanz & Initiative -->
+          <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-cyan-300 flex items-center space-x-1">
+                <span>👑</span> <span>Dominanz & Initiative</span>
+              </span>
+              <span id="botPersDominanceDisplay" class="px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300 font-bold text-xs">50%</span>
+            </div>
+            <input type="range" id="botPersDominance" min="0" max="100" step="1" value="50"
+              oninput="updatePersonalitySliderUI('dominance', this.value)"
+              class="w-full accent-cyan-400 bg-slate-900 cursor-pointer">
+            <div class="flex items-center justify-between text-[10px] text-slate-500">
+              <span>0 (Sanft/Zurückhaltend)</span>
+              <span>100 (Fordernd/Dominant)</span>
+            </div>
+            <div id="botPersDominanceDesc" class="text-[11px] text-cyan-200/90 font-sans italic bg-black/40 p-1.5 rounded border border-slate-800">
+              Ausgeglichen: Begegnet dir auf Augenhöhe, wechselt spielerisch zwischen Führen und Folgen.
+            </div>
+          </div>
+
+          <!-- 2. Explizitheit & Freizügigkeit -->
+          <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-rose-300 flex items-center space-x-1">
+                <span>🔥</span> <span>Explizitheit & Freizügigkeit</span>
+              </span>
+              <span id="botPersExplicitnessDisplay" class="px-1.5 py-0.5 rounded bg-rose-950 border border-rose-800 text-rose-300 font-bold text-xs">70%</span>
+            </div>
+            <input type="range" id="botPersExplicitness" min="0" max="100" step="1" value="70"
+              oninput="updatePersonalitySliderUI('explicitness', this.value)"
+              class="w-full accent-rose-500 bg-slate-900 cursor-pointer">
+            <div class="flex items-center justify-between text-[10px] text-slate-500">
+              <span>0 (Subtil/Codes)</span>
+              <span>100 (Kompromisslos explizit)</span>
+            </div>
+            <div id="botPersExplicitnessDesc" class="text-[11px] text-rose-200/90 font-sans italic bg-black/40 p-1.5 rounded border border-slate-800">
+              Sinnlich, direkt und unzensiert: Benennt intime Wünsche und Gefühle klar ohne Scheu.
+            </div>
+          </div>
+
+          <!-- 3. Detailtiefe & Erotischer Fokus -->
+          <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-amber-300 flex items-center space-x-1">
+                <span>🔍</span> <span>Detailtiefe & Erotischer Fokus</span>
+              </span>
+              <span id="botPersDetailDisplay" class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 font-bold text-xs">60%</span>
+            </div>
+            <input type="range" id="botPersDetail" min="0" max="100" step="1" value="60"
+              oninput="updatePersonalitySliderUI('detail', this.value)"
+              class="w-full accent-amber-400 bg-slate-900 cursor-pointer">
+            <div class="flex items-center justify-between text-[10px] text-slate-500">
+              <span>0 (Alltags-Chat)</span>
+              <span>100 (Maximal physisch)</span>
+            </div>
+            <div id="botPersDetailDesc" class="text-[11px] text-amber-200/90 font-sans italic bg-black/40 p-1.5 rounded border border-slate-800">
+              Hoher physischer Fokus: Beschreibt Blicke, Reaktionen und Berührungen plastisch in *Sternchen*.
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Settings Grid: 4 Cards -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10 text-xs font-mono">
 
@@ -1119,13 +1199,13 @@
             </div>
 
             <div>
-              <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Stimme (Englisch / Erotisch)</label>
+              <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Stimme (Neural-TTS)</label>
               <select id="botVoiceName" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-pink-200 focus:border-pink-400">
-                <option value="en-US-AvaMultilingualNeural">en-US-Ava (Sensual, Intimate & Sensitive) ⭐</option>
-                <option value="en-US-EmmaMultilingualNeural">en-US-Emma (Gentle, Caring, Soft)</option>
-                <option value="en-US-JennyNeural">en-US-Jenny (Warm, Natural, Expressive)</option>
-                <option value="en-US-AnaNeural">en-US-Ana (Soft Whisper, Tender)</option>
-                <option value="de-DE-SeraphinaMultilingualNeural">de-DE-Seraphina (Deutsch Intim)</option>
+                <option value="de-DE-SeraphinaMultilingualNeural">de-DE-Seraphina (Deutsch Sensibel, Erotisch & Intim) ⭐</option>
+                <option value="de-DE-KatjaNeural">de-DE-Katja (Deutsch Warm & Natürlich)</option>
+                <option value="de-DE-AmalaNeural">de-DE-Amala (Deutsch Zärtlich & Ruhig)</option>
+                <option value="en-US-AvaMultilingualNeural">en-US-Ava (Multilingual Sensual & Intimate)</option>
+                <option value="en-US-EmmaMultilingualNeural">en-US-Emma (Multilingual Gentle & Soft)</option>
               </select>
             </div>
 
@@ -3804,6 +3884,43 @@
       }
     }
 
+    // --- Personality Sliders UI Helper ---
+    function updatePersonalitySliderUI(type, value) {
+      const val = parseInt(value, 10);
+      if (type === "dominance") {
+        const badge = document.getElementById("botPersDominanceDisplay");
+        const desc = document.getElementById("botPersDominanceDesc");
+        if (badge) badge.textContent = `${val}%`;
+        if (desc) {
+          if (val < 25) desc.textContent = "Extrem sanft & zurückhaltend: Überlässt dir absolut die Führung, reagiert schüchtern und gehorsam.";
+          else if (val < 45) desc.textContent = "Sanft & zärtlich: Lässt dir die Führung, zeigt sich anhänglich, folgsam und hingebungsvoll.";
+          else if (val <= 65) desc.textContent = "Ausgeglichen: Begegnet dir auf Augenhöhe, wechselt spielerisch zwischen Führen und Folgen.";
+          else if (val <= 85) desc.textContent = "Fordernd & offensiv: Übernimmt aktiv die Initiative, neckt frech, bestimmt das Tempo.";
+          else desc.textContent = "Kompromisslos dominant: Absolute Kontrolle und herrischer Ton, gibt klare Anweisungen ohne Widerrede.";
+        }
+      } else if (type === "explicitness") {
+        const badge = document.getElementById("botPersExplicitnessDisplay");
+        const desc = document.getElementById("botPersExplicitnessDesc");
+        if (badge) badge.textContent = `${val}%`;
+        if (desc) {
+          if (val < 25) desc.textContent = "Subtil & verspielt: Keine derben Begriffe, zarte Andeutungen, Code-Wörter und poetische Metaphern.";
+          else if (val < 50) desc.textContent = "Sinnlich & elegant: Verspielte Umschreibungen und erotische Kosenamen statt Kraftausdrücken.";
+          else if (val <= 75) desc.textContent = "Sinnlich, direkt und unzensiert: Benennt intime Berührungen und Lustgefühle klar ohne Scheu.";
+          else desc.textContent = "Kompromisslos explizit & derb: Unzensierte, tabulose und hemmungslose Begriffe ohne Umschweife.";
+        }
+      } else if (type === "detail") {
+        const badge = document.getElementById("botPersDetailDisplay");
+        const desc = document.getElementById("botPersDetailDesc");
+        if (badge) badge.textContent = `${val}%`;
+        if (desc) {
+          if (val < 25) desc.textContent = "Fokus auf Alltags-Chat & Fürsorge: Emotionale Begleitung und geistige Nähe stehen im Vordergrund.";
+          else if (val < 50) desc.textContent = "Ausgewogene Balance: Flirtet charmant und deutet sanfte körperliche Gesten in *Sternchen* an.";
+          else if (val <= 75) desc.textContent = "Hoher physischer Fokus: Beschreibt Blicke, Reaktionen, Wärme und Berührungen plastisch in *Sternchen*.";
+          else desc.textContent = "Maximaler physischer Detailfokus: Beschreibt kleinste intime Nuancen, Feuchtigkeit, Pulsieren und Berührungen sensorisch tief.";
+        }
+      }
+    }
+
     async function loadBotConfig() {
       try {
         await loadOllamaModelsForBotConfig();
@@ -3811,6 +3928,24 @@
         if (!res.ok) return;
         const data = await res.json();
         const cfg = data.config || {};
+
+        // Personality Sliders (0 - 100)
+        const pers = cfg.personality || {};
+        const dom = pers.dominance ?? 50;
+        const exp = pers.explicitness ?? 70;
+        const det = pers.detail_depth ?? 60;
+        if (document.getElementById("botPersDominance")) {
+          document.getElementById("botPersDominance").value = dom;
+          updatePersonalitySliderUI("dominance", dom);
+        }
+        if (document.getElementById("botPersExplicitness")) {
+          document.getElementById("botPersExplicitness").value = exp;
+          updatePersonalitySliderUI("explicitness", exp);
+        }
+        if (document.getElementById("botPersDetail")) {
+          document.getElementById("botPersDetail").value = det;
+          updatePersonalitySliderUI("detail", det);
+        }
 
         // LLM
         const llm = cfg.llm || {};
@@ -3854,7 +3989,7 @@
 
         // Voice
         const v = cfg.voice || {};
-        if (document.getElementById("botVoiceName")) document.getElementById("botVoiceName").value = v.voice_name || "en-US-AvaMultilingualNeural";
+        if (document.getElementById("botVoiceName")) document.getElementById("botVoiceName").value = v.voice_name || "de-DE-SeraphinaMultilingualNeural";
         if (document.getElementById("botVoiceRate")) document.getElementById("botVoiceRate").value = v.rate || "-4%";
         if (document.getElementById("botVoicePitch")) document.getElementById("botVoicePitch").value = v.pitch || "-1Hz";
         if (document.getElementById("botVoiceAuto")) document.getElementById("botVoiceAuto").checked = v.auto_voice ?? true;
@@ -3892,6 +4027,12 @@
 
       const payload = {
         config: {
+          personality: {
+            dominance: parseInt(document.getElementById("botPersDominance")?.value || 50, 10),
+            explicitness: parseInt(document.getElementById("botPersExplicitness")?.value || 70, 10),
+            detail_depth: parseInt(document.getElementById("botPersDetail")?.value || 60, 10),
+            language: "de"
+          },
           llm: {
             model: document.getElementById("botLlmModel")?.value || "lexi-llama-3-8b-uncensored_q4_k_m:latest",
             temperature: parseFloat(document.getElementById("botLlmTemp")?.value || 0.95),
@@ -3914,7 +4055,7 @@
             height: parseInt(document.getElementById("botRenderHeight")?.value || 768)
           },
           voice: {
-            voice_name: document.getElementById("botVoiceName")?.value || "en-US-AvaMultilingualNeural",
+            voice_name: document.getElementById("botVoiceName")?.value || "de-DE-SeraphinaMultilingualNeural",
             rate: document.getElementById("botVoiceRate")?.value || "-4%",
             pitch: document.getElementById("botVoicePitch")?.value || "-1Hz",
             auto_voice: document.getElementById("botVoiceAuto")?.checked ?? true

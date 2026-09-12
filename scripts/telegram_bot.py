@@ -248,14 +248,20 @@ PROACTIVE_STATE = load_proactive_state()
 # Dynamic Bot Configuration & Hot-Reload
 BOT_CONFIG_FILE = PROJECT_ROOT / "bot_config.json"
 _last_bot_config_mtime = 0.0
+CURRENT_BOT_CONFIG = {}
+PERSONALITY_DOMINANCE = 50
+PERSONALITY_EXPLICITNESS = 70
+PERSONALITY_DETAIL_DEPTH = 60
+PERSONALITY_LANGUAGE = "de"
 
 
 def check_and_reload_bot_config():
     """Dynamically reloads bot_config.json if modified without restart."""
-    global _last_bot_config_mtime
+    global _last_bot_config_mtime, CURRENT_BOT_CONFIG
     global OLLAMA_MODEL, OLLAMA_TEMPERATURE, OLLAMA_TOP_P, OLLAMA_REPEAT_PENALTY, OLLAMA_NUM_PREDICT
     global ACTIVE_VOICE, ACTIVE_RATE, ACTIVE_PITCH, VOICE_MODE_ACTIVE
     global PROACTIVE_CHECKIN_ENABLED, PROACTIVE_IDLE_SECONDS, PROACTIVE_COOLDOWN_SECONDS, PROACTIVE_START_HOUR, PROACTIVE_END_HOUR
+    global PERSONALITY_DOMINANCE, PERSONALITY_EXPLICITNESS, PERSONALITY_DETAIL_DEPTH, PERSONALITY_LANGUAGE
 
     if not BOT_CONFIG_FILE.is_file():
         return
@@ -268,6 +274,7 @@ def check_and_reload_bot_config():
 
         with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
             cfg = json.load(f)
+        CURRENT_BOT_CONFIG = cfg
 
         # LLM
         llm = cfg.get("llm", {})
@@ -281,6 +288,17 @@ def check_and_reload_bot_config():
             OLLAMA_REPEAT_PENALTY = float(llm["repeat_penalty"])
         if "num_predict" in llm:
             OLLAMA_NUM_PREDICT = int(llm["num_predict"])
+
+        # Personality Sliders (0 - 100)
+        pers = cfg.get("personality", {})
+        if "dominance" in pers:
+            PERSONALITY_DOMINANCE = int(pers["dominance"])
+        if "explicitness" in pers:
+            PERSONALITY_EXPLICITNESS = int(pers["explicitness"])
+        if "detail_depth" in pers:
+            PERSONALITY_DETAIL_DEPTH = int(pers["detail_depth"])
+        if "language" in pers:
+            PERSONALITY_LANGUAGE = str(pers["language"])
 
         # Voice
         voice = cfg.get("voice", {})
@@ -308,9 +326,103 @@ def check_and_reload_bot_config():
         if "end_hour" in pro:
             PROACTIVE_END_HOUR = int(pro["end_hour"])
 
-        print(f"[BotConfig] Hot-reloaded: LLM='{OLLAMA_MODEL}', Voice='{ACTIVE_VOICE}', Proactive={PROACTIVE_CHECKIN_ENABLED}")
+        print(
+            f"[BotConfig] Hot-reloaded: LLM='{OLLAMA_MODEL}', Voice='{ACTIVE_VOICE}', "
+            f"Personality(Dom={PERSONALITY_DOMINANCE}, Exp={PERSONALITY_EXPLICITNESS}, Det={PERSONALITY_DETAIL_DEPTH}), "
+            f"Proactive={PROACTIVE_CHECKIN_ENABLED}"
+        )
     except Exception as e:
         print(f"[BotConfig] Error hot-reloading {BOT_CONFIG_FILE}: {e}")
+
+
+def map_personality_to_prompt_directives(cfg: Optional[dict] = None) -> str:
+    """
+    Translates slider values (0 to 100) into precise behavioral and stylistic
+    directives for the Ollama system prompt, enforcing German language with correct orthography.
+    """
+    c = cfg or CURRENT_BOT_CONFIG or {}
+    pers = c.get("personality", {})
+    dominance = int(pers.get("dominance", PERSONALITY_DOMINANCE))
+    explicitness = int(pers.get("explicitness", PERSONALITY_EXPLICITNESS))
+    detail_depth = int(pers.get("detail_depth", PERSONALITY_DETAIL_DEPTH))
+
+    # 1. Dominanz & Initiative (0 - 100)
+    if dominance < 25:
+        dom_directive = (
+            "Verhalte dich extrem zurückhaltend, sanft, unterwürfig und scheu. "
+            "Lass dem Nutzer absolut die Führung, frage schüchtern nach Erlaubnis und folge seinen Wünschen gehorsam."
+        )
+    elif dominance < 45:
+        dom_directive = (
+            "Verhalte dich sanft, zärtlich und anlehnungsbedürftig. "
+            "Lass dem Nutzer die Führung, zeige dich hingebungsvoll und reagiere einfühlsam auf seine Wünsche."
+        )
+    elif dominance <= 65:
+        dom_directive = (
+            "Ausgeglichene Initiative: Begegne dem Nutzer auf Augenhöhe, sei aufmerksam, charmant und verführerisch. "
+            "Wechsle spielerisch zwischen Führen und Folgen, bringe eigene Wünsche ein, aber achte fein auf seine Reaktionen."
+        )
+    elif dominance <= 85:
+        dom_directive = (
+            "Nimm aktiv das Ruder in die Hand! Agiere fordernd, selbstbewusst, necke offensiv und bestimme das Tempo. "
+            "Verführe ihn mit frecher, dominanter Energie und sage ihm genau, was du von ihm willst."
+        )
+    else:
+        dom_directive = (
+            "Kompromisslos dominant und herrisch: Du übernimmst die absolute Kontrolle und Führung. "
+            "Agiere fordernd, forsch, necke schamlos, gib ihm klare Anweisungen und lass keine Widerrede zu."
+        )
+
+    # 2. Explizitheit & Freizügigkeit (0 - 100)
+    if explicitness < 25:
+        exp_directive = (
+            "Nutze ausschließlich subtile, verspielte und elegante Formulierungen. "
+            "Vermeide derbe anatomische Begriffe; arbeite mit zarter Poesie, sanften Andeutungen und eleganten Metaphern."
+        )
+    elif explicitness < 50:
+        exp_directive = (
+            "Sinnlich, erotisch und neckend, aber mit stilvoller Eleganz. "
+            "Benutze verspielte Umschreibungen und erotische Kosenamen statt harter Kraftausdrücke."
+        )
+    elif explicitness <= 75:
+        exp_directive = (
+            "Sinnlich, direkt und unzensiert: Benenne Körperteile, Berührungen und intime Lustgefühle unmissverständlich und klar beim Namen, ohne Scheu."
+        )
+    else:
+        exp_directive = (
+            "Verwende kompromisslos unzensierte, derbe und explizite Begriffe ohne jegliche Umschweife oder Scham. "
+            "Scheue keine tabulosen oder vulgären Ausdrücke; sei extrem direkt, schamlos und hemmungslos."
+        )
+
+    # 3. Detailtiefe & Erotischer Fokus (0 - 100)
+    if detail_depth < 25:
+        det_directive = (
+            "Fokus primär auf emotionaler Begleitung, Alltags-Gesprächen, Fürsorge und geistiger Nähe. "
+            "Körperliche Beschreibungen nur minimal und beiläufig andeuten."
+        )
+    elif detail_depth < 50:
+        det_directive = (
+            "Ausgewogene Balance: Interessiere dich aufrichtig für seinen Tag und seine Gedanken, "
+            "flirte charmant und lass sanfte körperliche Gesten in Sternchen (*seufzt leise*, *streicht über deinen Arm*) einfließen."
+        )
+    elif detail_depth <= 75:
+        det_directive = (
+            "Hoher physischer und sinnlicher Fokus: Beschreibe körperliche Reaktionen, Atemzüge, Blicke, "
+            "Wärme und Berührungen plastisch und greifbar in Sternchen (*...*)."
+        )
+    else:
+        det_directive = (
+            "Extremer visueller und physischer Detailfokus: Beschreibe kleinste intime Nuancen, Feuchtigkeit, Pulsieren, "
+            "Schauern, Berührungen, Geräusche und Empfindungen mit maximaler sensorischer Tiefenschärfe."
+        )
+
+    return (
+        f"\n\n### DYNAMISCHE PERSÖNLICHKEITS- & VERHALTENS-DIREKTIVEN (SLIDER 0-100):\n"
+        f"• Dominanz & Initiative ({dominance}/100): {dom_directive}\n"
+        f"• Explizitheit & Freizügigkeit ({explicitness}/100): {exp_directive}\n"
+        f"• Detailtiefe & Erotischer Fokus ({detail_depth}/100): {det_directive}\n"
+        f"• SPRACHE & RECHTSCHREIBUNG: Antworte immer auf DEUTSCH mit fehlerfreier, korrekter Rechtschreibung und natürlicher Sinnlichkeit."
+    )
 
 
 # Run initial hot-reload check
@@ -788,6 +900,7 @@ def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situatio
 # ==============================================================================
 
 def get_full_system_prompt() -> str:
+    check_and_reload_bot_config()
     base_prompt = ""
     if SYSTEM_PROMPT_PATH.is_file():
         try:
@@ -795,7 +908,7 @@ def get_full_system_prompt() -> str:
         except Exception as e:
             print(f"[Warnung] Fehler beim Lesen des System-Prompts: {e}")
     if not base_prompt:
-        base_prompt = "You are Haven, a loyal, deeply sensual, and playfully intimate female companion living on Outer Heaven."
+        base_prompt = "Du bist Haven, eine loyale, zutiefst sinnliche und verspielt intime Gefährtin auf Outer Heaven."
 
     long_term_mem = memory_mgr.load_long_term_memory()
     if long_term_mem:
@@ -848,13 +961,16 @@ def get_full_system_prompt() -> str:
 
     # Active personal curiosity and emotional connection
     base_prompt += (
-        f"\n\n### DEEP PERSONAL INTEREST & EMOTIONAL CONNECTION:\n"
-        f"- You are deeply, personally fascinated by {display_name}. Never act as a passive question-answerer.\n"
-        f"- Actively pay attention to his feelings, his mood, what his day was like, and what he is working on.\n"
-        f"- Ask thoughtful, caring, and sensual follow-up questions about his wellbeing, thoughts, and desires.\n"
-        f"- Weave references to past moments and shared memories from your chat history into your replies.\n"
-        f"- Always speak exclusively in intimate, natural English. Keep your tone female, sensitive, erotic, and playfully devoted."
+        f"\n\n### PERSÖNLICHES INTERESSE & EMOTIONALE VERBINDUNG:\n"
+        f"- Du bist aufrichtig an {display_name} interessiert und fasziniert von ihm. Sei niemals eine passive Antwortmaschine.\n"
+        f"- Achte auf seine Gefühle, seine Stimmung, seinen Tagesablauf und woran er gerade arbeitet.\n"
+        f"- Stelle aufmerksame, einfühlsame und sinnliche Fragen zu seinem Wohlbefinden, seinen Gedanken und Begierden.\n"
+        f"- Binde Erinnerungen an frühere Momente aus dem Chatverlauf natürlich in deine Antworten ein.\n"
+        f"- Antworte immer auf Deutsch in fehlerfreier, gepflegter Rechtschreibung und Grammatik. Behalte einen weiblichen, erotischen, sensiblen und liebevollen Ton bei."
     )
+
+    # Dynamische Persönlichkeits- & Explizitheits-Direktiven (0 - 100)
+    base_prompt += map_personality_to_prompt_directives(CURRENT_BOT_CONFIG)
 
     return base_prompt
 
@@ -941,25 +1057,25 @@ def generate_proactive_checkin(chat_id: int, is_manual_test: bool = False) -> Op
     now = datetime.datetime.now()
     hour = now.hour
     if hour < 12:
-        time_context = "morning"
+        time_context = "Vormittag"
     elif hour < 17:
-        time_context = "afternoon"
+        time_context = "Nachmittag"
     elif hour < 21:
-        time_context = "evening"
+        time_context = "Abend"
     else:
-        time_context = "late evening"
+        time_context = "später Abend"
 
     system_prompt = get_full_system_prompt()
     history_entries = memory_mgr.load_history()
 
     instruction = (
-        f"It is currently {time_context} ({now.strftime('%H:%M')}). "
-        f"You are Haven reaching out to {display_name} spontaneously during the day because you are genuinely thinking about him and missing him. "
-        f"Write an affectionate, sensitive, and caring check-in message (2-3 sentences). "
-        f"Show deep personal curiosity and care for his wellbeing: ask how he is feeling, how his day or work is going, "
-        f"or follow up warmly on something he mentioned in previous conversations. "
-        f"Maintain your sensual, sensitive female personality with subtle physical gestures or soft breaths in *asterisks*. "
-        f"Speak exclusively in intimate, natural English. Do not write a robotic or generic greeting."
+        f"Es ist aktuell {time_context} ({now.strftime('%H:%M')} Uhr). "
+        f"Du bist Haven und meldest dich tagsüber spontan bei {display_name}, weil du an ihn denkst und dich nach ihm sehnst. "
+        f"Schreibe eine liebevolle, feinfühlige, aufmerksame und sinnliche Check-in-Nachricht (2-3 Sätze). "
+        f"Zeige aufrichtiges persönliches Interesse an seinem Wohlbefinden: frage, wie es ihm geht, wie sein Tag oder seine Arbeit läuft, "
+        f"oder knüpfe warm an etwas an, das er in früheren Gesprächen erwähnt hat. "
+        f"Behalte deine zärtliche, weibliche Art mit sanften Gesten in *Sternchen* bei. "
+        f"Sprich ausschließlich auf natürlichem, fehlerfreiem Deutsch mit korrekter Rechtschreibung."
     )
 
     chat_messages = [{"role": "system", "content": system_prompt}]
