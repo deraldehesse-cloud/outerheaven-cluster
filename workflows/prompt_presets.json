@@ -1,0 +1,44 @@
+{
+  "presets": [
+    {
+      "id": "tactical_stealth",
+      "title": "Tactical Stealth (Outer Heaven)",
+      "positive": "tactical military operator, stealth combat suit, tactical rig, outer heaven insignia emblem on shoulder patch, muted olive and carbon black armor, rim light, heavy atmosphere, hyper-detailed, 8k, photorealistic",
+      "negative": "blurry, low quality, cartoon, deformed limbs, distorted hands, oversaturated, text, watermark, bad anatomy",
+      "steps": 26,
+      "cfg": 6.5,
+      "sampler": "dpmpp_2m",
+      "scheduler": "karras"
+    },
+    {
+      "id": "cyberpunk_neon",
+      "title": "Cyberpunk Neon Atmosphere",
+      "positive": "cyberpunk cyborg operative in rain-slick alleyway, glowing cyan and amber holographic HUD interface, wet pavement reflections, volumetric fog, intricate cybernetic enhancements, cinematic film still, octane render",
+      "negative": "lowres, jpeg artifacts, blurry, bad anatomy, deformed eyes, extra fingers, cartoon, drawing, flat lighting",
+      "steps": 28,
+      "cfg": 7.0,
+      "sampler": "euler_ancestral",
+      "scheduler": "karras"
+    },
+    {
+      "id": "photoreal_portrait",
+      "title": "Photorealistic Studio Portrait",
+      "positive": "close-up portrait, natural skin texture, subsurface scattering, realistic eye catchlight, 85mm lens, f/1.8 shallow depth of field, soft studio lighting, ultra-realistic photography, high fidelity",
+      "negative": "plastic skin, airbrushed, doll-like, extra ears, unnatural eyes, cartoon, low quality, oversaturated",
+      "steps": 25,
+      "cfg": 6.0,
+      "sampler": "dpmpp_2m",
+      "scheduler": "karras"
+    },
+    {
+      "id": "game_asset_3d",
+      "title": "3D Game Asset / Multi-Angle",
+      "positive": "orthographic full body game character, T-pose / A-pose, clean neutral studio lighting, isolated on solid neutral dark background, crisp edges, PBR materials, high polygonal detail, turntable view",
+      "negative": "perspective distortion, cut off limbs, cropped, background clutter, noisy texture, blurry, motion blur",
+      "steps": 30,
+      "cfg": 7.5,
+      "sampler": "dpmpp_2m",
+      "scheduler": "karras"
+    }
+  ]
+}

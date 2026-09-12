@@ -89,6 +89,13 @@ for _buero_dir in [DIR_RECHNUNGSEINGANG, DIR_RECHNUNGSARCHIV, DIR_JOBANGEBOTE, D
     except Exception as _e:
         logger.warning(f"Could not initialize directory {_buero_dir}: {_e}")
 
+DIR_WORKFLOWS = Path("/mnt/storage-beta/workflows")
+PROMPT_PRESETS_FILE = DIR_WORKFLOWS / "prompt_presets.json"
+try:
+    DIR_WORKFLOWS.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
 COMFY_CACHE_FILE = BASE_DIR / "data" / "object_info_cache.json"
 COMFY_ARCHETYPES_DIRS = [
     BASE_DIR / "workflows" / "archetypes",
@@ -554,7 +561,7 @@ class ThinkFilter:
 async def auth_middleware(request: web.Request, handler):
     path = request.path
 
-    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path.startswith("/output/3d/") or path == "/manifest.json" or path == "/sw.js" or path == "/3d-viewer" or path == "/api/health" or path.startswith("/api/buero/") or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or request.remote in ["127.0.0.1", "::1"]:
+    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path.startswith("/output/3d/") or path == "/manifest.json" or path == "/sw.js" or path == "/3d-viewer" or path == "/api/health" or path.startswith("/api/buero/") or path.startswith("/api/images/") or path.startswith("/api/prompts/") or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or request.remote in ["127.0.0.1", "::1"]:
         return await handler(request)
 
     authenticated = False
@@ -1704,6 +1711,192 @@ async def handle_buero_document(request: web.Request) -> web.Response:
 
     return web.FileResponse(file_path)
 
+
+# --- PNG Metadata Extraction & Prompt Presets ---
+
+async def handle_image_metadata(request: web.Request) -> web.Response:
+    """
+    GET /api/images/metadata?path=...
+    Extracts embedded prompt, workflow, positive/negative prompts, seed, steps, CFG, checkpoint and LoRAs via Pillow.
+    """
+    img_param = request.query.get("path") or request.query.get("filename") or ""
+    if not img_param:
+        return web.json_response({"success": False, "error": "Parameter 'path' oder 'filename' erforderlich"}, status=400)
+
+    cand_path = Path(img_param)
+    if not cand_path.is_file():
+        for base in [COMFYUI_OUTPUT_DIR, Path("/mnt/storage-beta/projekte/projekt-sexchat/output"), BASE_DIR / "outputs"]:
+            test_p = base / cand_path.name
+            if test_p.is_file():
+                cand_path = test_p
+                break
+
+    if not cand_path.is_file():
+        return web.json_response({"success": False, "error": f"Bild nicht gefunden: {img_param}"}, status=404)
+
+    try:
+        from PIL import Image
+        with Image.open(cand_path) as img:
+            info = img.info or {}
+            width, height = img.size
+
+        prompt_raw = info.get("prompt", "")
+        workflow_raw = info.get("workflow", "")
+
+        pos_prompt = ""
+        neg_prompt = ""
+        checkpoint = ""
+        loras = []
+        seed = None
+        steps = None
+        cfg = None
+        sampler_name = ""
+        scheduler = ""
+
+        if prompt_raw:
+            try:
+                p_graph = json.loads(prompt_raw) if isinstance(prompt_raw, str) else prompt_raw
+                ksampler_node = None
+                for nid, nval in p_graph.items():
+                    if isinstance(nval, dict) and nval.get("class_type") in ("KSampler", "KSamplerAdvanced"):
+                        ksampler_node = nval
+                        inputs = nval.get("inputs", {})
+                        seed = inputs.get("seed") or inputs.get("noise_seed")
+                        steps = inputs.get("steps")
+                        cfg = inputs.get("cfg")
+                        sampler_name = inputs.get("sampler_name", "")
+                        scheduler = inputs.get("scheduler", "")
+                        break
+
+                if ksampler_node:
+                    pos_link = ksampler_node.get("inputs", {}).get("positive")
+                    neg_link = ksampler_node.get("inputs", {}).get("negative")
+
+                    if isinstance(pos_link, list) and len(pos_link) > 0:
+                        pos_id = str(pos_link[0])
+                        pos_node = p_graph.get(pos_id, {})
+                        pos_prompt = pos_node.get("inputs", {}).get("text", "")
+
+                    if isinstance(neg_link, list) and len(neg_link) > 0:
+                        neg_id = str(neg_link[0])
+                        neg_node = p_graph.get(neg_id, {})
+                        neg_prompt = neg_node.get("inputs", {}).get("text", "")
+
+                for nid, nval in p_graph.items():
+                    if isinstance(nval, dict):
+                        ctype = nval.get("class_type", "")
+                        inputs = nval.get("inputs", {})
+                        if ctype in ("CheckpointLoaderSimple", "CheckpointLoader"):
+                            checkpoint = inputs.get("ckpt_name", "")
+                        elif "LoraLoader" in ctype:
+                            lora_name = inputs.get("lora_name", "")
+                            strength = inputs.get("strength_model", 1.0)
+                            if lora_name:
+                                loras.append(f"{lora_name} ({strength})")
+
+                if not pos_prompt:
+                    for nid, nval in p_graph.items():
+                        if isinstance(nval, dict) and nval.get("class_type") == "CLIPTextEncode":
+                            text = nval.get("inputs", {}).get("text", "")
+                            if text:
+                                if not pos_prompt:
+                                    pos_prompt = text
+                                elif not neg_prompt and text != pos_prompt:
+                                    neg_prompt = text
+            except Exception as pe:
+                logger.debug(f"Error parsing prompt metadata: {pe}")
+
+        return web.json_response({
+            "success": True,
+            "filename": cand_path.name,
+            "path": str(cand_path),
+            "width": width,
+            "height": height,
+            "positive_prompt": pos_prompt,
+            "negative_prompt": neg_prompt,
+            "checkpoint": checkpoint,
+            "loras": loras,
+            "seed": seed,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": sampler_name,
+            "scheduler": scheduler,
+            "has_workflow": bool(workflow_raw)
+        })
+    except Exception as e:
+        logger.error(f"Error extracting metadata from {cand_path}: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_prompts_presets_get(request: web.Request) -> web.Response:
+    """GET /api/prompts/presets"""
+    if PROMPT_PRESETS_FILE.is_file():
+        try:
+            data = json.loads(PROMPT_PRESETS_FILE.read_text(encoding="utf-8"))
+            return web.json_response({"success": True, "presets": data.get("presets", [])})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    local_presets = BASE_DIR / "workflows" / "prompt_presets.json"
+    if local_presets.is_file():
+        try:
+            data = json.loads(local_presets.read_text(encoding="utf-8"))
+            return web.json_response({"success": True, "presets": data.get("presets", [])})
+        except Exception:
+            pass
+
+    return web.json_response({"success": True, "presets": []})
+
+
+async def handle_prompts_presets_post(request: web.Request) -> web.Response:
+    """POST /api/prompts/presets"""
+    try:
+        body = await request.json()
+        title = body.get("title") or body.get("name") or "Neues Preset"
+        positive = body.get("positive", "").strip()
+        negative = body.get("negative", "").strip()
+        steps = body.get("steps", 26)
+        cfg = body.get("cfg", 6.5)
+        sampler = body.get("sampler", "dpmpp_2m")
+        scheduler = body.get("scheduler", "karras")
+
+        preset_entry = {
+            "id": re.sub(r'[^a-zA-Z0-9_]', '_', title.lower()).strip('_'),
+            "title": title,
+            "positive": positive,
+            "negative": negative,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler": sampler,
+            "scheduler": scheduler,
+            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        presets_list = []
+        if PROMPT_PRESETS_FILE.is_file():
+            try:
+                existing = json.loads(PROMPT_PRESETS_FILE.read_text(encoding="utf-8"))
+                presets_list = existing.get("presets", [])
+            except Exception:
+                presets_list = []
+
+        updated = False
+        for idx, p in enumerate(presets_list):
+            if p.get("id") == preset_entry["id"] or p.get("title") == preset_entry["title"]:
+                presets_list[idx] = preset_entry
+                updated = True
+                break
+        if not updated:
+            presets_list.append(preset_entry)
+
+        PROMPT_PRESETS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PROMPT_PRESETS_FILE.write_text(json.dumps({"presets": presets_list}, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        return web.json_response({"success": True, "preset": preset_entry, "total": len(presets_list)})
+    except Exception as e:
+        logger.error(f"Error saving preset: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
 # --- Dual-Agent WebSocket Chat ---
 
 async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
@@ -1883,6 +2076,11 @@ def create_app() -> web.Application:
 
     # Cluster Health & Service Monitoring
     app.router.add_get("/api/health", handle_api_health)
+
+    # Images Metadata & Prompt Presets
+    app.router.add_get("/api/images/metadata", handle_image_metadata)
+    app.router.add_get("/api/prompts/presets", handle_prompts_presets_get)
+    app.router.add_post("/api/prompts/presets", handle_prompts_presets_post)
 
     # Direct static outputs route
     app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)

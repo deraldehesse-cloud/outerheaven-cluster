@@ -617,14 +617,25 @@
           <!-- Render Form -->
           <div class="p-3 border-b border-slate-800 bg-black/40 space-y-2.5 text-xs">
             <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-[10px] uppercase text-slate-400 font-bold tracking-wider">Prompt</label>
-                <button type="button" id="btnMagicPrompt" onclick="enhancePrompt()"
-                  title="Erweitert den Prompt via DeepSeek-R1 mit Licht, Framing & negativem Prompt"
-                  class="text-[10px] font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 px-2 py-0.5 rounded flex items-center space-x-1.5 transition shadow glow-amber">
-                  <span>✨ Magic Prompt (DeepSeek-R1)</span>
-                  <span id="magicSpinner" class="hidden animate-spin">⏳</span>
-                </button>
+              <div class="flex items-center justify-between mb-1 gap-1 flex-wrap">
+                <div class="flex items-center space-x-1.5">
+                  <label class="block text-[10px] uppercase text-slate-400 font-bold tracking-wider">Prompt</label>
+                  <select id="promptPresetSelect" onchange="applyPromptPreset(this.value)" class="bg-black border border-slate-700 rounded px-2 py-0.5 text-[10px] text-cyan-300 font-mono focus:outline-none focus:border-cyan-400">
+                    <option value="">⚡ Preset wählen...</option>
+                  </select>
+                </div>
+                <div class="flex items-center space-x-1.5">
+                  <button type="button" onclick="openSavePresetDialog()" title="Aktuellen Prompt als Preset abspeichern"
+                    class="text-[10px] font-bold text-slate-300 hover:text-cyan-300 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-cyan-500/40 px-2 py-0.5 rounded transition font-mono">
+                    💾 Als Preset
+                  </button>
+                  <button type="button" id="btnMagicPrompt" onclick="enhancePrompt()"
+                    title="Erweitert den Prompt via DeepSeek-R1 mit Licht, Framing & negativem Prompt"
+                    class="text-[10px] font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 px-2 py-0.5 rounded flex items-center space-x-1.5 transition shadow glow-amber">
+                    <span>✨ Magic Prompt</span>
+                    <span id="magicSpinner" class="hidden animate-spin">⏳</span>
+                  </button>
+                </div>
               </div>
               <textarea id="renderPrompt" rows="2"
                 placeholder="z. B. tactical cyborg soldier in dark rain, outer heaven logo, neon cyber, 8k..."
@@ -632,9 +643,14 @@
             </div>
 
             <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-[10px] uppercase text-slate-500 font-bold tracking-wider">Negative Prompt</label>
-                <button type="button" onclick="resetNegativePrompt()" class="text-[9px] text-slate-500 hover:text-slate-400 transition">Standard wiederherstellen</button>
+              <div class="flex items-center justify-between mb-1 gap-1 flex-wrap">
+                <div class="flex items-center space-x-1.5">
+                  <label class="block text-[10px] uppercase text-slate-500 font-bold tracking-wider">Negative Prompt</label>
+                  <select id="negPresetSelect" onchange="applyNegativePreset(this.value)" class="bg-black border border-slate-800 rounded px-2 py-0.5 text-[10px] text-slate-400 font-mono focus:outline-none">
+                    <option value="">Negativ-Preset...</option>
+                  </select>
+                </div>
+                <button type="button" onclick="resetNegativePrompt()" class="text-[9px] text-slate-500 hover:text-slate-400 transition">Standard</button>
               </div>
               <input type="text" id="renderNegativePrompt"
                 value="ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark"
@@ -719,6 +735,24 @@
                 🟢 VALID: 7 STEPS
               </span>
             </div>
+          </div>
+
+          <!-- Clickable Step Navigation Breadcrumb Bar -->
+          <div class="px-3 py-1.5 bg-black/60 border-b border-slate-800 flex items-center space-x-1 overflow-x-auto scrollbar-none text-[10px] font-mono shrink-0">
+            <span class="text-slate-500 uppercase font-bold shrink-0 mr-1">STEPS:</span>
+            <button type="button" onclick="jumpToPipelineStep(0)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-cyan-300 font-bold shrink-0 transition">1: Model</button>
+            <span class="text-slate-600">›</span>
+            <button type="button" onclick="jumpToPipelineStep(1)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-slate-300 shrink-0 transition">2: LoRA</button>
+            <span class="text-slate-600">›</span>
+            <button type="button" onclick="jumpToPipelineStep(2)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-slate-300 shrink-0 transition">3: Latent</button>
+            <span class="text-slate-600">›</span>
+            <button type="button" onclick="jumpToPipelineStep(3)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-emerald-400 font-bold shrink-0 transition">4: Prompt (+)</button>
+            <span class="text-slate-600">›</span>
+            <button type="button" onclick="jumpToPipelineStep(4)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-rose-400 font-bold shrink-0 transition">5: Neg (-)</button>
+            <span class="text-slate-600">›</span>
+            <button type="button" onclick="jumpToPipelineStep(5)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-amber-400 font-bold shrink-0 transition">6: KSampler</button>
+            <span class="text-slate-600">›</span>
+            <button type="button" onclick="jumpToPipelineStep(6)" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-cyan-950 border border-slate-800 hover:border-cyan-500/60 text-cyan-300 font-bold shrink-0 transition">7: Decode/Save</button>
           </div>
 
           <!-- Pipeline Sequential Card Canvas -->
@@ -889,20 +923,109 @@
 
   </main>
 
-  <!-- Lightbox Modal -->
-  <div id="lightbox" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
-    <div class="relative max-w-4xl w-full max-h-[90vh] flex flex-col items-center">
-      <button onclick="closeLightbox()" class="absolute -top-10 right-0 text-slate-400 hover:text-white text-sm uppercase tracking-wider font-bold">
-        ✕ CLOSE
-      </button>
-      <img id="lightboxImg" src="" alt="Render" class="max-h-[80vh] max-w-full rounded border border-cyan-500/40 shadow-2xl object-contain">
-      <div class="mt-3 flex items-center space-x-4">
-        <a id="lightboxDownload" href="" download class="text-xs bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-1.5 rounded transition">
-          DOWNLOAD IMAGE
-        </a>
-        <button id="lightboxDeleteBtn" onclick="deleteCurrentLightboxImage()" class="text-xs bg-red-950/80 hover:bg-red-700 border border-red-500/80 text-red-200 font-bold px-3 py-1.5 rounded transition font-mono">
-          🗑️ DELETE (DEL)
+  <!-- Lightbox Modal with PNG Metadata Inspector & Replay -->
+  <div id="lightbox" class="fixed inset-0 bg-black/95 backdrop-blur-md z-50 hidden flex items-center justify-center p-2 sm:p-4">
+    <div class="relative max-w-5xl w-full max-h-[92vh] bg-slate-950/90 border border-cyan-500/40 rounded-lg shadow-2xl flex flex-col md:flex-row overflow-hidden">
+      <!-- Left: Image Preview -->
+      <div class="flex-1 flex flex-col items-center justify-center p-3 bg-black/60 relative overflow-hidden">
+        <button onclick="closeLightbox()" class="md:hidden absolute top-2 right-2 text-slate-400 hover:text-white text-sm font-bold z-10 px-2 py-1">
+          ✕ CLOSE
         </button>
+        <img id="lightboxImg" src="" alt="Render" class="max-h-[55vh] md:max-h-[78vh] max-w-full rounded border border-slate-800 shadow-2xl object-contain">
+        <div class="mt-2.5 flex flex-wrap items-center justify-center gap-2 shrink-0">
+          <a id="lightboxDownload" href="" download class="text-xs bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-1.5 rounded transition">
+            ⬇️ DOWNLOAD
+          </a>
+          <button id="lightboxDeleteBtn" onclick="deleteCurrentLightboxImage()" class="text-xs bg-red-950/80 hover:bg-red-700 border border-red-500/80 text-red-200 font-bold px-3 py-1.5 rounded transition font-mono">
+            🗑️ DELETE
+          </button>
+        </div>
+      </div>
+
+      <!-- Right: Extracted PNG Metadata & Replay Controls -->
+      <div class="w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/90 flex flex-col text-xs font-mono">
+        <div class="p-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between shrink-0">
+          <span class="text-cyan-300 font-bold flex items-center space-x-1.5">
+            <span>🔬 PNG-METADATEN & WORKFLOW</span>
+          </span>
+          <button onclick="closeLightbox()" class="hidden md:inline-block text-slate-400 hover:text-white text-xs uppercase font-bold px-2 py-0.5">
+            ✕
+          </button>
+        </div>
+
+        <div class="flex-1 p-3 overflow-y-auto space-y-2.5 scrollbar-thin text-[11px]" id="lightboxMetaBody">
+          <div>
+            <span class="text-slate-500 uppercase text-[10px] font-bold block mb-0.5">Positiver Prompt:</span>
+            <div id="metaPosPrompt" class="p-2 rounded bg-black/60 border border-slate-800/80 text-cyan-200 max-h-24 overflow-y-auto scrollbar-thin select-text whitespace-pre-wrap">--</div>
+          </div>
+          <div>
+            <span class="text-slate-500 uppercase text-[10px] font-bold block mb-0.5">Negativer Prompt:</span>
+            <div id="metaNegPrompt" class="p-2 rounded bg-black/60 border border-slate-800/80 text-rose-300/80 max-h-20 overflow-y-auto scrollbar-thin select-text whitespace-pre-wrap">--</div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="p-2 rounded bg-slate-900/60 border border-slate-800/80">
+              <span class="text-slate-500 text-[10px] block">CHECKPOINT:</span>
+              <span id="metaCheckpoint" class="text-slate-200 font-bold truncate block">--</span>
+            </div>
+            <div class="p-2 rounded bg-slate-900/60 border border-slate-800/80">
+              <span class="text-slate-500 text-[10px] block">SAMPLER / SCHED:</span>
+              <span id="metaSampler" class="text-amber-400 font-bold truncate block">--</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-1.5 text-center">
+            <div class="p-1.5 rounded bg-slate-900/60 border border-slate-800/80">
+              <span class="text-slate-500 text-[9px] block">STEPS</span>
+              <span id="metaSteps" class="text-slate-200 font-bold">--</span>
+            </div>
+            <div class="p-1.5 rounded bg-slate-900/60 border border-slate-800/80">
+              <span class="text-slate-500 text-[9px] block">CFG</span>
+              <span id="metaCfg" class="text-cyan-300 font-bold">--</span>
+            </div>
+            <div class="p-1.5 rounded bg-slate-900/60 border border-slate-800/80">
+              <span class="text-slate-500 text-[9px] block">SEED</span>
+              <span id="metaSeed" class="text-slate-400 truncate block">--</span>
+            </div>
+          </div>
+          <div id="metaLorasRow" class="hidden">
+            <span class="text-slate-500 uppercase text-[10px] font-bold block mb-0.5">LoRAs:</span>
+            <div id="metaLorasList" class="text-[10px] text-amber-300"></div>
+          </div>
+        </div>
+
+        <!-- Action Footer: Replay into Quick Render -->
+        <div class="p-3 border-t border-slate-800 bg-slate-900/80 shrink-0">
+          <button type="button" id="btnReplayToQuickRender" onclick="replayToQuickRender()"
+                  class="w-full py-2 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold rounded text-xs font-mono uppercase tracking-wider transition shadow flex items-center justify-center space-x-1.5">
+            <span>⚡ IN SCHNELL-RENDER LADEN</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Prompt Preset Save Modal -->
+  <div id="savePresetModal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+    <div class="relative max-w-md w-full bg-slate-950 border border-cyan-500/50 rounded-lg p-4 space-y-3 font-mono text-xs shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+        <span class="text-cyan-300 font-bold uppercase">💾 ALS PROMPT-PRESET SPEICHERN</span>
+        <button type="button" onclick="closeSavePresetModal()" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+      <div>
+        <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Preset-Titel</label>
+        <input type="text" id="newPresetTitle" placeholder="z. B. Tactical Cyber Infiltration"
+               class="w-full bg-black border border-slate-700 rounded px-2.5 py-1.5 text-xs text-cyan-200 focus:outline-none focus:border-cyan-400">
+      </div>
+      <div>
+        <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Positiver Prompt (Aktuell)</label>
+        <textarea id="newPresetPositive" rows="3" class="w-full bg-black/60 border border-slate-800 rounded p-2 text-[11px] text-slate-300 focus:outline-none focus:border-cyan-400"></textarea>
+      </div>
+      <div>
+        <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Negativer Prompt</label>
+        <input type="text" id="newPresetNegative" class="w-full bg-black/60 border border-slate-800 rounded px-2.5 py-1 text-[11px] text-slate-400 focus:outline-none">
+      </div>
+      <div class="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
+        <button type="button" onclick="closeSavePresetModal()" class="px-3 py-1.5 rounded bg-slate-900 text-slate-400 hover:text-white transition">Abbrechen</button>
+        <button type="button" onclick="submitSavePreset()" class="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold transition">Speichern</button>
       </div>
     </div>
   </div>
@@ -1785,8 +1908,10 @@
       }
     }
 
-    // --- Lightbox Functions ---
-    function openLightbox(url, filename) {
+    // --- Lightbox Functions & PNG Metadata Inspector ---
+    let currentLightboxMetadata = null;
+
+    async function openLightbox(url, filename) {
       const lb = document.getElementById('lightbox');
       const img = document.getElementById('lightboxImg');
       const dl = document.getElementById('lightboxDownload');
@@ -1794,16 +1919,257 @@
       img.src = url;
       dl.href = url;
       lb.classList.remove('hidden');
+
+      inspectImageMetadata(currentLightboxFilename);
     }
 
     function closeLightbox() {
       document.getElementById('lightbox').classList.add('hidden');
       currentLightboxFilename = '';
+      currentLightboxMetadata = null;
     }
 
     async function deleteCurrentLightboxImage() {
       if (!currentLightboxFilename) return;
       await deleteGalleryImage(currentLightboxFilename, document.getElementById('lightboxDeleteBtn'));
+    }
+
+    async function inspectImageMetadata(filename) {
+      const posEl = document.getElementById('metaPosPrompt');
+      const negEl = document.getElementById('metaNegPrompt');
+      const ckptEl = document.getElementById('metaCheckpoint');
+      const samplerEl = document.getElementById('metaSampler');
+      const stepsEl = document.getElementById('metaSteps');
+      const cfgEl = document.getElementById('metaCfg');
+      const seedEl = document.getElementById('metaSeed');
+      const lorasRow = document.getElementById('metaLorasRow');
+      const lorasList = document.getElementById('metaLorasList');
+
+      if (posEl) posEl.textContent = "Lade Metadaten...";
+      if (negEl) negEl.textContent = "--";
+      if (ckptEl) ckptEl.textContent = "--";
+      if (samplerEl) samplerEl.textContent = "--";
+      if (stepsEl) stepsEl.textContent = "--";
+      if (cfgEl) cfgEl.textContent = "--";
+      if (seedEl) seedEl.textContent = "--";
+      if (lorasRow) lorasRow.classList.add('hidden');
+
+      try {
+        const res = await fetch('/api/images/metadata?filename=' + encodeURIComponent(filename));
+        if (!res.ok) {
+          if (posEl) posEl.textContent = "Keine PNG-Metadaten verfügbar (HTTP " + res.status + ")";
+          return;
+        }
+        const data = await res.json();
+        if (data.found && data.extracted) {
+          currentLightboxMetadata = data.extracted;
+          if (posEl) posEl.textContent = currentLightboxMetadata.positive_prompt || "Kein Prompt extrahiert";
+          if (negEl) negEl.textContent = currentLightboxMetadata.negative_prompt || "--";
+          if (ckptEl) ckptEl.textContent = currentLightboxMetadata.checkpoint || "--";
+          if (samplerEl) {
+            const smp = currentLightboxMetadata.sampler || "";
+            const sch = currentLightboxMetadata.scheduler ? ` / ${currentLightboxMetadata.scheduler}` : "";
+            samplerEl.textContent = (smp + sch) || "--";
+          }
+          if (stepsEl) stepsEl.textContent = currentLightboxMetadata.steps ?? "--";
+          if (cfgEl) cfgEl.textContent = currentLightboxMetadata.cfg ?? "--";
+          if (seedEl) seedEl.textContent = currentLightboxMetadata.seed ?? "--";
+
+          if (lorasRow && lorasList && currentLightboxMetadata.loras && currentLightboxMetadata.loras.length > 0) {
+            lorasList.innerHTML = currentLightboxMetadata.loras.map(l => 
+              `<div class="p-1 bg-black/60 rounded border border-slate-800 flex justify-between my-0.5">
+                <span class="truncate max-w-[200px]" title="${l.name}">${l.name}</span>
+                <span class="text-amber-400 font-bold ml-1">M:${l.strength_model} / C:${l.strength_clip}</span>
+              </div>`
+            ).join('');
+            lorasRow.classList.remove('hidden');
+          }
+        } else {
+          if (posEl) posEl.textContent = "Keine eingebetteten ComfyUI-Metadaten in dieser Datei gefunden.";
+        }
+      } catch (err) {
+        console.error("Fehler beim Abrufen der Bildmetadaten:", err);
+        if (posEl) posEl.textContent = "Fehler beim Laden der Metadaten";
+      }
+    }
+
+    function replayToQuickRender() {
+      if (!currentLightboxMetadata) {
+        alert("Keine Metadaten zum Laden vorhanden.");
+        return;
+      }
+      if (currentLightboxMetadata.positive_prompt) {
+        const pInput = document.getElementById('renderPrompt');
+        if (pInput) pInput.value = currentLightboxMetadata.positive_prompt;
+      }
+      if (currentLightboxMetadata.negative_prompt) {
+        const nInput = document.getElementById('renderNegativePrompt');
+        if (nInput) nInput.value = currentLightboxMetadata.negative_prompt;
+      }
+      if (currentLightboxMetadata.steps) {
+        const sInput = document.getElementById('renderSteps');
+        if (sInput) sInput.value = currentLightboxMetadata.steps;
+      }
+      if (currentLightboxMetadata.cfg) {
+        const cInput = document.getElementById('renderCfg');
+        if (cInput) cInput.value = currentLightboxMetadata.cfg;
+      }
+      if (currentLightboxMetadata.checkpoint) {
+        const ckptSelect = document.getElementById('renderCheckpoint');
+        if (ckptSelect) {
+          const target = currentLightboxMetadata.checkpoint.toLowerCase();
+          for (let opt of ckptSelect.options) {
+            if (opt.value.toLowerCase().includes(target) || target.includes(opt.value.toLowerCase())) {
+              ckptSelect.value = opt.value;
+              break;
+            }
+          }
+        }
+      }
+
+      closeLightbox();
+      if (typeof switchComfyTab === 'function') {
+        switchComfyTab('quick');
+      }
+      const promptEl = document.getElementById('renderPrompt');
+      if (promptEl) {
+        promptEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        promptEl.classList.add('ring-2', 'ring-amber-400');
+        setTimeout(() => promptEl.classList.remove('ring-2', 'ring-amber-400'), 1500);
+      }
+    }
+
+    // --- Prompt Presets Manager ---
+    let promptPresetsData = { presets: [], negative_presets: [] };
+
+    async function loadPromptPresets() {
+      try {
+        const res = await fetch('/api/prompts/presets');
+        if (!res.ok) return;
+        promptPresetsData = await res.json();
+
+        // Positive Presets Dropdown
+        const posSel = document.getElementById('promptPresetSelect');
+        if (posSel && promptPresetsData.presets) {
+          let html = `<option value="">⚡ Preset wählen...</option>`;
+          promptPresetsData.presets.forEach(p => {
+            html += `<option value="${p.id}">${p.title || p.id}</option>`;
+          });
+          posSel.innerHTML = html;
+        }
+
+        // Negative Presets Dropdown
+        const negSel = document.getElementById('negPresetSelect');
+        if (negSel && promptPresetsData.negative_presets) {
+          let html = `<option value="">Negativ-Preset...</option>`;
+          promptPresetsData.negative_presets.forEach(n => {
+            html += `<option value="${n.id}">${n.title || n.id}</option>`;
+          });
+          negSel.innerHTML = html;
+        }
+      } catch (e) {
+        console.warn("Fehler beim Laden der Prompt-Presets:", e);
+      }
+    }
+
+    function applyPromptPreset(presetId) {
+      if (!presetId) return;
+      const preset = (promptPresetsData.presets || []).find(p => p.id === presetId);
+      if (!preset) return;
+
+      const pInput = document.getElementById('renderPrompt');
+      if (pInput && preset.positive) pInput.value = preset.positive;
+
+      if (preset.negative) {
+        const nInput = document.getElementById('renderNegativePrompt');
+        if (nInput) nInput.value = preset.negative;
+      }
+      if (preset.checkpoint) {
+        const ckptSelect = document.getElementById('renderCheckpoint');
+        if (ckptSelect) {
+          for (let opt of ckptSelect.options) {
+            if (opt.value.includes(preset.checkpoint) || preset.checkpoint.includes(opt.value)) {
+              ckptSelect.value = opt.value;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    function applyNegativePreset(presetId) {
+      if (!presetId) return;
+      const item = (promptPresetsData.negative_presets || []).find(n => n.id === presetId);
+      if (!item) return;
+
+      const nInput = document.getElementById('renderNegativePrompt');
+      if (nInput && item.negative) nInput.value = item.negative;
+    }
+
+    function openSavePresetDialog() {
+      const pInput = document.getElementById('renderPrompt');
+      const nInput = document.getElementById('renderNegativePrompt');
+      const targetPos = document.getElementById('newPresetPositive');
+      const targetNeg = document.getElementById('newPresetNegative');
+      const titleInput = document.getElementById('newPresetTitle');
+
+      if (targetPos && pInput) targetPos.value = pInput.value;
+      if (targetNeg && nInput) targetNeg.value = nInput.value;
+      if (titleInput) titleInput.value = "";
+
+      const modal = document.getElementById('savePresetModal');
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeSavePresetModal() {
+      const modal = document.getElementById('savePresetModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    async function submitSavePreset() {
+      const titleInput = document.getElementById('newPresetTitle');
+      const targetPos = document.getElementById('newPresetPositive');
+      const targetNeg = document.getElementById('newPresetNegative');
+
+      const title = titleInput ? titleInput.value.trim() : "";
+      if (!title) {
+        alert("Bitte einen Titel für das Preset angeben.");
+        return;
+      }
+
+      const payload = {
+        title: title,
+        positive: targetPos ? targetPos.value.trim() : "",
+        negative: targetNeg ? targetNeg.value.trim() : ""
+      };
+
+      try {
+        const res = await fetch('/api/prompts/presets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          closeSavePresetModal();
+          await loadPromptPresets();
+        } else {
+          const err = await res.json();
+          alert("Fehler beim Speichern: " + (err.detail || "Unbekannter Fehler"));
+        }
+      } catch (e) {
+        alert("Netzwerkfehler: " + e.message);
+      }
+    }
+
+    function jumpToPipelineStep(idx) {
+      const el = document.getElementById(`step-card-${idx}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('ring-2', 'ring-cyan-400');
+        setTimeout(() => el.classList.remove('ring-2', 'ring-cyan-400'), 1800);
+      } else {
+        console.warn(`Step card ${idx} nicht gefunden.`);
+      }
     }
 
     // --- PWA Service Worker Registration ---
@@ -1821,6 +2187,7 @@
     initWebSocket();
     updateTelemetry();
     loadGallery();
+    loadPromptPresets();
 
     // =========================================================================
     // --- SMART-SLOT INTENT-BASED COMFYUI PIPELINE BUILDER ENGINE ---
@@ -2039,6 +2406,7 @@
       const stepNumStr = String(idx + 1).padStart(2, '0');
 
       const card = document.createElement("div");
+      card.id = `step-card-${idx}`;
       card.className = "p-3 bg-slate-900/70 border border-slate-800 hover:border-slate-700 rounded-lg space-y-2.5 transition shadow";
 
       // Card Header
@@ -2158,10 +2526,14 @@
       } else {
         outTypes.forEach((outT, oIdx) => {
           const outN = outNames[oIdx] || outT;
+          const isSignalSource = (idx === 0) || ["MODEL", "CLIP", "VAE"].includes(outT);
           const outRow = document.createElement("div");
           outRow.className = "p-1.5 rounded border border-slate-800/80 bg-black/40 flex items-center justify-between";
           outRow.innerHTML = `
-            <span class="text-emerald-300 font-bold">${outN}</span>
+            <div class="flex items-center space-x-1.5">
+              <span class="text-emerald-300 font-bold">${outN}</span>
+              ${isSignalSource ? '<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-800/60 font-semibold" title="Reine Signal-Quelle zur Weiterleitung an Folgesteps">[READ-ONLY SIGNAL]</span>' : ''}
+            </div>
             <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-800 text-cyan-300 border border-slate-700">
               ${outT}
             </span>
