@@ -30,6 +30,28 @@ def create_txt2img_workflow(
     Constructs a robust ComfyUI prompt execution graph.
     Supports dynamic LoRA chaining.
     """
+    # Anti-darkness lighting tokens
+    lighting_pos = "soft studio lighting, rim lighting, vibrant, well-lit, high key, clear visibility"
+    lighting_neg = "underexposed, dark shadows, pitch black background, gloomy, dim lighting"
+
+    if lighting_pos not in positive_prompt:
+        positive_prompt = f"{positive_prompt.rstrip(', ')}, {lighting_pos}"
+    if lighting_neg not in negative_prompt:
+        negative_prompt = f"{negative_prompt.rstrip(', ')}, {lighting_neg}"
+
+    # CFG & Steps tuning
+    is_lcm = "lcm" in checkpoint.lower()
+    if is_lcm:
+        if cfg > 3.0:
+            cfg = 2.0
+        if steps > 12:
+            steps = 8
+    else:
+        if steps < 20:
+            steps = 25
+        if cfg > 7.0:
+            cfg = 6.0
+
     if seed is None:
         seed = secrets.randbelow(999999999999)
 
@@ -158,6 +180,27 @@ def create_multiview_pose_workflow(
       4. Side-Right (270°): side profile from right
     Output batch is optimized for ingestion by reconstruct_3d.py.
     """
+    # Anti-darkness lighting tokens
+    lighting_pos = "soft studio lighting, rim lighting, vibrant, well-lit, high key, clear visibility"
+    lighting_neg = "underexposed, dark shadows, pitch black background, gloomy, dim lighting"
+
+    if lighting_pos not in base_positive_prompt:
+        base_positive_prompt = f"{base_positive_prompt.rstrip(', ')}, {lighting_pos}"
+    if lighting_neg not in base_negative_prompt:
+        base_negative_prompt = f"{base_negative_prompt.rstrip(', ')}, {lighting_neg}"
+
+    is_lcm = "lcm" in checkpoint.lower()
+    if is_lcm:
+        if cfg > 3.0:
+            cfg = 2.0
+        if steps > 12:
+            steps = 8
+    else:
+        if steps < 20:
+            steps = 25
+        if cfg > 7.0:
+            cfg = 6.0
+
     if seed is None:
         seed = secrets.randbelow(999999999999)
 

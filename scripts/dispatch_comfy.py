@@ -112,6 +112,10 @@ def assemble_prompt(
     camera = env.get("camera", "")
     env_clothing = clothing_override or env.get("clothing", app.get("clothing_default", ""))
 
+    # Standard Lighting Tokens to prevent underexposed / overly dark images
+    lighting_pos = "soft studio lighting, rim lighting, vibrant, well-lit, high key, clear visibility"
+    lighting_neg = "underexposed, dark shadows, pitch black background, gloomy, dim lighting"
+
     # Positive prompt components
     pos_parts = [
         body,
@@ -122,7 +126,8 @@ def assemble_prompt(
         scene,
         camera,
         situation_prompt.strip(),
-        style
+        style,
+        lighting_pos
     ]
 
     # Clean and join
@@ -135,6 +140,7 @@ def assemble_prompt(
     neg_cfg = cfg.get("negative_prompts", {})
     neg_parts = [
         neg_cfg.get("quality", ""),
+        lighting_neg,
         neg_cfg.get("censorship", ""),
         neg_cfg.get("clothing_filter", "") if ("nude" in situation_prompt.lower() or "naked" in situation_prompt.lower()) else ""
     ]
@@ -169,6 +175,24 @@ def build_workflow(
     width = int(render_params.get("width", 512))
     height = int(render_params.get("height", 768))
     prefix = render_params.get("filename_prefix", "Megan_Companion")
+
+    # Anti-Darkness & Optimal CFG / Step Normalization
+    is_lcm = "lcm" in checkpoint.lower()
+    if is_lcm:
+        # LCM requires low CFG (1.5 - 2.5) to avoid extreme burned blacks & contrast artifacts
+        if cfg > 3.0:
+            cfg = 2.0
+        if steps > 12:
+            steps = 8
+    else:
+        # Standard SD1.5 / SDXL checkpoints need balanced CFG (5.5 - 6.5) and adequate steps
+        if steps < 20:
+            steps = 25
+        if cfg > 7.0:
+            cfg = 6.0
+        if sampler == "euler" and scheduler == "normal":
+            sampler = "euler_ancestral"
+            scheduler = "karras"
 
     workflow = {
         "1": {

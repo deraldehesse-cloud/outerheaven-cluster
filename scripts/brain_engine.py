@@ -167,43 +167,110 @@ def auto_prune_tool_file(tool_file: Path, max_entries: int = 30) -> bool:
     return False
 
 
+def save_user_preference(project_path: str, key: str, value: Any) -> bool:
+    """Saves a learned user preference into the local project .brain/session.json."""
+    try:
+        p_path = Path(project_path).resolve()
+        local_session = p_path / ".brain" / "session.json"
+        local_session.parent.mkdir(parents=True, exist_ok=True)
+        session_data = {"history": [], "preferences": {}}
+        if local_session.is_file():
+            try:
+                session_data = json.loads(local_session.read_text(encoding="utf-8"))
+            except Exception:
+                session_data = {"history": [], "preferences": {}}
+        session_data.setdefault("preferences", {})[key] = value
+        local_session.write_text(json.dumps(session_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        return True
+    except Exception as e:
+        print(f"[Warnung] Fehler beim Speichern der Präferenz '{key}': {e}")
+        return False
+
+
+def extract_and_save_preferences(project_path: str, user_text: str) -> Dict[str, Any]:
+    """
+    Lightweight rule-based extraction of user preferences & intimate roleplay details
+    for local project memory adaptation.
+    """
+    extracted = {}
+    lower = user_text.lower()
+
+    # Nickname / Name detection
+    if any(p in lower for p in ["nenn mich ", "ich heiße ", "mein name ist "]):
+        for prefix in ["nenn mich ", "ich heiße ", "mein name ist "]:
+            if prefix in lower:
+                name_cand = user_text[lower.find(prefix) + len(prefix):].split()[0].strip(".,!?:;\"'")
+                if name_cand:
+                    extracted["user_nickname"] = name_cand
+                    save_user_preference(project_path, "user_nickname", name_cand)
+                break
+
+    # Favorite location / setting
+    if any(p in lower for p in ["lieblingsort", "am liebsten auf der couch", "am liebsten im bett", "am liebsten am schreibtisch"]):
+        if "couch" in lower:
+            extracted["preferred_environment"] = "couch"
+            save_user_preference(project_path, "preferred_environment", "couch")
+        elif "bett" in lower or "schlafzimmer" in lower:
+            extracted["preferred_environment"] = "schlafzimmer"
+            save_user_preference(project_path, "preferred_environment", "schlafzimmer")
+        elif "schreibtisch" in lower or "battlestation" in lower:
+            extracted["preferred_environment"] = "schreibtisch"
+            save_user_preference(project_path, "preferred_environment", "schreibtisch")
+
+    # Toy intensity preference
+    if "stufe" in lower or "intensität" in lower:
+        import re
+        m = re.search(r'(?:stufe|intensität)\s*(\d{1,2})', lower)
+        if m:
+            lvl = int(m.group(1))
+            extracted["preferred_toy_intensity"] = lvl
+            save_user_preference(project_path, "preferred_toy_intensity", lvl)
+
+    return extracted
+
+
 def reflect_and_learn(project_path: str, feedback: str, actions: str, target_tool: Optional[str] = None) -> Dict[str, Any]:
     """
     Autonomous self-learning routine:
-    1. Strictly blocks any writing from quarantined projects (Zero-Leak).
-    2. Uses local LLM to extract actionable best-practice bullets.
-    3. Updates .shared_brain/tools/<target_tool>.md and auto-prunes if needed.
-    4. Updates local project .brain/session.json.
+    1. Always updates local project .brain/session.json (Memory-Loop active for all projects).
+    2. Strictly blocks any writing from quarantined projects to .shared_brain/ (Zero-Leak).
+    3. For standard projects: uses local LLM to extract best-practice bullets into .shared_brain/tools/.
     """
     p_path = Path(project_path).resolve()
+    is_airgapped = is_airgapped_project(str(p_path))
 
-    # AIRGAP ENFORCEMENT
-    if is_airgapped_project(str(p_path)):
-        return {
-            "success": False,
-            "airgap_blocked": True,
-            "message": f"ZERO-LEAK ENFORCED: {p_path.name} is quarantined. No knowledge exported to .shared_brain/."
-        }
-
-    # Update local session
+    # 1. Update local session (Active for ALL projects including quarantined projekt-sexchat)
     local_session = p_path / ".brain" / "session.json"
-    session_data = {"history": []}
+    session_data = {"history": [], "preferences": {}}
     if local_session.is_file():
         try:
             session_data = json.loads(local_session.read_text(encoding="utf-8"))
         except Exception:
-            session_data = {"history": []}
+            session_data = {"history": [], "preferences": {}}
 
     session_data.setdefault("history", []).append({
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "feedback": feedback,
-        "actions": actions,
+        "feedback": feedback[:500] if isinstance(feedback, str) else str(feedback),
+        "actions": actions[:500] if isinstance(actions, str) else str(actions),
         "target_tool": target_tool
     })
+    # Keep session history bounded to last 50 entries
+    if len(session_data.get("history", [])) > 50:
+        session_data["history"] = session_data["history"][-50:]
+
     local_session.parent.mkdir(parents=True, exist_ok=True)
     local_session.write_text(json.dumps(session_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    # If target_tool specified, extract learning and append to shared brain
+    # 2. AIRGAP ENFORCEMENT: Strictly block shared brain tool updates for quarantined projects
+    if is_airgapped:
+        return {
+            "success": True,
+            "airgap_blocked": True,
+            "tool_updated": None,
+            "message": f"ZERO-LEAK ENFORCED: {p_path.name} is quarantined. Local session updated, zero knowledge exported to .shared_brain/."
+        }
+
+    # 3. If target_tool specified, extract learning and append to shared brain for standard projects
     shared_root = SHARED_BRAIN_PATH
     if not shared_root.is_dir():
         local_fallback = Path(__file__).resolve().parent.parent / "shared_brain"
