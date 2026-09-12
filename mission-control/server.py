@@ -125,6 +125,22 @@ FOX_OLLAMA_URL = f"http://{FOX_TS_IP}:11434"
 LOCAL_MODEL = "deepseek-r1:14b"
 FOX_MODEL = "hermes-3-3b-q4:latest"
 
+def get_active_ollama_model() -> str:
+    """
+    Returns the configured active Ollama model from bot_config.json,
+    falling back to LOCAL_MODEL.
+    """
+    if BOT_CONFIG_FILE.is_file():
+        try:
+            with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                m = data.get("llm", {}).get("model")
+                if m and isinstance(m, str) and m.strip():
+                    return m.strip()
+        except Exception as e:
+            logger.debug(f"Could not read model from bot_config: {e}")
+    return LOCAL_MODEL
+
 # Logging setup
 logging.basicConfig(
     level=logging.INFO,
@@ -400,6 +416,7 @@ async def get_outerheaven_telemetry(session: aiohttp.ClientSession) -> Dict[str,
     except Exception:
         pass
 
+    active_model = get_active_ollama_model()
     return {
         "node": "outerheaven",
         "ip": LOCAL_TS_IP,
@@ -408,7 +425,8 @@ async def get_outerheaven_telemetry(session: aiohttp.ClientSession) -> Dict[str,
         "ram": ram,
         "gpu": gpu,
         "services": services,
-        "models": models
+        "models": models,
+        "active_model": active_model
     }
 
 async def get_fox_telemetry(session: aiohttp.ClientSession) -> Dict[str, Any]:
@@ -492,6 +510,7 @@ async def telemetry_background_loop():
                 if not isinstance(fox_data, Exception):
                     telemetry_cache["fox"] = fox_data
                 telemetry_cache["queue"] = get_cluster_tasks_info()
+                telemetry_cache["active_model"] = get_active_ollama_model()
                 telemetry_cache["last_update"] = time.time()
             except Exception as e:
                 logger.error(f"Telemetry loop error: {e}")
@@ -564,7 +583,7 @@ class ThinkFilter:
 async def auth_middleware(request: web.Request, handler):
     path = request.path
 
-    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path.startswith("/output/3d/") or path == "/manifest.json" or path == "/sw.js" or path == "/3d-viewer" or path == "/api/health" or path.startswith("/api/buero/") or path.startswith("/api/images/") or path.startswith("/api/prompts/") or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or request.remote in ["127.0.0.1", "::1"]:
+    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path.startswith("/output/3d/") or path == "/manifest.json" or path == "/sw.js" or path == "/3d-viewer" or path in ["/api/health", "/api/cluster/health"] or path.startswith("/api/buero/") or path.startswith("/api/images/") or path.startswith("/api/prompts/") or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or request.remote in ["127.0.0.1", "::1"]:
         return await handler(request)
 
     authenticated = False
@@ -636,10 +655,11 @@ async def handle_logout(request: web.Request) -> web.Response:
 
 async def handle_index(request: web.Request) -> web.Response:
     template = jinja_env.get_template("index.html")
+    active_oh_model = get_active_ollama_model()
     return web.Response(text=template.render(
         outerheaven_ip=LOCAL_TS_IP,
         fox_ip=FOX_TS_IP,
-        local_model=LOCAL_MODEL,
+        local_model=active_oh_model,
         fox_model=FOX_MODEL
     ), content_type="text/html")
 
@@ -1377,7 +1397,7 @@ async def handle_enhance_prompt(request: web.Request) -> web.Response:
     prompt_query = f"{system_instruction}\n\nRaw prompt: {raw_prompt}\n\nJSON output:"
 
     payload = {
-        "model": LOCAL_MODEL,
+        "model": get_active_ollama_model(),
         "prompt": prompt_query,
         "stream": False,
         "options": {
@@ -1702,10 +1722,12 @@ async def handle_api_health(request: web.Request) -> web.Response:
     bot_svc = await get_systemd_user_status("bigboss-haven-bot.service")
     invoices_timer = await get_systemd_user_status("hermes-invoices.timer")
     jobs_timer = await get_systemd_user_status("hermes-jobs.timer")
+    active_model = get_active_ollama_model()
 
     return web.json_response({
         "success": True,
         "timestamp": time.time(),
+        "active_model": active_model,
         "comfyui": {
             "port": 8188,
             "status": "OK" if comfy_ok else "Offline",
@@ -1716,7 +1738,8 @@ async def handle_api_health(request: web.Request) -> web.Response:
             "status": "OK" if ollama_ok else "Offline",
             "online": ollama_ok,
             "models": ollama_models,
-            "running_models": ollama_running
+            "running_models": ollama_running,
+            "active_model": active_model
         },
         "services": {
             "hermes_invoices": invoices_svc,
@@ -2271,7 +2294,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
             if node == "outerheaven":
                 target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
-                model_name = LOCAL_MODEL
+                model_name = get_active_ollama_model()
                 system_instruction = (
                     "Du bist Hermes Outer Heaven, der taktische KI-Agent auf outerheaven (HP Z620 Dual Xeon, Sparkle Arc A770 16GB). "
                     "Antworte präzise, professionell, im Stil von Mission Control. Deutsch bevorzugt."
@@ -2419,6 +2442,7 @@ def create_app() -> web.Application:
 
     # Cluster Health & Service Monitoring
     app.router.add_get("/api/health", handle_api_health)
+    app.router.add_get("/api/cluster/health", handle_api_health)
 
     # Images Metadata & Prompt Presets
     app.router.add_get("/api/images/metadata", handle_image_metadata)

@@ -326,7 +326,7 @@
             <svg class="w-3.5 h-3.5 text-cyan-400 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
             <span class="font-bold text-cyan-300">⚡ WORKING ON FOX TASK: <span id="ohWorkingTaskName" class="text-slate-100"></span></span>
           </div>
-          <span class="text-[10px] text-cyan-300/80 shrink-0 ml-2">DeepSeek-R1 Aktiv</span>
+          <span id="ohWorkingTaskModel" class="text-[10px] text-cyan-300/80 shrink-0 ml-2">{{ local_model }} Aktiv</span>
         </div>
 
         <!-- Active Task Highlight for OH -->
@@ -505,7 +505,7 @@
         <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex flex-wrap items-center justify-between gap-2">
           <div class="flex items-center space-x-1.5 bg-black/60 p-1 rounded-lg border border-slate-800 text-xs">
             <button id="btnNodeOH" onclick="setChatNode('outerheaven')" class="px-3 py-1 rounded-md font-bold text-xs transition bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow">
-              OUTER HEAVEN // DeepSeek-R1 (14B)
+              <span id="btnNodeOHLabel">OUTER HEAVEN // {{ local_model }}</span>
             </button>
             <button id="btnNodeFox" onclick="setChatNode('fox')" class="px-3 py-1 rounded-md font-bold text-xs transition text-slate-400 hover:text-slate-200 border border-transparent">
               FOX // Hermes-3 (3B)
@@ -529,19 +529,21 @@
 
         <!-- Chat Stream Area -->
         <div id="chatMessages" class="flex-1 p-4 overflow-y-auto space-y-4 scrollbar-thin text-xs sm:text-sm">
-          <div class="p-3 bg-slate-900/50 border border-slate-800/80 rounded-lg text-slate-400">
+          <div id="tacticalChatWelcomeCard" class="p-3 bg-slate-900/50 border border-slate-800/80 rounded-lg text-slate-400">
             <div class="text-cyan-400 font-bold mb-1 flex items-center space-x-2">
               <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-              <span>TACTICAL AGENT CHAT READY</span>
+              <span id="tacticalChatStatusTitle">TACTICAL AGENT CHAT READY (Ollama: {{ local_model }})</span>
             </div>
-            Wähle den Zielknoten oben aus. DeepSeek-R1 (14B) auf Outer Heaven führt komplexe Überlegungen durch (Reasoning-Tags werden serverseitig gefiltert). Hermes-3 (3B) auf Fox bietet schnelle Assistenz.
+            <div id="tacticalChatStatusDesc">
+              Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">{{ local_model }}</span> auf Outer Heaven führt komplexe Überlegungen durch (Reasoning-Tags werden serverseitig gefiltert). Hermes-3 (3B) auf Fox bietet schnelle Assistenz.
+            </div>
           </div>
         </div>
 
         <!-- Thinking Indicator -->
         <div id="thinkingBadge" class="hidden px-4 py-1.5 bg-cyan-950/40 border-t border-cyan-800/40 text-[11px] text-cyan-300 flex items-center space-x-2">
           <span class="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
-          <span>DeepSeek R1 reasoning in progress...</span>
+          <span id="thinkingBadgeText">{{ local_model }} reasoning in progress...</span>
         </div>
 
         <!-- MGS Codec Frequency Voice Stream Indicator -->
@@ -635,7 +637,7 @@
                     💾 Als Preset
                   </button>
                   <button type="button" id="btnMagicPrompt" onclick="enhancePrompt()"
-                    title="Erweitert den Prompt via DeepSeek-R1 mit Licht, Framing & negativem Prompt"
+                    title="Erweitert den Prompt via KI / LLM mit Licht, Framing & negativem Prompt"
                     class="text-[10px] font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 px-2 py-0.5 rounded flex items-center space-x-1.5 transition shadow glow-amber">
                     <span>✨ Magic Prompt</span>
                     <span id="magicSpinner" class="hidden animate-spin">⏳</span>
@@ -849,7 +851,7 @@
               <h2 class="text-sm font-bold tracking-wider text-emerald-400 font-mono">HERMES BÜRO & KARRIERE PIPELINE</h2>
               <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 border border-emerald-800/80 text-emerald-300 font-mono">AUTONOM</span>
             </div>
-            <p class="text-[11px] text-slate-500 font-mono">OCR • DEEPSEEK-R1 EXTRAKTION • AUTOMATISCHES ANSCHREIBEN-MATCHING</p>
+            <p class="text-[11px] text-slate-500 font-mono">OCR • LLM-EXTRAKTION • AUTOMATISCHES ANSCHREIBEN-MATCHING</p>
           </div>
         </div>
         <div class="flex items-center space-x-2 text-xs font-mono">
@@ -1583,6 +1585,42 @@
     let chatSocket = null;
     let chatHistory = [];
     let currentAssistantBubble = null;
+    let currentActiveOllamaModel = "{{ local_model }}";
+
+    function updateTacticalAgentModelUI(modelName) {
+      if (!modelName || typeof modelName !== 'string') return;
+      currentActiveOllamaModel = modelName;
+
+      // 1. Tactical Chat Ready Title / Status Label
+      const chatStatusTitle = document.getElementById('tacticalChatStatusTitle');
+      if (chatStatusTitle) {
+        chatStatusTitle.textContent = `TACTICAL AGENT CHAT READY (Ollama: ${modelName})`;
+      }
+
+      // 2. Tactical Chat Model Description
+      const modelDesc = document.getElementById('tacticalChatModelDesc');
+      if (modelDesc) {
+        modelDesc.textContent = modelName;
+      }
+
+      // 3. Node Switcher Button (Outer Heaven)
+      const btnNodeOHLabel = document.getElementById('btnNodeOHLabel');
+      if (btnNodeOHLabel) {
+        btnNodeOHLabel.textContent = `OUTER HEAVEN // ${modelName}`;
+      }
+
+      // 4. Thinking Badge Text
+      const thinkingText = document.getElementById('thinkingBadgeText');
+      if (thinkingText) {
+        thinkingText.textContent = `${modelName} reasoning in progress...`;
+      }
+
+      // 5. Working Task Banner Model
+      const workingTaskModel = document.getElementById('ohWorkingTaskModel');
+      if (workingTaskModel) {
+        workingTaskModel.textContent = `${modelName} Aktiv`;
+      }
+    }
 
     // --- Switch Target Node ---
     function setChatNode(node) {
@@ -1637,11 +1675,12 @@
         thinkingBadge.classList.add('hidden');
         // Create new assistant response container
         const isOH = (msg.node === 'outerheaven');
+        const modelLabel = msg.model || (isOH ? currentActiveOllamaModel : 'Hermes-3');
         const bubble = document.createElement('div');
         bubble.className = "flex flex-col space-y-1";
         bubble.innerHTML = `
           <div class="flex items-center space-x-2 text-[10px] ${isOH ? 'text-cyan-400' : 'text-amber-400'} font-bold">
-            <span>[${isOH ? 'OUTER HEAVEN // DeepSeek-R1' : 'FOX // Hermes-3'}]</span>
+            <span>[${isOH ? `OUTER HEAVEN // ${modelLabel}` : 'FOX // Hermes-3'}]</span>
             <span class="text-slate-500">${new Date().toLocaleTimeString()}</span>
           </div>
           <div class="p-3 rounded-lg bg-slate-900 border ${isOH ? 'border-cyan-900/60 text-cyan-100' : 'border-amber-900/60 text-amber-100'} font-mono leading-relaxed whitespace-pre-wrap assistant-content"></div>
@@ -1904,8 +1943,14 @@
 
     function clearChat() {
       document.getElementById('chatMessages').innerHTML = `
-        <div class="p-3 bg-slate-900/50 border border-slate-800/80 rounded-lg text-slate-400">
-          <span class="text-cyan-400 font-bold">TACTICAL AGENT CHAT RESET</span>
+        <div id="tacticalChatWelcomeCard" class="p-3 bg-slate-900/50 border border-slate-800/80 rounded-lg text-slate-400">
+          <div class="text-cyan-400 font-bold mb-1 flex items-center space-x-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span id="tacticalChatStatusTitle">TACTICAL AGENT CHAT READY (Ollama: ${currentActiveOllamaModel})</span>
+          </div>
+          <div id="tacticalChatStatusDesc">
+            Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">${currentActiveOllamaModel}</span> auf Outer Heaven führt komplexe Überlegungen durch (Reasoning-Tags werden serverseitig gefiltert). Hermes-3 (3B) auf Fox bietet schnelle Assistenz.
+          </div>
         </div>
       `;
       chatHistory = [];
@@ -1921,6 +1966,11 @@
         // 1. Outer Heaven Update
         const oh = data.outerheaven;
         if (oh) {
+          if (oh.active_model) {
+            updateTacticalAgentModelUI(oh.active_model);
+          } else if (data.active_model) {
+            updateTacticalAgentModelUI(data.active_model);
+          }
           document.getElementById('headerOhDot').className = "w-2 h-2 rounded-full bg-emerald-400";
           
           // GPU
@@ -2022,7 +2072,7 @@
             if (delStateText) delStateText.textContent = "⚡ DELEGATED TO OH";
             if (delTaskText) delTaskText.textContent = del.task || "Berechnung auf Outer Heaven...";
             if (delNodeText) { delNodeText.textContent = "OUTER HEAVEN"; delNodeText.className = "text-cyan-300 font-bold"; }
-            if (delModelText) { delModelText.textContent = del.model || "deepseek-r1:14b"; delModelText.className = "text-cyan-400 font-bold"; }
+            if (delModelText) { delModelText.textContent = del.model || currentActiveOllamaModel || "deepseek-r1:14b"; delModelText.className = "text-cyan-400 font-bold"; }
             if (ohTaskBadge) {
               ohTaskBadge.classList.remove('hidden');
               if (ohTaskName) ohTaskName.textContent = del.task || "Berechnung aktiv";
@@ -3958,6 +4008,7 @@
             llmModelEl.appendChild(opt);
           }
           llmModelEl.value = llm.model;
+          updateTacticalAgentModelUI(llm.model);
         }
         if (document.getElementById("botLlmTemp")) {
           document.getElementById("botLlmTemp").value = llm.temperature ?? 0.95;
@@ -4024,6 +4075,10 @@
 
       const idleHours = parseFloat(document.getElementById("botProactiveIdleHours")?.value || 4);
       const cdHours = parseFloat(document.getElementById("botProactiveCooldownHours")?.value || 6);
+      const selectedModel = document.getElementById("botLlmModel")?.value;
+      if (selectedModel) {
+        updateTacticalAgentModelUI(selectedModel);
+      }
 
       const payload = {
         config: {
@@ -4212,6 +4267,9 @@
           if (ollamaModels && data.ollama.models) {
             const topModels = data.ollama.models.slice(0, 2).join(', ');
             ollamaModels.textContent = `[${topModels}${data.ollama.models.length > 2 ? '...' : ''}]`;
+          }
+          if (data.active_model || data.ollama.active_model) {
+            updateTacticalAgentModelUI(data.active_model || data.ollama.active_model);
           }
         } else {
           if (ollamaDot) ollamaDot.className = 'w-2 h-2 rounded-full bg-rose-500';
@@ -4509,6 +4567,15 @@
       } finally {
         if (icon) setTimeout(() => icon.classList.remove('animate-spin'), 600);
       }
+    }
+
+    const botLlmModelSelect = document.getElementById("botLlmModel");
+    if (botLlmModelSelect) {
+      botLlmModelSelect.addEventListener("change", function(e) {
+        if (e.target.value) {
+          updateTacticalAgentModelUI(e.target.value);
+        }
+      });
     }
 
     initComfyPipelineBuilder();
