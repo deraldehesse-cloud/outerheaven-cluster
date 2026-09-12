@@ -160,6 +160,11 @@
            title="3D Model Lab & Asset Inspector öffnen (/3d-viewer)">
           <span>🧊 3D Asset Lab</span>
         </a>
+        <a href="#bueroStation" onclick="document.getElementById('bueroStation')?.scrollIntoView({behavior: 'smooth'})"
+           class="px-2.5 py-1 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/60 hover:border-emerald-400 text-emerald-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-emerald"
+           title="Hermes Büro & Karriere Dashboard öffnen">
+          <span>🏢 Büro / Hermes</span>
+        </a>
       </div>
 
       <!-- Right: Quick Status Badges with IP Masking -->
@@ -180,6 +185,14 @@
           <span class="font-bold text-amber-300 font-mono ip-text" data-full="{{ fox_ip }}" data-masked="100.***.184.87">100.***.184.87</span>
           <span class="text-[10px] text-slate-500 group-hover:text-amber-400 transition">👁️</span>
         </div>
+        <button type="button" id="btnGlobalRefresh" onclick="refreshAllDashboardData()"
+                class="px-2.5 py-1 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-700/60 hover:border-cyan-400 text-cyan-300 text-xs rounded transition flex items-center space-x-1.5 font-mono font-bold glow-cyan"
+                title="Live Health-Checks, Telemetrie und Büro-Daten sofort aktualisieren">
+          <svg id="refreshSpinnerIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          <span class="hidden sm:inline">REFRESH</span>
+        </button>
         <form action="/logout" method="post" class="inline">
           <button type="submit" class="px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 text-xs rounded transition flex items-center space-x-1">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
@@ -223,6 +236,58 @@
           <div class="bg-slate-900 px-2 py-1 rounded border border-slate-800 flex items-center space-x-1.5">
             <span class="text-slate-500 text-[10px]">MODELL:</span>
             <span id="delegationModelText" class="text-slate-400 font-bold">--</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cluster Live Service Health Bar -->
+    <section class="bg-slate-950/80 border border-slate-800/80 rounded-lg p-3 shadow-md">
+      <div class="flex flex-wrap items-center justify-between gap-2.5">
+        <div class="flex items-center space-x-2 text-xs font-mono">
+          <span class="text-[11px] uppercase font-bold text-slate-400 flex items-center space-x-1.5">
+            <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+            <span>CLUSTER HEALTH MONITORS:</span>
+          </span>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 text-xs font-mono">
+          <!-- ComfyUI Service -->
+          <div id="healthComfyCard" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 flex items-center space-x-1.5 hover:border-cyan-500/40 transition">
+            <span class="text-slate-500 text-[10px]">COMFYUI (:8188):</span>
+            <span id="healthComfyDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
+            <span id="healthComfyStatus" class="font-bold text-slate-300">CHECKING...</span>
+          </div>
+
+          <!-- Ollama Service -->
+          <div id="healthOllamaCard" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 flex items-center space-x-1.5 hover:border-cyan-500/40 transition">
+            <span class="text-slate-500 text-[10px]">OLLAMA (:11434):</span>
+            <span id="healthOllamaDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
+            <span id="healthOllamaStatus" class="font-bold text-slate-300">CHECKING...</span>
+            <span id="healthOllamaModels" class="text-[10px] text-cyan-400 font-normal truncate max-w-[180px]"></span>
+          </div>
+
+          <!-- Hermes Invoices -->
+          <div id="healthInvoicesCard" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 flex items-center space-x-1.5 hover:border-emerald-500/40 transition">
+            <span class="text-slate-500 text-[10px]">RECHNUNGEN:</span>
+            <span id="healthInvoicesDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
+            <span id="healthInvoicesStatus" class="font-bold text-slate-300">CHECKING...</span>
+            <span class="text-[10px] text-slate-500">⏱️ 2m</span>
+          </div>
+
+          <!-- Hermes Jobs -->
+          <div id="healthJobsCard" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 flex items-center space-x-1.5 hover:border-emerald-500/40 transition">
+            <span class="text-slate-500 text-[10px]">BEWERBUNG:</span>
+            <span id="healthJobsDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
+            <span id="healthJobsStatus" class="font-bold text-slate-300">CHECKING...</span>
+            <span class="text-[10px] text-slate-500">⏱️ 3m</span>
+          </div>
+
+          <!-- Big Boss Haven Bot -->
+          <div id="healthBotCard" class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 flex items-center space-x-1.5 hover:border-amber-500/40 transition">
+            <span class="text-slate-500 text-[10px]">BOT:</span>
+            <span id="healthBotDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
+            <span id="healthBotStatus" class="font-bold text-slate-300">CHECKING...</span>
           </div>
         </div>
       </div>
@@ -706,6 +771,122 @@
 
     </section>
 
+    <!-- Büro / Hermes Automation Workstation -->
+    <section id="bueroStation" class="bg-slate-950/90 border border-slate-800 rounded-lg p-4 space-y-4 shadow-xl relative overflow-hidden">
+      <div class="flex flex-wrap items-center justify-between pb-3 border-b border-slate-800 gap-3">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 rounded bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-base">
+            🏢
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-sm font-bold tracking-wider text-emerald-400 font-mono">HERMES BÜRO & KARRIERE PIPELINE</h2>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 border border-emerald-800/80 text-emerald-300 font-mono">AUTONOM</span>
+            </div>
+            <p class="text-[11px] text-slate-500 font-mono">OCR • DEEPSEEK-R1 EXTRAKTION • AUTOMATISCHES ANSCHREIBEN-MATCHING</p>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2 text-xs font-mono">
+          <button type="button" onclick="fetchBueroData()" class="px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded transition flex items-center space-x-1.5 font-bold">
+            <span>🔄 AKTUALISIEREN</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <!-- Left: Rechnungs-Tabelle & Fälligkeits-Monitor (7 Cols) -->
+        <div class="lg:col-span-7 flex flex-col space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-bold font-mono text-cyan-300">📄 RECHNUNGS-EINGANG & ARCHIV</span>
+              <span id="invoiceCountBadge" class="px-1.5 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-800 text-slate-400 font-mono">0 Einträge</span>
+            </div>
+            <span class="text-[10px] text-slate-500 font-mono">/mnt/storage-beta/rechnungsarchiv/rechnungen_index.csv</span>
+          </div>
+
+          <!-- Invoices Table Container -->
+          <div class="bg-black/60 border border-slate-800 rounded-lg overflow-hidden flex flex-col max-h-[340px]">
+            <div class="overflow-x-auto overflow-y-auto scrollbar-thin">
+              <table class="w-full text-left border-collapse text-xs font-mono">
+                <thead class="bg-slate-900/90 text-slate-400 border-b border-slate-800 sticky top-0 text-[11px]">
+                  <tr>
+                    <th class="p-2.5">Absender</th>
+                    <th class="p-2.5">Rechnungs-Nr.</th>
+                    <th class="p-2.5">Datum</th>
+                    <th class="p-2.5">Fälligkeit</th>
+                    <th class="p-2.5 text-right">Betrag</th>
+                    <th class="p-2.5 text-center">Status</th>
+                    <th class="p-2.5 text-center">Datei</th>
+                  </tr>
+                </thead>
+                <tbody id="invoiceTableBody" class="divide-y divide-slate-800/60 text-slate-300">
+                  <tr>
+                    <td colspan="7" class="p-4 text-center text-slate-500 italic">Lade Rechnungsdaten...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Drag & Drop Upload Zone -->
+          <div class="bg-slate-900/40 border border-dashed border-slate-700 hover:border-cyan-400 rounded-lg p-3.5 transition group"
+               id="bueroDropZone" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleFileDrop(event)">
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div class="flex items-center space-x-3 text-center sm:text-left">
+                <div class="w-10 h-10 rounded-full bg-cyan-950/60 border border-cyan-800/80 flex items-center justify-center text-cyan-400 text-lg shrink-0 group-hover:scale-110 transition">
+                  📥
+                </div>
+                <div>
+                  <div class="text-xs font-bold text-slate-200">Dateien per Drag & Drop hier ablegen</div>
+                  <div class="text-[11px] text-slate-500">PDF, Bild-Scans (Rechnungen) oder TXT/MD (Jobangebote)</div>
+                </div>
+              </div>
+
+              <div class="flex items-center space-x-2 shrink-0">
+                <select id="uploadCategorySelect" class="bg-black border border-slate-700 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-cyan-400 font-mono">
+                  <option value="auto">⚡ Auto-Erkennung</option>
+                  <option value="invoice">📄 Rechnung (rechnungseingang/)</option>
+                  <option value="job">💼 Jobangebot (jobangebote/)</option>
+                </select>
+                <label class="cursor-pointer px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold rounded text-xs font-mono transition shadow">
+                  <span>DURCHSUCHEN</span>
+                  <input type="file" id="bueroFileInput" multiple onchange="handleFileSelect(event)" class="hidden">
+                </label>
+              </div>
+            </div>
+            <div id="uploadStatusMsg" class="hidden mt-2 text-[11px] font-mono text-center"></div>
+          </div>
+        </div>
+
+        <!-- Right: Bewerbungen & Anschreiben (5 Cols) -->
+        <div class="lg:col-span-5 flex flex-col space-y-4">
+          <!-- Generated Cover Letters -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold font-mono text-emerald-300">✉️ GENERIERTE ANSCHREIBEN</span>
+              <span id="appsCountBadge" class="px-1.5 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-800 text-slate-400 font-mono">0 Anschreiben</span>
+            </div>
+
+            <div class="bg-black/60 border border-slate-800 rounded-lg max-h-[220px] overflow-y-auto scrollbar-thin p-2 space-y-2" id="applicationsList">
+              <div class="p-3 text-center text-slate-500 text-xs italic font-mono">Lade generierte Anschreiben...</div>
+            </div>
+          </div>
+
+          <!-- Job Offers Queue -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold font-mono text-amber-300">💼 JOBANGEBOTE IM EINGANG</span>
+              <span id="jobsCountBadge" class="px-1.5 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-800 text-slate-400 font-mono">0 Angebote</span>
+            </div>
+
+            <div class="bg-black/60 border border-slate-800 rounded-lg max-h-[160px] overflow-y-auto scrollbar-thin p-2 space-y-1.5" id="jobOffersList">
+              <div class="p-3 text-center text-slate-500 text-xs italic font-mono">Lade Jobangebote...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- Lightbox Modal -->
@@ -722,6 +903,34 @@
         <button id="lightboxDeleteBtn" onclick="deleteCurrentLightboxImage()" class="text-xs bg-red-950/80 hover:bg-red-700 border border-red-500/80 text-red-200 font-bold px-3 py-1.5 rounded transition font-mono">
           🗑️ DELETE (DEL)
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Document Preview Modal (for Cover Letters & Text) -->
+  <div id="bueroPreviewModal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+    <div class="relative max-w-3xl w-full max-h-[90vh] bg-slate-950 border border-cyan-500/50 rounded-lg flex flex-col shadow-2xl overflow-hidden font-mono">
+      <!-- Modal Header -->
+      <div class="p-3 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between shrink-0">
+        <div class="flex items-center space-x-2">
+          <span class="text-cyan-400 font-bold text-xs">📄 DOKUMENT-VORSCHAU:</span>
+          <span id="previewModalTitle" class="text-slate-200 text-xs truncate max-w-[400px]"></span>
+        </div>
+        <button onclick="closeBueroPreview()" class="text-slate-400 hover:text-white text-xs uppercase font-bold px-2 py-1">
+          ✕ CLOSE
+        </button>
+      </div>
+      <!-- Modal Body -->
+      <div class="flex-1 p-4 overflow-y-auto scrollbar-thin bg-black/60 text-slate-200 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap selection:bg-cyan-500/30" id="previewModalContent">
+      </div>
+      <!-- Modal Footer -->
+      <div class="p-3 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between shrink-0">
+        <button onclick="copyPreviewContent()" id="btnCopyPreview" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1">
+          <span>📋 IN ZWISCHENABLAGE KOPIEREN</span>
+        </button>
+        <a id="previewDownloadLink" href="" download class="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 rounded text-xs font-bold transition flex items-center space-x-1">
+          <span>⬇️ DATEI HERUNTERLADEN</span>
+        </a>
       </div>
     </div>
   </div>
@@ -2560,9 +2769,340 @@
       }
     }
 
+    // --- Cluster Health & Live Monitor ---
+    async function fetchClusterHealth() {
+      try {
+        const res = await fetch('/api/health');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // ComfyUI
+        const comfyDot = document.getElementById('healthComfyDot');
+        const comfyStatus = document.getElementById('healthComfyStatus');
+        if (data.comfyui && data.comfyui.online) {
+          if (comfyDot) comfyDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+          if (comfyStatus) { comfyStatus.textContent = 'ONLINE'; comfyStatus.className = 'font-bold text-emerald-400'; }
+        } else {
+          if (comfyDot) comfyDot.className = 'w-2 h-2 rounded-full bg-rose-500';
+          if (comfyStatus) { comfyStatus.textContent = 'OFFLINE'; comfyStatus.className = 'font-bold text-rose-400'; }
+        }
+
+        // Ollama
+        const ollamaDot = document.getElementById('healthOllamaDot');
+        const ollamaStatus = document.getElementById('healthOllamaStatus');
+        const ollamaModels = document.getElementById('healthOllamaModels');
+        if (data.ollama && data.ollama.online) {
+          if (ollamaDot) ollamaDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+          if (ollamaStatus) { ollamaStatus.textContent = 'ONLINE'; ollamaStatus.className = 'font-bold text-emerald-400'; }
+          if (ollamaModels && data.ollama.models) {
+            const topModels = data.ollama.models.slice(0, 2).join(', ');
+            ollamaModels.textContent = `[${topModels}${data.ollama.models.length > 2 ? '...' : ''}]`;
+          }
+        } else {
+          if (ollamaDot) ollamaDot.className = 'w-2 h-2 rounded-full bg-rose-500';
+          if (ollamaStatus) { ollamaStatus.textContent = 'OFFLINE'; ollamaStatus.className = 'font-bold text-rose-400'; }
+          if (ollamaModels) ollamaModels.textContent = '';
+        }
+
+        // Services
+        if (data.services) {
+          setServiceBadge('healthInvoicesDot', 'healthInvoicesStatus', data.services.hermes_invoices);
+          setServiceBadge('healthJobsDot', 'healthJobsStatus', data.services.hermes_jobs);
+          setServiceBadge('healthBotDot', 'healthBotStatus', data.services.bigboss_haven_bot);
+        }
+      } catch (err) {
+        console.error('Error fetching cluster health:', err);
+      }
+    }
+
+    function setServiceBadge(dotId, statusId, state) {
+      const dot = document.getElementById(dotId);
+      const status = document.getElementById(statusId);
+      if (!dot || !status) return;
+      if (state === 'active') {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+        status.textContent = 'AKTIV';
+        status.className = 'font-bold text-emerald-400';
+      } else if (state === 'inactive') {
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400';
+        status.textContent = 'STANDBY';
+        status.className = 'font-bold text-amber-400';
+      } else {
+        dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+        status.textContent = (state || 'OFFLINE').toUpperCase();
+        status.className = 'font-bold text-rose-400';
+      }
+    }
+
+    // --- Büro Invoices & Jobs Management ---
+    async function fetchBueroData() {
+      await Promise.all([fetchBueroInvoices(), fetchBueroJobs()]);
+    }
+
+    async function fetchBueroInvoices() {
+      try {
+        const res = await fetch('/api/buero/invoices');
+        if (!res.ok) return;
+        const data = await res.json();
+        const tbody = document.getElementById('invoiceTableBody');
+        const badge = document.getElementById('invoiceCountBadge');
+        if (badge) badge.textContent = `${data.total || 0} Rechnungen`;
+        if (!tbody) return;
+
+        if (!data.invoices || data.invoices.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-500 italic">Keine Rechnungen erfasst</td></tr>';
+          return;
+        }
+
+        let html = '';
+        data.invoices.forEach(inv => {
+          let rowClass = 'hover:bg-slate-900/60 transition';
+          let statusBadge = '';
+          if (inv.urgency === 'overdue') {
+            rowClass = 'bg-rose-950/40 border-l-4 border-rose-500 hover:bg-rose-900/50 text-rose-200';
+            statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-900/80 border border-rose-500 text-rose-200 animate-pulse">⚠️ ${inv.status}</span>`;
+          } else if (inv.urgency === 'urgent') {
+            rowClass = 'bg-amber-950/30 border-l-4 border-amber-500 hover:bg-amber-900/40 text-amber-200';
+            statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-900/80 border border-amber-500 text-amber-200">⏳ ${inv.status}</span>`;
+          } else {
+            statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 border border-slate-700 text-slate-300">✔ ${inv.status}</span>`;
+          }
+
+          const originalLink = inv.archiv_pfad 
+            ? `<a href="/api/buero/document/invoice/${inv.archiv_pfad}" target="_blank" class="text-cyan-400 hover:text-cyan-200 underline font-bold" title="${inv.original_name}">Öffnen</a>` 
+            : `<span class="text-slate-600">-</span>`;
+
+          html += `<tr class="${rowClass}">
+            <td class="p-2.5 font-bold truncate max-w-[140px]" title="${inv.absender}">${inv.absender}</td>
+            <td class="p-2.5 text-slate-400 truncate max-w-[120px]" title="${inv.rechnungsnummer}">${inv.rechnungsnummer}</td>
+            <td class="p-2.5 text-slate-400">${inv.rechnungsdatum}</td>
+            <td class="p-2.5 font-bold">${inv.faelligkeitsdatum}</td>
+            <td class="p-2.5 text-right font-bold text-cyan-300">${inv.gesamtbetrag} €</td>
+            <td class="p-2.5 text-center">${statusBadge}</td>
+            <td class="p-2.5 text-center">${originalLink}</td>
+          </tr>`;
+        });
+        tbody.innerHTML = html;
+      } catch (err) {
+        console.error('Error fetching invoices:', err);
+      }
+    }
+
+    async function fetchBueroJobs() {
+      try {
+        const res = await fetch('/api/buero/jobs');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Applications List
+        const appsList = document.getElementById('applicationsList');
+        const appsBadge = document.getElementById('appsCountBadge');
+        if (appsBadge) appsBadge.textContent = `${data.applications_count || 0} Anschreiben`;
+        if (appsList) {
+          if (!data.applications || data.applications.length === 0) {
+            appsList.innerHTML = '<div class="p-3 text-center text-slate-500 text-xs italic font-mono">Keine generierten Anschreiben vorhanden</div>';
+          } else {
+            let html = '';
+            data.applications.forEach(app => {
+              html += `<div class="p-2.5 rounded bg-slate-900/80 border border-slate-800 hover:border-emerald-500/50 transition flex items-center justify-between gap-2 font-mono text-xs">
+                <div class="truncate">
+                  <div class="font-bold text-emerald-300 truncate">${app.company}</div>
+                  <div class="text-[11px] text-slate-400 truncate">${app.role}</div>
+                  <div class="text-[10px] text-slate-500">${app.mtime} • ${app.size_kb} KB</div>
+                </div>
+                <div class="flex items-center space-x-1.5 shrink-0">
+                  <button type="button" onclick="previewDocument('application', '${app.filename}')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-bold transition">
+                    👁️ VORSCHAU
+                  </button>
+                  <a href="${app.download_url}" download class="px-2 py-1 rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 text-[10px] font-bold transition">
+                    ⬇️ MD
+                  </a>
+                </div>
+              </div>`;
+            });
+            appsList.innerHTML = html;
+          }
+        }
+
+        // Job Offers List
+        const jobsList = document.getElementById('jobOffersList');
+        const jobsBadge = document.getElementById('jobsCountBadge');
+        if (jobsBadge) jobsBadge.textContent = `${data.offers_count || 0} Angebote`;
+        if (jobsList) {
+          if (!data.offers || data.offers.length === 0) {
+            jobsList.innerHTML = '<div class="p-3 text-center text-slate-500 text-xs italic font-mono">Keine Jobangebote vorhanden</div>';
+          } else {
+            let html = '';
+            data.offers.forEach(job => {
+              const badge = job.is_done 
+                ? '<span class="px-1.5 py-0.5 rounded text-[9px] bg-slate-800 text-slate-400">ERLEDIGT</span>'
+                : '<span class="px-1.5 py-0.5 rounded text-[9px] bg-amber-950 border border-amber-700 text-amber-300 animate-pulse">NEU</span>';
+              html += `<div class="p-2 rounded bg-slate-900/60 border border-slate-800/80 flex items-center justify-between gap-2 font-mono text-xs">
+                <div class="truncate">
+                  <div class="font-bold text-slate-200 truncate" title="${job.filename}">${job.filename}</div>
+                  <div class="text-[10px] text-slate-500">${job.mtime} • ${job.size_kb} KB</div>
+                </div>
+                <div class="flex items-center space-x-1.5 shrink-0">
+                  ${badge}
+                  <button type="button" onclick="previewDocument('job', '${job.rel_path}')" class="text-cyan-400 hover:text-cyan-200 text-[10px] font-bold">
+                    Vorschau
+                  </button>
+                </div>
+              </div>`;
+            });
+            jobsList.innerHTML = html;
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching jobs:', err);
+      }
+    }
+
+    // Drag and drop & File Upload
+    function handleDragOver(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const zone = document.getElementById('bueroDropZone');
+      if (zone) zone.classList.add('border-cyan-400', 'bg-cyan-950/20');
+    }
+
+    function handleDragLeave(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const zone = document.getElementById('bueroDropZone');
+      if (zone) zone.classList.remove('border-cyan-400', 'bg-cyan-950/20');
+    }
+
+    function handleFileDrop(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const zone = document.getElementById('bueroDropZone');
+      if (zone) zone.classList.remove('border-cyan-400', 'bg-cyan-950/20');
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        processBueroUpload(e.dataTransfer.files);
+      }
+    }
+
+    function handleFileSelect(e) {
+      if (e.target.files && e.target.files.length > 0) {
+        processBueroUpload(e.target.files);
+      }
+    }
+
+    async function processBueroUpload(files) {
+      const category = document.getElementById('uploadCategorySelect')?.value || 'auto';
+      const statusMsg = document.getElementById('uploadStatusMsg');
+      if (statusMsg) {
+        statusMsg.className = 'mt-2 text-[11px] font-mono text-center text-cyan-300 animate-pulse block';
+        statusMsg.textContent = `Lade ${files.length} Datei(en) hoch...`;
+      }
+
+      const formData = new FormData();
+      formData.append('category', category);
+      for (let i = 0; i < files.length; i++) {
+        formData.append('file', files[i]);
+      }
+
+      try {
+        const res = await fetch('/api/buero/upload', {
+          method: 'POST',
+          body: formData
+        });
+        const result = await res.json();
+        if (result.success) {
+          if (statusMsg) {
+            statusMsg.className = 'mt-2 text-[11px] font-mono text-center text-emerald-400 font-bold block';
+            statusMsg.textContent = `✔ ${result.uploaded.length} Datei(en) erfolgreich hochgeladen!`;
+            setTimeout(() => { statusMsg.classList.add('hidden'); }, 4000);
+          }
+          await fetchBueroData();
+        } else {
+          if (statusMsg) {
+            statusMsg.className = 'mt-2 text-[11px] font-mono text-center text-rose-400 font-bold block';
+            statusMsg.textContent = `Fehler: ${result.error || 'Upload fehlgeschlagen'}`;
+          }
+        }
+      } catch (err) {
+        if (statusMsg) {
+          statusMsg.className = 'mt-2 text-[11px] font-mono text-center text-rose-400 font-bold block';
+          statusMsg.textContent = `Netzwerkfehler beim Upload: ${err.message}`;
+        }
+      }
+    }
+
+    // Document Preview Modal
+    async function previewDocument(type, filename) {
+      const modal = document.getElementById('bueroPreviewModal');
+      const title = document.getElementById('previewModalTitle');
+      const content = document.getElementById('previewModalContent');
+      const dlLink = document.getElementById('previewDownloadLink');
+      if (!modal || !content) return;
+
+      if (title) title.textContent = filename;
+      content.textContent = 'Lade Inhalt...';
+      if (dlLink) {
+        dlLink.href = `/api/buero/document/${type}/${filename}`;
+        dlLink.download = filename.split('/').pop();
+      }
+      modal.classList.remove('hidden');
+
+      try {
+        const res = await fetch(`/api/buero/document/${type}/${filename}?preview=1`);
+        if (res.ok) {
+          const data = await res.json();
+          content.textContent = data.content || '(Leeres Dokument)';
+        } else {
+          content.textContent = `Vorschau nicht verfügbar (${res.status} ${res.statusText})`;
+        }
+      } catch (err) {
+        content.textContent = `Fehler beim Laden der Vorschau: ${err.message}`;
+      }
+    }
+
+    function closeBueroPreview() {
+      const modal = document.getElementById('bueroPreviewModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function copyPreviewContent() {
+      const content = document.getElementById('previewModalContent');
+      const btn = document.getElementById('btnCopyPreview');
+      if (content) {
+        navigator.clipboard.writeText(content.textContent || '').then(() => {
+          if (btn) {
+            btn.textContent = '✔ KOPIERT!';
+            setTimeout(() => { btn.textContent = '📋 IN ZWISCHENABLAGE KOPIEREN'; }, 2000);
+          }
+        });
+      }
+    }
+
+    // Global Refresh
+    async function refreshAllDashboardData() {
+      const icon = document.getElementById('refreshSpinnerIcon');
+      if (icon) icon.classList.add('animate-spin');
+      try {
+        await Promise.all([
+          fetchClusterHealth(),
+          fetchBueroInvoices(),
+          fetchBueroJobs(),
+          typeof updateTelemetry === 'function' ? updateTelemetry() : Promise.resolve(),
+          typeof loadGallery === 'function' ? loadGallery() : Promise.resolve()
+        ]);
+      } catch (e) {
+        console.error('Refresh failed:', e);
+      } finally {
+        if (icon) setTimeout(() => icon.classList.remove('animate-spin'), 600);
+      }
+    }
+
     initComfyPipelineBuilder();
     loadComfyModels();
+    fetchClusterHealth();
+    fetchBueroData();
     setInterval(updateTelemetry, 3000);
+    setInterval(fetchClusterHealth, 10000);
+    setInterval(fetchBueroData, 20000);
   </script>
 </body>
 </html>

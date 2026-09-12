@@ -21,6 +21,8 @@ import base64
 import asyncio
 import re
 import logging
+import csv
+import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
@@ -71,6 +73,21 @@ if not DIR_3D_OUTPUT.is_dir():
 
 SECRETS_DIR = Path("/mnt/storage-alpha/secrets")
 CLUSTER_TASKS_FILE = Path("/mnt/storage-beta/cluster_tasks.json")
+
+# --- Hermes Büro & Career Pipeline Storage Paths ---
+DIR_RECHNUNGSEINGANG = Path("/mnt/storage-beta/rechnungseingang")
+DIR_RECHNUNGSARCHIV = Path("/mnt/storage-beta/rechnungsarchiv")
+DIR_JOBANGEBOTE = Path("/mnt/storage-beta/jobangebote")
+DIR_BEWERBUNGSAUSGANG = Path("/mnt/storage-beta/bewerbungsausgang")
+DIR_BEWERBUNGSTRESOR = Path("/mnt/storage-beta/bewerbungstresor")
+CSV_RECHNUNGEN_INDEX = DIR_RECHNUNGSARCHIV / "rechnungen_index.csv"
+
+# Validate and ensure required office directories exist
+for _buero_dir in [DIR_RECHNUNGSEINGANG, DIR_RECHNUNGSARCHIV, DIR_JOBANGEBOTE, DIR_BEWERBUNGSAUSGANG, DIR_BEWERBUNGSTRESOR]:
+    try:
+        _buero_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as _e:
+        logger.warning(f"Could not initialize directory {_buero_dir}: {_e}")
 
 COMFY_CACHE_FILE = BASE_DIR / "data" / "object_info_cache.json"
 COMFY_ARCHETYPES_DIRS = [
@@ -537,7 +554,7 @@ class ThinkFilter:
 async def auth_middleware(request: web.Request, handler):
     path = request.path
 
-    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path.startswith("/output/3d/") or path == "/manifest.json" or path == "/sw.js" or path == "/3d-viewer" or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or request.remote in ["127.0.0.1", "::1"]:
+    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path.startswith("/output/3d/") or path == "/manifest.json" or path == "/sw.js" or path == "/3d-viewer" or path == "/api/health" or path.startswith("/api/buero/") or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or request.remote in ["127.0.0.1", "::1"]:
         return await handler(request)
 
     authenticated = False
@@ -1370,6 +1387,323 @@ async def handle_3d_viewer_page(request: web.Request) -> web.Response:
 
     return web.HTTPNotFound(text="3D viewer template not found")
 
+
+# --- Cluster Health & Live Status Helpers ---
+
+async def check_tcp_port(host: str, port: int, timeout: float = 0.8) -> bool:
+    """Tests TCP connectivity to a host and port."""
+    try:
+        _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception:
+        return False
+
+
+async def get_systemd_user_status(service_name: str) -> str:
+    """Queries systemctl --user is-active for a service unit."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl", "--user", "is-active", service_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=1.5)
+        status = stdout.decode().strip()
+        return status if status else "unknown"
+    except Exception:
+        return "unknown"
+
+
+async def handle_api_health(request: web.Request) -> web.Response:
+    """
+    Live Health Monitor for Cluster Services:
+    - ComfyUI Port 8188
+    - Ollama Port 11434 + loaded models
+    - Systemd User Services: hermes-invoices, hermes-jobs, bigboss-haven-bot
+    """
+    comfy_ok = await check_tcp_port("127.0.0.1", 8188)
+    ollama_ok = await check_tcp_port("127.0.0.1", 11434)
+
+    ollama_models = []
+    ollama_running = []
+    if ollama_ok:
+        try:
+            timeout = aiohttp.ClientTimeout(total=2.0)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get("http://127.0.0.1:11434/api/tags") as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        ollama_models = [m.get("name") for m in data.get("models", []) if isinstance(m, dict)]
+                async with session.get("http://127.0.0.1:11434/api/ps") as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        ollama_running = [m.get("name") for m in data.get("models", []) if isinstance(m, dict)]
+        except Exception as e:
+            logger.debug(f"Could not query Ollama models: {e}")
+
+    invoices_svc = await get_systemd_user_status("hermes-invoices.service")
+    jobs_svc = await get_systemd_user_status("hermes-jobs.service")
+    bot_svc = await get_systemd_user_status("bigboss-haven-bot.service")
+    invoices_timer = await get_systemd_user_status("hermes-invoices.timer")
+    jobs_timer = await get_systemd_user_status("hermes-jobs.timer")
+
+    return web.json_response({
+        "success": True,
+        "timestamp": time.time(),
+        "comfyui": {
+            "port": 8188,
+            "status": "OK" if comfy_ok else "Offline",
+            "online": comfy_ok
+        },
+        "ollama": {
+            "port": 11434,
+            "status": "OK" if ollama_ok else "Offline",
+            "online": ollama_ok,
+            "models": ollama_models,
+            "running_models": ollama_running
+        },
+        "services": {
+            "hermes_invoices": invoices_svc,
+            "hermes_jobs": jobs_svc,
+            "bigboss_haven_bot": bot_svc,
+            "hermes_invoices_timer": invoices_timer,
+            "hermes_jobs_timer": jobs_timer
+        }
+    })
+
+
+# --- Hermes Büro & Career Dashboard Endpoints ---
+
+async def handle_buero_invoices(request: web.Request) -> web.Response:
+    """
+    GET /api/buero/invoices
+    Reads rechnungen_index.csv and returns structured JSON with due date / overdue highlighting.
+    """
+    invoices = []
+    if CSV_RECHNUNGEN_INDEX.is_file():
+        try:
+            with open(CSV_RECHNUNGEN_INDEX, "r", encoding="utf-8", errors="replace") as f:
+                reader = csv.DictReader(f, delimiter=";")
+                today = datetime.date.today()
+                for row in reader:
+                    due_str = row.get("faelligkeitsdatum", "").strip()
+                    status = "Offen"
+                    urgency = "normal"
+                    days_remaining = None
+                    if due_str and due_str != "-":
+                        try:
+                            due_date = datetime.datetime.strptime(due_str, "%Y-%m-%d").date()
+                            days_remaining = (due_date - today).days
+                            if days_remaining < 0:
+                                status = f"Überfällig ({abs(days_remaining)} T.)"
+                                urgency = "overdue"
+                            elif days_remaining == 0:
+                                status = "Fällig heute"
+                                urgency = "urgent"
+                            elif days_remaining <= 3:
+                                status = f"Fällig in {days_remaining} T."
+                                urgency = "urgent"
+                            else:
+                                status = f"Fällig in {days_remaining} T."
+                                urgency = "normal"
+                        except Exception:
+                            status = "Offen"
+
+                    invoices.append({
+                        "erfasst_am": row.get("erfasst_am", ""),
+                        "absender": row.get("absender", "Unbekannt"),
+                        "rechnungsnummer": row.get("rechnungsnummer", "-"),
+                        "rechnungsdatum": row.get("rechnungsdatum", "-"),
+                        "faelligkeitsdatum": due_str or "-",
+                        "gesamtbetrag": row.get("gesamtbetrag", "0.00"),
+                        "iban": row.get("iban", "-"),
+                        "verwendungszweck": row.get("verwendungszweck", "-"),
+                        "archiv_pfad": row.get("archiv_pfad", ""),
+                        "original_name": row.get("original_name", ""),
+                        "status": status,
+                        "urgency": urgency,
+                        "days_remaining": days_remaining
+                    })
+        except Exception as e:
+            logger.error(f"Error reading rechnungen_index.csv: {e}")
+            return web.json_response({"success": False, "error": str(e), "invoices": []}, status=500)
+
+    # Sort: overdue first, then urgent, then upcoming
+    def sort_key(inv):
+        u = inv.get("urgency")
+        rem = inv.get("days_remaining")
+        prio = 0 if u == "overdue" else (1 if u == "urgent" else 2)
+        r = rem if rem is not None else 9999
+        return (prio, r)
+
+    invoices.sort(key=sort_key)
+    return web.json_response({"success": True, "total": len(invoices), "invoices": invoices})
+
+
+async def handle_buero_jobs(request: web.Request) -> web.Response:
+    """
+    GET /api/buero/jobs
+    Lists raw job postings and generated cover letters in bewerbungsausgang.
+    """
+    offers = []
+    applications = []
+
+    # 1. Job offers in jobangebote/
+    if DIR_JOBANGEBOTE.is_dir():
+        for item in sorted(DIR_JOBANGEBOTE.iterdir(), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+            if item.is_file():
+                st = item.stat()
+                offers.append({
+                    "filename": item.name,
+                    "rel_path": item.name,
+                    "size_kb": round(st.st_size / 1024, 1),
+                    "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                    "status": "Neu / Im Eingang",
+                    "is_done": False
+                })
+
+    erledigt_dir = DIR_JOBANGEBOTE / "erledigt"
+    if erledigt_dir.is_dir():
+        for item in sorted(erledigt_dir.iterdir(), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+            if item.is_file():
+                st = item.stat()
+                offers.append({
+                    "filename": item.name,
+                    "rel_path": f"erledigt/{item.name}",
+                    "size_kb": round(st.st_size / 1024, 1),
+                    "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                    "status": "Erledigt",
+                    "is_done": True
+                })
+
+    # 2. Cover letters in bewerbungsausgang/
+    if DIR_BEWERBUNGSAUSGANG.is_dir():
+        for item in sorted(DIR_BEWERBUNGSAUSGANG.iterdir(), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+            if item.is_file() and item.name.endswith(".md"):
+                st = item.stat()
+                raw_title = item.stem
+                if raw_title.startswith("anschreiben_"):
+                    raw_title = raw_title[len("anschreiben_"):]
+                parts = raw_title.split("_", 1)
+                company = parts[0] if len(parts) > 0 else "Unternehmen"
+                role = parts[1].replace("_", " ") if len(parts) > 1 else "Bewerbung"
+
+                applications.append({
+                    "filename": item.name,
+                    "company": company.replace("_", " "),
+                    "role": role,
+                    "size_kb": round(st.st_size / 1024, 1),
+                    "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                    "preview_url": f"/api/buero/document/application/{item.name}?preview=1",
+                    "download_url": f"/api/buero/document/application/{item.name}"
+                })
+
+    return web.json_response({
+        "success": True,
+        "offers_count": len(offers),
+        "applications_count": len(applications),
+        "offers": offers,
+        "applications": applications
+    })
+
+
+async def handle_buero_upload(request: web.Request) -> web.Response:
+    """
+    POST /api/buero/upload
+    Direct multipart file upload into rechnungseingang/ or jobangebote/.
+    """
+    reader = await request.multipart()
+    category = "auto"
+    saved_files = []
+
+    while True:
+        part = await reader.next()
+        if part is None:
+            break
+        if part.name == "category":
+            category = (await part.text()).strip().lower()
+            continue
+        if part.name == "file":
+            filename = part.filename
+            if not filename:
+                continue
+
+            safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', Path(filename).name)
+            ext = Path(safe_name).suffix.lower()
+
+            if category == "invoice" or (category == "auto" and ext in [".pdf", ".png", ".jpg", ".jpeg", ".tiff"]):
+                target_dir = DIR_RECHNUNGSEINGANG
+                cat_assigned = "invoice"
+            elif category == "job" or (category == "auto" and ext in [".txt", ".md"]):
+                target_dir = DIR_JOBANGEBOTE
+                cat_assigned = "job"
+            else:
+                target_dir = DIR_RECHNUNGSEINGANG if ext == ".pdf" else DIR_JOBANGEBOTE
+                cat_assigned = "auto"
+
+            dest = target_dir / safe_name
+            if dest.exists():
+                stem = Path(safe_name).stem
+                dest = target_dir / f"{stem}_{int(time.time())}{ext}"
+
+            size = 0
+            with open(dest, "wb") as f:
+                while True:
+                    chunk = await part.read_chunk(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    size += len(chunk)
+
+            saved_files.append({
+                "filename": dest.name,
+                "category": cat_assigned,
+                "size_bytes": size,
+                "target_dir": str(target_dir)
+            })
+
+    if not saved_files:
+        return web.json_response({"success": False, "error": "Keine Datei hochgeladen"}, status=400)
+
+    return web.json_response({"success": True, "uploaded": saved_files})
+
+
+async def handle_buero_document(request: web.Request) -> web.Response:
+    """
+    GET /api/buero/document/{type}/{filename:.+}
+    Serves files for preview or download with strict path validation.
+    """
+    doc_type = request.match_info.get("type", "")
+    filename = request.match_info.get("filename", "")
+    is_preview = request.query.get("preview") == "1"
+
+    if doc_type == "invoice":
+        base_dir = DIR_RECHNUNGSARCHIV
+    elif doc_type == "application":
+        base_dir = DIR_BEWERBUNGSAUSGANG
+    elif doc_type == "job":
+        base_dir = DIR_JOBANGEBOTE
+    else:
+        raise web.HTTPBadRequest(text="Ungültiger Dokumenttyp")
+
+    file_path = (base_dir / filename).resolve()
+    if not str(file_path).startswith(str(base_dir.resolve())):
+        raise web.HTTPForbidden(text="Access denied")
+    if not file_path.is_file():
+        raise web.HTTPNotFound(text="Datei nicht gefunden")
+
+    if is_preview and file_path.suffix.lower() in [".md", ".txt"]:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        return web.json_response({
+            "success": True,
+            "filename": file_path.name,
+            "content": content
+        })
+
+    return web.FileResponse(file_path)
+
 # --- Dual-Agent WebSocket Chat ---
 
 async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
@@ -1540,6 +1874,15 @@ def create_app() -> web.Application:
     app.router.add_get("/api/3d/models", handle_3d_models_list)
     app.router.add_get("/output/3d/{filename:.+}", handle_3d_file)
     app.router.add_get("/3d-viewer", handle_3d_viewer_page)
+
+    # Hermes Büro & Career Endpoints
+    app.router.add_get("/api/buero/invoices", handle_buero_invoices)
+    app.router.add_get("/api/buero/jobs", handle_buero_jobs)
+    app.router.add_post("/api/buero/upload", handle_buero_upload)
+    app.router.add_get("/api/buero/document/{type}/{filename:.+}", handle_buero_document)
+
+    # Cluster Health & Service Monitoring
+    app.router.add_get("/api/health", handle_api_health)
 
     # Direct static outputs route
     app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)
