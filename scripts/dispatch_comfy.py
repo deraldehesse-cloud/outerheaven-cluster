@@ -477,7 +477,7 @@ def dispatch_render_async(
 class CompanionMemoryManager:
     """Manages long-term memory (MEMORY.md) and short-term chat history ring buffer (history.json)."""
 
-    def __init__(self, history_file: Path = HISTORY_PATH, memory_file: Path = MEMORY_PATH, max_length: int = 15):
+    def __init__(self, history_file: Path = HISTORY_PATH, memory_file: Path = MEMORY_PATH, max_length: int = 32):
         self.history_file = history_file
         self.memory_file = memory_file
         self.max_length = max_length

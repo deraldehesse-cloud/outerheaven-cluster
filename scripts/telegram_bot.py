@@ -206,7 +206,7 @@ STOP_TRIGGERS = list(dict.fromkeys(
 memory_mgr = CompanionMemoryManager(
     history_file=PROJECT_ROOT / "history.json",
     memory_file=PROJECT_ROOT / "MEMORY.md",
-    max_length=8
+    max_length=32
 )
 lovense_client = LovenseClient(env_file=PROJECT_ROOT / ".env")
 
@@ -315,6 +315,11 @@ def check_and_reload_bot_config():
             OLLAMA_NUM_CTX = int(llm["num_ctx"])
         if "repeat_last_n" in llm:
             OLLAMA_REPEAT_LAST_N = int(llm["repeat_last_n"])
+        if "max_history_turns" in llm:
+            try:
+                memory_mgr.max_length = max(8, min(64, int(llm["max_history_turns"])))
+            except Exception:
+                pass
 
         # Personality Sliders (0 - 100) & Custom Texts
         pers = cfg.get("personality", {})
@@ -1546,7 +1551,7 @@ MODEL_STOP_TOKENS_MAP = {
 }
 
 
-def pipeline_stage1_history_sanitizer(history_entries: List[Dict[str, Any]], max_turns: int = 8) -> List[Dict[str, Any]]:
+def pipeline_stage1_history_sanitizer(history_entries: List[Dict[str, Any]], max_turns: int = 32) -> List[Dict[str, Any]]:
     """
     [Stage 1: History-Sanitizer]
     Schneidet korrupte Zeichen, Glitch-Token & uralten Ballast vorab weg.
@@ -1714,7 +1719,7 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str, syst
     # Schneidet korrupte Zeichen & uralten Ballast vorab weg
     # -------------------------------------------------------------
     raw_history = memory_mgr.load_history()
-    clean_history = pipeline_stage1_history_sanitizer(raw_history, max_turns=8)
+    clean_history = pipeline_stage1_history_sanitizer(raw_history, max_turns=memory_mgr.max_length)
     chat_messages = [{"role": "system", "content": system_prompt}]
     for entry in clean_history:
         chat_messages.append({"role": entry["role"], "content": entry["content"]})
@@ -1909,7 +1914,7 @@ def generate_proactive_checkin(chat_id: int, is_manual_test: bool = False) -> Op
     )
 
     chat_messages = [{"role": "system", "content": system_prompt}]
-    for entry in history_entries[-6:]:
+    for entry in history_entries[-16:]:
         chat_messages.append({"role": entry["role"], "content": entry["content"]})
     chat_messages.append({"role": "user", "content": f"[Spontaneous Daytime Trigger: {instruction}]"})
 

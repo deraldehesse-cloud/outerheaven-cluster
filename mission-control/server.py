@@ -1429,11 +1429,13 @@ async def handle_bot_config_get(request: web.Request) -> web.Response:
     """GET /api/bot/config - Reads /mnt/storage-beta/projekte/projekt-sexchat/bot_config.json."""
     default_config = {
         "llm": {
-            "model": "lexi-llama-3-8b-uncensored_q4_k_m:latest",
-            "temperature": 0.95,
+            "model": "darkidol-8b:latest",
+            "temperature": 0.7,
             "top_p": 0.90,
-            "repeat_penalty": 1.18,
-            "num_predict": 300
+            "repeat_penalty": 1.25,
+            "num_predict": 400,
+            "num_ctx": 16384,
+            "max_history_turns": 32
         },
         "render": {
             "workflow_template": "text_to_image",
