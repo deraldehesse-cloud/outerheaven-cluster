@@ -48,7 +48,7 @@ DEFAULT_OPTIONS = {
     "temperature": 0.95,
     "top_p": 0.90,
     "top_k": 40,
-    "repeat_penalty": 1.18,
+    "repeat_penalty": 1.25,
     "num_predict": 350,
     "num_ctx": 4096,
     "stop": ["<|im_end|>", "<|endoftext|>", "User:", "Assistant:", "\nUser:", "\nAssistant:"]

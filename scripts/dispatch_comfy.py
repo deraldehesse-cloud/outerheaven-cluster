@@ -483,13 +483,24 @@ class CompanionMemoryManager:
         self.max_length = max_length
 
     def load_history(self) -> List[Dict[str, Any]]:
-        """Loads messages from history.json."""
+        """Loads messages from history.json with automatic glitch-token sanitization."""
         if not self.history_file.is_file():
             return []
         try:
             with open(self.history_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return data.get("messages", [])
+                msgs = data.get("messages", [])
+            try:
+                from sanitize_history import sanitize_history_data, atomic_save_json
+                cleaned_msgs, removed = sanitize_history_data(msgs)
+                if removed > 0:
+                    data["messages"] = cleaned_msgs
+                    data["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                    atomic_save_json(self.history_file, data)
+                    logger.info(f"Sanitized {removed} corrupted message(s) from {self.history_file.name}")
+                return cleaned_msgs
+            except ImportError:
+                return msgs
         except Exception as e:
             logger.warning(f"Konnte history.json nicht laden: {e}")
             return []
@@ -505,6 +516,14 @@ class CompanionMemoryManager:
         if media_path:
             msg_entry["media_path"] = str(media_path)
 
+        try:
+            from sanitize_history import is_corrupted_text
+            is_bad, reason = is_corrupted_text(content)
+            if is_bad:
+                logger.warning(f"Abweisung korrumpierter Nachricht ({reason}): {content[:40]}...")
+                return
+        except ImportError:
+            pass
         messages.append(msg_entry)
 
         # Enforce ring buffer of max 15 messages

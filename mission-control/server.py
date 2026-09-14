@@ -110,7 +110,7 @@ comfy_schema_mgr = ComfySchemaManager(
 )
 
 LOCAL_TS_IP = os.environ.get("OUTERHEAVEN_TS_IP", "100.116.38.29")
-FOX_TS_IP = os.environ.get("FOX_TS_IP", "100.117.155.70")
+FOX_TS_IP = os.environ.get("FOX_TS_IP", "100.93.184.87")
 LOVENSE_IP = os.environ.get("LOVENSE_IP", "192.168.188.34").strip().strip('"').strip("'")
 LOVENSE_PORT = int(os.environ.get("LOVENSE_PORT", 20010))
 PORT = 8080
@@ -426,13 +426,26 @@ async def get_outerheaven_telemetry(session: aiohttp.ClientSession) -> Dict[str,
     services = {"comfyui": "inactive", "ollama": "inactive", "hermes-telegram": "inactive", "ollama-model-watcher": "inactive"}
     try:
         proc = await asyncio.create_subprocess_exec(
-            "systemctl", "--user", "is-active", "comfyui.service", "hermes-telegram.service",
+            "systemctl", "--user", "is-active", "comfyui.service", "bigboss-haven-bot.service", "hermes-telegram.service",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
         )
         out, _ = await proc.communicate()
         lines = out.decode().strip().split("\n")
         if len(lines) >= 1 and lines[0]: services["comfyui"] = lines[0]
-        if len(lines) >= 2 and lines[1]: services["hermes-telegram"] = lines[1]
+        bot_status = "inactive"
+        if len(lines) >= 2 and lines[1] == "active":
+            bot_status = "active"
+        elif len(lines) >= 3 and lines[2] == "active":
+            bot_status = "active"
+        else:
+            try:
+                pg = await asyncio.create_subprocess_exec("pgrep", "-f", "telegram_bot.py", stdout=asyncio.subprocess.PIPE)
+                pg_out, _ = await pg.communicate()
+                if pg.returncode == 0 and pg_out.strip():
+                    bot_status = "active"
+            except Exception:
+                pass
+        services["hermes-telegram"] = bot_status
     except Exception:
         pass
 
@@ -465,7 +478,7 @@ async def get_fox_telemetry(session: aiohttp.ClientSession) -> Dict[str, Any]:
     models = []
     ollama_ok = False
     try:
-        async with session.get(f"{FOX_OLLAMA_URL}/api/ps", timeout=aiohttp.ClientTimeout(total=1.2)) as resp:
+        async with session.get(f"{FOX_OLLAMA_URL}/api/ps", timeout=aiohttp.ClientTimeout(total=1.5)) as resp:
             if resp.status == 200:
                 ollama_ok = True
                 ps_data = await resp.json()
@@ -473,26 +486,40 @@ async def get_fox_telemetry(session: aiohttp.ClientSession) -> Dict[str, Any]:
     except Exception:
         pass
 
+    if not ollama_ok:
+        try:
+            async with session.get(f"{FOX_OLLAMA_URL}/api/tags", timeout=aiohttp.ClientTimeout(total=1.5)) as resp:
+                if resp.status == 200:
+                    ollama_ok = True
+                    tags_data = await resp.json()
+                    models = [m.get("name") for m in tags_data.get("models", [])]
+        except Exception:
+            pass
+
     load = [0.0, 0.0, 0.0]
     ram = {"total": 0, "used": 0, "free": 0, "percent": 0.0}
-    services = {"hermes-gateway": "unknown", "ollama": "active" if ollama_ok else "inactive", "ollama-tailscale-proxy": "active" if ollama_ok else "unknown"}
+    services = {
+        "hermes-gateway": "unknown",
+        "ollama": "active" if ollama_ok else "inactive",
+        "ollama-tailscale-proxy": "active" if ollama_ok else "unknown"
+    }
     online = False
 
     try:
-        cmd = "ssh -o BatchMode=yes -o ConnectTimeout=2 fox 'cat /proc/loadavg; echo \"---\"; free -b; echo \"---\"; systemctl --user is-active hermes-gateway.service; systemctl --user is-active ollama-tailscale-proxy.service'"
+        cmd = "ssh -o BatchMode=yes -o ConnectTimeout=2 fox 'cat /proc/loadavg; echo "---"; free -b; echo "---"; systemctl --user is-active hermes-gateway.service; systemctl --user is-active ollama-tailscale-proxy.service; systemctl is-active ollama.service'"
         proc = await asyncio.create_subprocess_shell(
             cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
         )
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
-        if proc.returncode == 0:
+        if proc.returncode in [0, 3, 4]:
             online = True
-            blocks = out.decode().strip().split("---\n")
+            blocks = out.decode().strip().split("---" + chr(10))
             if len(blocks) >= 1:
                 p = blocks[0].strip().split()
                 if len(p) >= 3:
                     load = [float(p[0]), float(p[1]), float(p[2])]
             if len(blocks) >= 2:
-                for line in blocks[1].strip().split("\n"):
+                for line in blocks[1].strip().split(chr(10)):
                     if "speicher" in line.lower() or "mem:" in line.lower():
                         nums = [int(s) for s in line.replace(":", " ").split() if s.isdigit()]
                         if len(nums) >= 2:
@@ -506,19 +533,30 @@ async def get_fox_telemetry(session: aiohttp.ClientSession) -> Dict[str, Any]:
                             }
                             break
             if len(blocks) >= 3:
-                svc_lines = blocks[2].strip().split("\n")
+                svc_lines = blocks[2].strip().split(chr(10))
                 if len(svc_lines) >= 1 and svc_lines[0]:
                     services["hermes-gateway"] = svc_lines[0].strip()
                 if len(svc_lines) >= 2 and svc_lines[1]:
                     services["ollama-tailscale-proxy"] = svc_lines[1].strip()
+                if len(svc_lines) >= 3 and svc_lines[2]:
+                    sys_ollama = svc_lines[2].strip()
+                    if sys_ollama in ["active", "activating"]:
+                        services["ollama"] = "active"
+                    elif ollama_ok:
+                        services["ollama"] = "active"
+                    else:
+                        services["ollama"] = sys_ollama
     except Exception as e:
         logger.debug(f"Fox telemetry error: {e}")
+
+    if ollama_ok:
+        services["ollama"] = "active"
 
     is_reb = Path("/tmp/fox_is_rebooting").is_file()
     return {
         "node": "fox",
         "ip": FOX_TS_IP,
-        "online": online and not is_reb,
+        "online": (online or ollama_ok) and not is_reb,
         "rebooting": is_reb,
         "load": load,
         "ram": ram,
@@ -526,12 +564,103 @@ async def get_fox_telemetry(session: aiohttp.ClientSession) -> Dict[str, Any]:
         "models": models
     }
 
+async def check_lovense_health(session: aiohttp.ClientSession) -> dict:
+    url = f"http://{LOVENSE_IP}:{LOVENSE_PORT}/command"
+    payload = {"command": "GetToys"}
+    try:
+        async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=2.0)) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                toy_data = data.get("data", {}).get("toys")
+                parsed_toys = {}
+                if isinstance(toy_data, dict):
+                    parsed_toys = toy_data
+                elif isinstance(toy_data, str):
+                    try:
+                        p = json.loads(toy_data)
+                        if isinstance(p, dict):
+                            parsed_toys = p
+                        elif isinstance(p, list):
+                            parsed_toys = {t.get("id", str(i)): t for i, t in enumerate(p) if isinstance(t, dict)}
+                    except Exception:
+                        pass
+                elif isinstance(toy_data, list):
+                    parsed_toys = {t.get("id", str(i)): t for i, t in enumerate(toy_data) if isinstance(t, dict)}
+
+                if parsed_toys:
+                    toy_names = [t.get("name") or t.get("nickName") or k for k, t in parsed_toys.items()]
+                    details = []
+                    for k, t in parsed_toys.items():
+                        name = t.get("name") or t.get("nickName") or k
+                        bat = t.get("battery", "")
+                        details.append(f"{name} ({bat}% Akku)" if bat != "" else name)
+                    return {
+                        "online": True,
+                        "status": "ONLINE",
+                        "toy_names": toy_names,
+                        "details": ", ".join(details),
+                        "toys": parsed_toys,
+                        "toy_count": len(parsed_toys),
+                        "last_checked": time.time()
+                    }
+                else:
+                    return {
+                        "online": False,
+                        "status": "NO_TOYS",
+                        "toy_names": [],
+                        "details": "Bridge erreichbar, kein Toy gekoppelt",
+                        "toys": {},
+                        "toy_count": 0,
+                        "last_checked": time.time()
+                    }
+    except Exception:
+        pass
+    return {
+        "online": False,
+        "status": "OFFLINE",
+        "toy_names": [],
+        "details": "Lovense Bridge offline",
+        "toys": {},
+        "toy_count": 0,
+        "last_checked": time.time()
+    }
+
+async def dispatch_lovense_command(action: str, intensity: int = 0, time_sec: int = 0) -> dict:
+    url = f"http://{LOVENSE_IP}:{LOVENSE_PORT}/command"
+    act_lower = action.lower().strip()
+    if act_lower in ["stop", "stop_all", "off", "0"]:
+        payload = {
+            "command": "Function",
+            "action": "Stop",
+            "timeSec": 0,
+            "apiVer": 1
+        }
+    else:
+        clamped = max(1, min(20, int(intensity)))
+        payload = {
+            "command": "Function",
+            "action": f"Vibrate:{clamped}",
+            "timeSec": int(time_sec),
+            "apiVer": 1
+        }
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2.5)) as session:
+            async with session.post(url, json=payload) as resp:
+                data = await resp.json()
+                logger.info(f"[Haptic Link] Command dispatched: {payload['action']} -> {data.get('type') or data.get('code')}")
+                return {"success": True, "data": data}
+    except Exception as e:
+        logger.warning(f"[Haptic Link] Command failed: {e}")
+        return {"success": False, "error": str(e)}
+
 async def telemetry_background_loop():
     logger.info("Starting telemetry background monitoring loop")
     timeout = aiohttp.ClientTimeout(total=2.5)
+    loop_idx = 0
     async with aiohttp.ClientSession(timeout=timeout) as session:
         while True:
             try:
+                loop_idx += 1
                 oh_data, fox_data = await asyncio.gather(
                     get_outerheaven_telemetry(session),
                     get_fox_telemetry(session),
@@ -543,12 +672,59 @@ async def telemetry_background_loop():
                     telemetry_cache["fox"] = fox_data
                 telemetry_cache["queue"] = get_cluster_tasks_info()
                 telemetry_cache["active_model"] = get_active_ollama_model()
+                
+                # Poll Lovense status every ~5s
+                if loop_idx % 2 == 0 or "lovense" not in telemetry_cache:
+                    telemetry_cache["lovense"] = await check_lovense_health(session)
+
                 telemetry_cache["last_update"] = time.time()
             except Exception as e:
                 logger.error(f"Telemetry loop error: {e}")
             await asyncio.sleep(2.5)
 
 # --- Think Tag Filter ---
+class HapticTagFilter:
+    """Buffers text stream, strips [HAPTIC: ...] tags, and triggers callback when found."""
+    def __init__(self, on_haptic_tag=None):
+        self.buffer = ""
+        self.on_haptic_tag = on_haptic_tag
+
+    def feed(self, text: str) -> str:
+        self.buffer += text
+        output = ""
+        while True:
+            match = re.search(r'\[HAPTIC:\s*(VIBRATE\s*(\d+)|STOP)\]', self.buffer, re.IGNORECASE)
+            if match:
+                start, end = match.span()
+                output += self.buffer[:start]
+                tag = match.group(0)
+                if self.on_haptic_tag:
+                    self.on_haptic_tag(tag)
+                self.buffer = self.buffer[end:]
+                continue
+
+            idx = self.buffer.rfind("[")
+            if idx != -1:
+                candidate = self.buffer[idx:].upper()
+                if "[HAPTIC".startswith(candidate) or candidate.startswith("[HAPTIC"):
+                    output += self.buffer[:idx]
+                    self.buffer = self.buffer[idx:]
+                    break
+            output += self.buffer
+            self.buffer = ""
+            break
+        return output
+
+    def flush(self) -> str:
+        res = self.buffer
+        self.buffer = ""
+        match = re.search(r'\[HAPTIC:\s*(VIBRATE\s*(\d+)|STOP)\]', res, re.IGNORECASE)
+        if match:
+            if self.on_haptic_tag:
+                self.on_haptic_tag(match.group(0))
+            res = re.sub(r'\[HAPTIC:[^\]]*\]', '', res, flags=re.IGNORECASE)
+        return res
+
 class ThinkFilter:
     def __init__(self):
         self.in_think = False
@@ -655,8 +831,8 @@ async def auth_middleware(request: web.Request, handler):
     # [RESTRICTED] Plausible Deniability Check:
     # If endpoint belongs to companion bot / sexchat / lovense and user is not in Level-2 RESTRICTED mode,
     # return 404 (endpoint appears non-existent to standard users)
-    restricted_prefixes = ["/api/bot/config", "/api/bot/lore", "/api/lovense/"]
-    if any(path.startswith(rp) for rp in restricted_prefixes) and not is_restricted:
+    restricted_prefixes = ["/api/bot/config", "/api/bot/lore", "/api/bot/characters", "/api/bot/haptic", "/api/lovense/", "/api/lore/"]
+    if any(path.startswith(rp) for rp in restricted_prefixes) and not is_restricted and request.remote not in ["127.0.0.1", "::1"]:
         return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
 
     if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path == "/manifest.json" or path == "/sw.js" or path in ["/api/health", "/api/cluster/health"] or path.startswith("/api/buero/") or path.startswith("/api/images/") or path.startswith("/api/prompts/") or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or path.startswith("/output/3d/") or path == "/3d-viewer" or request.remote in ["127.0.0.1", "::1"]:
@@ -748,7 +924,10 @@ async def handle_index(request: web.Request) -> web.Response:
     ), content_type="text/html")
 
 async def handle_telemetry(request: web.Request) -> web.Response:
-    return web.json_response(telemetry_cache)
+    data = dict(telemetry_cache)
+    if not request.get("is_restricted", False):
+        data.pop("lovense", None)
+    return web.json_response(data)
 
 
 async def handle_handover(request: web.Request) -> web.Response:
@@ -943,9 +1122,10 @@ async def handle_service_control(request: web.Request) -> web.Response:
         if service not in valid_oh_services:
             return web.json_response({"error": f"Invalid service for outerheaven. Allowed: {valid_oh_services}"}, status=400)
 
-        is_user_svc = service in ["comfyui", "hermes-telegram", "cluster-queue-worker"]
+        is_user_svc = service in ["comfyui", "hermes-telegram", "telegram-bot", "cluster-queue-worker"]
         if is_user_svc:
-            cmd = ["systemctl", "--user", action, f"{service}.service"]
+            svc_name = "bigboss-haven-bot.service" if service in ["hermes-telegram", "telegram-bot"] else f"{service}.service"
+            cmd = ["systemctl", "--user", action, svc_name]
         else:
             cmd = ["sudo", "systemctl", action, f"{service}.service"]
 
@@ -966,21 +1146,26 @@ async def handle_service_control(request: web.Request) -> web.Response:
         if service not in valid_fox_services:
             return web.json_response({"error": f"Invalid service for fox. Allowed: {valid_fox_services}"}, status=400)
 
-        is_user_svc = service in ["hermes-gateway", "ollama-tailscale-proxy"]
-        svc_prefix = "--user " if is_user_svc else ""
-        ssh_cmd = f"ssh -o BatchMode=yes -o ConnectTimeout=5 fox 'systemctl {svc_prefix}{action} {service}.service'"
+        if service == "ollama":
+            # Restart ollama process on Fox (systemd automatically respawns it) and restart proxy
+            ssh_cmd = "ssh -o BatchMode=yes -o ConnectTimeout=5 fox 'kill -9 $(pgrep -u fox -x ollama | head -n 1) 2>/dev/null; systemctl --user restart ollama-tailscale-proxy.service 2>/dev/null; sleep 1; systemctl is-active ollama.service'"
+        else:
+            is_user_svc = service in ["hermes-gateway", "ollama-tailscale-proxy"]
+            svc_prefix = "--user " if is_user_svc else ""
+            ssh_cmd = f"ssh -o BatchMode=yes -o ConnectTimeout=5 fox 'systemctl {svc_prefix}{action} {service}.service'"
 
         proc = await asyncio.create_subprocess_shell(
             ssh_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         out, err = await proc.communicate()
-        success = (proc.returncode == 0)
+        out_str = out.decode().strip()
+        success = (proc.returncode == 0 or "active" in out_str.lower() or "activating" in out_str.lower())
         return web.json_response({
             "success": success,
             "node": node,
             "service": service,
             "action": action,
-            "message": out.decode().strip() or (err.decode().strip() if not success else "OK")
+            "message": out_str or (err.decode().strip() if not success else "OK")
         })
 
     return web.json_response({"error": "Unknown node"}, status=400)
@@ -1234,8 +1419,7 @@ async def handle_ollama_models(request: web.Request) -> web.Response:
         models = [
             {"name": "lexi-llama-3-8b-uncensored_q4_k_m:latest", "size": 4900000000},
             {"name": "llava:latest", "size": 4700000000},
-            {"name": "moondream:latest", "size": 1700000000},
-            {"name": "darkidol-8b:latest", "size": 4900000000},
+                        {"name": "darkidol-8b:latest", "size": 4900000000},
             {"name": "deepseek-r1:14b", "size": 9000000000}
         ]
     return web.json_response({"models": models})
@@ -1262,7 +1446,9 @@ async def handle_bot_config_get(request: web.Request) -> web.Response:
             "sampler_name": "euler_ancestral",
             "scheduler": "karras",
             "width": 512,
-            "height": 768
+            "height": 768,
+            "positive_prompt": "1girl, solo, 178cm tall, slender athletic build, voluptuous hourglass figure, very large full natural heavy breasts, deep cleavage, narrow waist, flat toned stomach, soft natural skin texture, stunningly beautiful face, alluring green-blue eyes, seductive playful smile, slightly parted glossy lips, long layered dark hair, soft natural waves, casual gamer look, tight black cropped tank top showing cleavage, denim shorts, massive intricate detailed sleeve tattoo on entire left arm and left shoulder aesthetically framing large breast, battlestation, sitting at computer desk, dual glowing monitors displaying Linux terminal and code, mechanical keyboard, vibrant RGB ambient lighting, well-lit modern workspace, cowboy shot, slightly low angle, looking directly at viewer with intense alluring gaze, photorealistic, raw photo, 8k uhd, dslr, high quality, soft studio lighting, rim lighting, vibrant, well-lit, high key, clear visibility, detailed skin texture, natural skin pores, realistic depth of field",
+            "negative_prompt": "glasses, spectacles, eyewear, score_4, score_5, score_6, worst quality, low quality, bad anatomy, bad limbs, extra limbs, deformed fingers, extra fingers, missing fingers, deformed, blurry, monochrome, watermark, text, signature, username, 3d render, cartoon, anime, illustration, bad eyes, deformed iris, underexposed, dark shadows, pitch black background, gloomy, dim lighting, censor, censored, mosaic, bar censor, censorship, pixelated, black bar"
         },
         "voice": {
             "voice_name": "en-US-AvaMultilingualNeural",
@@ -1272,6 +1458,7 @@ async def handle_bot_config_get(request: web.Request) -> web.Response:
         },
         "proactive": {
             "enabled": True,
+            "all_day": False,
             "idle_seconds": 14400,
             "cooldown_seconds": 21600,
             "start_hour": 9,
@@ -1279,9 +1466,21 @@ async def handle_bot_config_get(request: web.Request) -> web.Response:
         },
         "personality": {
             "dominance": 50,
+            "dominance_text": "",
             "explicitness": 70,
+            "explicitness_text": "",
             "detail_depth": 60,
+            "detail_depth_text": "",
             "language": "de"
+        },
+        "vision": {
+            "enabled": True,
+            "target": "fox",
+            "model": "moondream:latest"
+        },
+        "haptic": {
+            "bot_auto_enabled": True,
+            "max_intensity": 50
         }
     }
 
@@ -1314,6 +1513,23 @@ async def handle_bot_config_post(request: web.Request) -> web.Response:
         with open(BOT_CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(new_config, f, indent=2, ensure_ascii=False)
 
+        # Synchronize positive & negative prompts to character.json
+        try:
+            rnd_cfg = new_config.get("render", {})
+            pos_p = rnd_cfg.get("positive_prompt", "").strip()
+            neg_p = rnd_cfg.get("negative_prompt", "").strip()
+            if LORE_FILE.is_file():
+                c_data = json.loads(LORE_FILE.read_text(encoding="utf-8"))
+                if pos_p:
+                    if "visual" not in c_data: c_data["visual"] = {}
+                    c_data["visual"]["base_positive_prompt"] = pos_p
+                if neg_p:
+                    if "negative_prompts" not in c_data: c_data["negative_prompts"] = {}
+                    c_data["negative_prompts"]["quality"] = neg_p
+                LORE_FILE.write_text(json.dumps(c_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception as sync_err:
+            logger.warning(f"Could not sync prompts to character.json: {sync_err}")
+
         logger.info(f"Bot configuration successfully updated in {BOT_CONFIG_FILE}")
         return web.json_response({
             "success": True,
@@ -1325,9 +1541,334 @@ async def handle_bot_config_post(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def handle_bot_haptic_get(request: web.Request) -> web.Response:
+    cfg = {}
+    if BOT_CONFIG_FILE.is_file():
+        try:
+            with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                cfg = data.get("haptic", {})
+        except Exception as e:
+            logger.warning(f"Could not read haptic from bot_config.json: {e}")
+    haptic_data = {
+        "bot_auto_enabled": cfg.get("bot_auto_enabled", True),
+        "max_intensity": cfg.get("max_intensity", 50)
+    }
+    return web.json_response({"success": True, "haptic": haptic_data})
+
+
+async def handle_bot_haptic_post(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+        bot_auto = bool(data.get("bot_auto_enabled", True))
+        try:
+            max_int = int(data.get("max_intensity", 50))
+        except (ValueError, TypeError):
+            max_int = 50
+        max_int = max(5, min(100, max_int))
+
+        cfg = {}
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception:
+                cfg = {}
+
+        if "haptic" not in cfg:
+            cfg["haptic"] = {}
+        cfg["haptic"]["bot_auto_enabled"] = bot_auto
+        cfg["haptic"]["max_intensity"] = max_int
+
+        BOT_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(BOT_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Haptic settings saved: bot_auto_enabled={bot_auto}, max_intensity={max_int}%")
+        return web.json_response({
+            "success": True,
+            "haptic": cfg["haptic"],
+            "message": "Haptic-Einstellungen erfolgreich gespeichert!"
+        })
+    except Exception as e:
+        logger.error(f"Error saving haptic settings: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_bot_haptic_test(request: web.Request) -> web.Response:
+    cfg = {}
+    if BOT_CONFIG_FILE.is_file():
+        try:
+            with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                cfg = json.load(f).get("haptic", {})
+        except Exception:
+            pass
+    max_pct = cfg.get("max_intensity", 50)
+    level = max(1, min(20, int(round(20 * (max_pct / 100.0)))))
+    result = await dispatch_lovense_command("vibrate", intensity=level, time_sec=2)
+    return web.json_response(result)
+
+
 LORE_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/character.json")
 HAVEN_PROMPT_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/docs/haven_system_prompt.txt")
 MEGAN_PROMPT_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/docs/megan_system_prompt.txt")
+CHARACTERS_DIR = Path("/mnt/storage-beta/projekte/projekt-sexchat/characters")
+CHARACTERS_DIR.mkdir(parents=True, exist_ok=True)
+
+COMFY_CACHE_PURGE_INTERVAL = 3
+comfy_render_count = 0
+
+async def trigger_comfy_cache_purge(unload_models: bool = False) -> dict:
+    """Triggers ComfyUI's native /free API to flush latent caches, KV-cache, and fragmented VRAM."""
+    url = f"{COMFYUI_URL}/free"
+    payload = {"unload_models": unload_models, "free_memory": True}
+    try:
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=payload) as resp:
+                if resp.status == 200:
+                    logger.info(f"ComfyUI VRAM Cache Purge executed successfully (unload_models={unload_models})")
+                    return {"success": True, "unload_models": unload_models}
+                else:
+                    logger.warning(f"ComfyUI /free returned status {resp.status}")
+                    return {"success": False, "status": resp.status}
+    except Exception as e:
+        logger.warning(f"Failed to call ComfyUI /free: {e}")
+        return {"success": False, "error": str(e)}
+
+async def analyze_image_with_moondream(image_path: str, prompt: str = "") -> str:
+    """
+    Analyzes an image using remote Ollama model moondream:latest on Fox.
+    Keeps Outer Heaven VRAM reserved solely for DarkIdol.
+    """
+    p = Path(image_path)
+    if not p.is_file():
+        logger.warning(f"Image not found for Moondream analysis: {image_path}")
+        return ""
+
+    if not prompt:
+        prompt = (
+            "Analyze this image: note any visible anatomical flaws on hands or face, "
+            "and check whether character features like arm tattoo and gamer aesthetic are visible."
+        )
+
+    try:
+        b64_img = base64.b64encode(p.read_bytes()).decode("utf-8")
+        payload = {
+            "model": "moondream:latest",
+            "prompt": prompt,
+            "images": [b64_img],
+            "stream": False,
+            "options": {
+                "temperature": 0.2,
+                "num_predict": 250
+            }
+        }
+        timeout = aiohttp.ClientTimeout(total=45)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(f"http://{FOX_TS_IP}:11434/api/generate", json=payload) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    res_text = data.get("response", "").strip()
+                    logger.info(f"Fox Moondream analysis successful ({len(res_text)} chars)")
+                    return res_text
+                else:
+                    err_txt = await resp.text()
+                    logger.warning(f"Fox Moondream error {resp.status}: {err_txt}")
+                    return ""
+    except Exception as e:
+        logger.error(f"Error in remote analyze_image_with_moondream on Fox: {e}")
+        return ""
+
+
+async def handle_moondream_analyze(request: web.Request) -> web.Response:
+    """POST /api/vision/analyze - Analyzes an image with moondream:latest."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    image_path = body.get("image_path", "").strip()
+    prompt = body.get("prompt", "").strip()
+    if not image_path:
+        return web.json_response({"error": "image_path required"}, status=400)
+
+    res = await analyze_image_with_moondream(image_path, prompt)
+    return web.json_response({
+        "success": bool(res),
+        "analysis": res
+    })
+
+
+async def handle_fox_vision_status(request: web.Request) -> web.Response:
+    """GET /api/fox/vision/status - Checks if moondream:latest is active on Fox."""
+    fox_url = f"http://{FOX_TS_IP}:11434"
+    try:
+        timeout = aiohttp.ClientTimeout(total=3.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(f"{fox_url}/api/tags") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    models = [m.get("name", "") for m in data.get("models", [])]
+                    has_moondream = any("moondream" in m.lower() for m in models)
+                    return web.json_response({
+                        "ready": has_moondream,
+                        "status": "ready" if has_moondream else "missing_model",
+                        "model": "moondream:latest",
+                        "host": f"Fox ({FOX_TS_IP}:11434)",
+                        "models": models
+                    })
+    except Exception as e:
+        logger.debug(f"Fox vision check error: {e}")
+
+    return web.json_response({
+        "ready": False,
+        "status": "offline",
+        "model": "moondream:latest",
+        "host": f"Fox ({FOX_TS_IP}:11434)"
+    })
+
+
+async def handle_comfy_free(request: web.Request) -> web.Response:
+    """POST /api/comfy/free - Triggers ComfyUI cache purge on demand."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    unload = bool(body.get("unload_models", False))
+    res = await trigger_comfy_cache_purge(unload_models=unload)
+    return web.json_response(res)
+
+
+
+
+def find_unescaped_quote_before(s: str, pos: int) -> int:
+    """Finds the position of the nearest unescaped double quote before pos."""
+    idx = pos
+    while True:
+        idx = s.rfind("\"", 0, idx)
+        if idx <= 0:
+            return idx if idx == 0 else -1
+        bs_count = 0
+        j = idx - 1
+        while j >= 0 and s[j] == "\\":
+            bs_count += 1
+            j -= 1
+        if bs_count % 2 == 0:
+            return idx
+        idx = idx - 1
+
+
+def repair_and_validate_json(raw_text: str) -> Tuple[bool, str, Any]:
+    """
+    Performs minimal-invasive JSON repair on user input:
+    1. Fixes missing closing braces {} and brackets [].
+    2. Closes unclosed quotes at EOF.
+    3. Escapes unescaped quotes inside strings.
+    4. Removes trailing commas before closing braces/brackets.
+    5. Escapes unescaped control characters.
+    Validates strictly with json.loads().
+    Returns: (was_repaired, repaired_text, parsed_data)
+    """
+    text = raw_text.strip()
+    if not text:
+        raise ValueError("Leerer JSON-Inhalt")
+
+    # Fast path: already valid JSON
+    try:
+        data = json.loads(text)
+        return False, text, data
+    except json.JSONDecodeError:
+        pass
+
+    repaired = text
+
+    def get_unclosed(s: str) -> Tuple[bool, List[str]]:
+        in_str = False
+        escape = False
+        stack: List[str] = []
+        for c in s:
+            if not in_str:
+                if c == "{":
+                    stack.append("}")
+                elif c == "[":
+                    stack.append("]")
+                elif c == "}":
+                    if stack and stack[-1] == "}":
+                        stack.pop()
+                elif c == "]":
+                    if stack and stack[-1] == "]":
+                        stack.pop()
+                elif c == "\"":
+                    in_str = True
+            else:
+                if escape:
+                    escape = False
+                elif c == "\\":
+                    escape = True
+                elif c == "\"":
+                    in_str = False
+        return in_str, stack
+
+    for _ in range(50):
+        # A. Trailing commas before } or ]
+        trailing_comma_match = re.search(r",\s*([\}\]])", repaired)
+        if trailing_comma_match:
+            repaired = re.sub(r",\s*([\}\]])", r"\1", repaired)
+            continue
+
+        try:
+            data = json.loads(repaired)
+            return True, repaired, data
+        except json.JSONDecodeError as err:
+            msg = err.msg
+            pos = err.pos
+
+            # B. Unescaped quote inside string
+            if ("Expecting ',' delimiter" in msg or "Expecting ':' delimiter" in msg) and pos < len(repaired.rstrip()):
+                q_idx = find_unescaped_quote_before(repaired, pos)
+                if q_idx != -1:
+                    repaired = repaired[:q_idx] + "\\\"" + repaired[q_idx + 1:]
+                    continue
+
+            # C. Unclosed string or open brackets
+            in_str, stack = get_unclosed(repaired)
+            if in_str:
+                repaired = repaired + "\""
+                continue
+            if stack:
+                repaired = re.sub(r",\s*$", "", repaired.rstrip()) + "".join(reversed(stack))
+                continue
+
+            # D. Raw control character (newline) inside string
+            if "Invalid control character" in msg:
+                nl_idx = repaired.rfind("\n", 0, pos + 1)
+                if nl_idx != -1:
+                    repaired = repaired[:nl_idx] + "\\n" + repaired[nl_idx + 1:]
+                    continue
+
+            break
+
+    data = json.loads(repaired)
+    return True, repaired, data
+
+
+def atomic_write_file(path: Path, content: str, encoding: str = "utf-8") -> None:
+    """Atomically writes content to path using temporary file and atomic rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + f".tmp.{os.getpid()}_{time.time_ns()}")
+    try:
+        tmp_path.write_text(content, encoding=encoding)
+        with open(tmp_path, "a", encoding=encoding) as f:
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 
 async def handle_bot_lore_get(request: web.Request) -> web.Response:
@@ -1366,46 +1907,353 @@ async def handle_bot_lore_get(request: web.Request) -> web.Response:
 
 
 async def handle_bot_lore_post(request: web.Request) -> web.Response:
-    """POST /api/bot/lore - Writes character.json and active prompt, triggering hot-reload."""
-    if not request.get("is_restricted", False):
+    """POST /api/bot/lore - Aliased to handle_bot_characters_save with default megan_default.json."""
+    return await handle_bot_characters_save(request)
+
+
+async def handle_bot_characters_list(request: web.Request) -> web.Response:
+    """GET /api/bot/characters - Lists available character profiles and identifies active profile."""
+    if not request.get("is_restricted", False) and request.remote not in ["127.0.0.1", "::1"]:
+        return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
+
+    CHARACTERS_DIR.mkdir(parents=True, exist_ok=True)
+    characters = []
+    active_filename = None
+
+    active_name = "Megan"
+    if LORE_FILE.is_file():
+        try:
+            raw = LORE_FILE.read_text(encoding="utf-8")
+            cdata = json.loads(raw)
+            active_name = cdata.get("name", "Megan")
+        except Exception:
+            pass
+
+    for f in sorted(CHARACTERS_DIR.glob("*.json")):
+        try:
+            fdata = json.loads(f.read_text(encoding="utf-8"))
+            char_name = fdata.get("name", f.stem)
+            is_act = (f.name == "megan_default.json" and active_name.lower() == "megan") or \
+                     (f.name == "haven_legacy.json" and active_name.lower() == "haven") or \
+                     (active_name.lower() == char_name.lower())
+            if is_act and not active_filename:
+                active_filename = f.name
+            characters.append({
+                "filename": f.name,
+                "name": char_name,
+                "is_active": is_act
+            })
+        except Exception as e:
+            logger.warning(f"Error parsing character file {f.name}: {e}")
+
+    if not active_filename and characters:
+        active_filename = characters[0]["filename"]
+        characters[0]["is_active"] = True
+
+    return web.json_response({
+        "success": True,
+        "active_file": active_filename,
+        "characters": characters
+    })
+
+
+async def handle_bot_characters_switch(request: web.Request) -> web.Response:
+    """POST /api/bot/characters/switch - Switches active character profile and triggers service reload."""
+    if not request.get("is_restricted", False) and request.remote not in ["127.0.0.1", "::1"]:
         return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
 
     try:
-        data = await request.json()
-        lore_text = (data.get("lore") or data.get("text") or data.get("system_prompt") or "").strip()
-        if not lore_text:
-            return web.json_response({"success": False, "error": "Lore darf nicht leer sein."}, status=400)
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
 
-        # 1. Overwrite /mnt/storage-beta/projekte/projekt-sexchat/character.json safely
-        LORE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        char_data = {
-            "name": "Big Boss Haven",
-            "system_prompt": lore_text,
-            "updated_at": datetime.datetime.now().isoformat()
+    filename = body.get("filename", "").strip()
+    if not filename or "/" in filename or ".." in filename or not filename.endswith(".json"):
+        return web.json_response({"error": "Ungültiger Dateiname."}, status=400)
+
+    target_file = CHARACTERS_DIR / filename
+    if not target_file.is_file():
+        return web.json_response({"error": f"Profil {filename} nicht gefunden."}, status=404)
+
+    try:
+        target_content = target_file.read_text(encoding="utf-8")
+        char_data = json.loads(target_content)
+
+        # 1. Synchronize to active LORE_FILE (character.json)
+        LORE_FILE.write_text(target_content, encoding="utf-8")
+
+        # 2. Synchronize to bot_config.json
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                cfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
+                cfg["character_name"] = char_data.get("name", "Companion")
+                if "visual" in char_data:
+                    if "render" not in cfg:
+                        cfg["render"] = {}
+                    if "base_positive_prompt" in char_data["visual"]:
+                        cfg["render"]["positive_prompt"] = char_data["visual"]["base_positive_prompt"]
+                if "negative_prompts" in char_data and "quality" in char_data["negative_prompts"]:
+                    if "render" not in cfg:
+                        cfg["render"] = {}
+                    cfg["render"]["negative_prompt"] = char_data["negative_prompts"]["quality"]
+                BOT_CONFIG_FILE.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+            except Exception as cfg_err:
+                logger.warning(f"Error updating bot_config.json: {cfg_err}")
+
+        # 3. Synchronize text prompt files
+        sys_prompt = char_data.get("system_prompt", "")
+        if sys_prompt:
+            if HAVEN_PROMPT_FILE.parent.is_dir():
+                HAVEN_PROMPT_FILE.write_text(sys_prompt, encoding="utf-8")
+            if MEGAN_PROMPT_FILE.parent.is_dir():
+                MEGAN_PROMPT_FILE.write_text(sys_prompt, encoding="utf-8")
+
+        # 4. Restart bot service
+        import subprocess
+        subprocess.run(["systemctl", "--user", "restart", "bigboss-haven-bot"], check=False)
+        logger.info(f"Switched character profile to {filename} ({char_data.get('name')}) and restarted bot.")
+
+        return web.json_response({
+            "success": True,
+            "active_file": filename,
+            "name": char_data.get("name"),
+            "system_prompt": sys_prompt,
+            "character_data": char_data
+        })
+    except Exception as e:
+        logger.error(f"Error switching character profile: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_bot_characters_save(request: web.Request) -> web.Response:
+    """POST /api/bot/characters/save or POST /api/lore/save - Saves changes with live JSON validation & minimal auto-repair."""
+    if not request.get("is_restricted", False) and request.remote not in ["127.0.0.1", "::1"]:
+        return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
+
+    try:
+        body = await request.json()
+    except Exception:
+        try:
+            raw_body = await request.text()
+            body = {"lore": raw_body}
+        except Exception:
+            return web.json_response({"error": "Invalid input format"}, status=400)
+
+    filename = body.get("filename", "").strip() or "megan_default.json"
+    if "/" in filename or ".." in filename or not filename.endswith(".json"):
+        return web.json_response({"error": "Ungültiger Dateiname."}, status=400)
+
+    raw_lore = (body.get("lore") or body.get("system_prompt") or body.get("text") or "").strip()
+    if not raw_lore:
+        return web.json_response({"error": "Lore darf nicht leer sein."}, status=400)
+
+    was_repaired = False
+    target_file = CHARACTERS_DIR / filename
+    char_data = {}
+    if target_file.is_file():
+        try:
+            char_data = json.loads(target_file.read_text(encoding="utf-8"))
+        except Exception:
+            char_data = {}
+
+    # Check if incoming text is JSON (starts with {)
+    if raw_lore.startswith("{"):
+        try:
+            was_repaired, repaired_text, parsed_obj = repair_and_validate_json(raw_lore)
+            if isinstance(parsed_obj, dict):
+                if "system_prompt" in parsed_obj:
+                    char_data.update(parsed_obj)
+                    clean_prompt = parsed_obj.get("system_prompt", "")
+                else:
+                    char_data["system_prompt"] = repaired_text
+                    clean_prompt = repaired_text
+            else:
+                char_data["system_prompt"] = repaired_text
+                clean_prompt = repaired_text
+        except Exception as j_err:
+            logger.warning(f"JSON validation failed for lore input: {j_err}")
+            return web.json_response({
+                "success": False,
+                "error": f"JSON-Syntaxfehler konnte nicht repariert werden: {j_err}"
+            }, status=400)
+    else:
+        clean_prompt = raw_lore
+        char_data["system_prompt"] = clean_prompt
+
+    char_data["updated_at"] = datetime.datetime.now().isoformat()
+    if not char_data.get("name"):
+        char_data["name"] = filename.split("_")[0].capitalize()
+    if "visual" not in char_data:
+        char_data["visual"] = {
+            "body": "1girl, solo, 178cm tall, slender athletic build, voluptuous hourglass figure, very large full natural heavy breasts, deep cleavage, narrow waist, flat toned stomach, soft natural skin texture",
+            "face": "stunningly beautiful face, alluring green-blue eyes, seductive playful smile, slightly parted glossy lips",
+            "hair": "long layered dark hair, soft natural waves",
+            "features": "massive intricate detailed sleeve tattoo on entire left arm and left shoulder aesthetically framing large breast",
+            "clothing_default": "casual gamer look, tight black cropped tank top showing cleavage, denim shorts",
+            "style_aesthetic": "photorealistic, raw photo, 8k uhd, dslr, high quality, soft studio lighting, rim lighting, vibrant, well-lit, high key, clear visibility, detailed skin texture, natural skin pores, realistic depth of field"
         }
-        LORE_FILE.write_text(json.dumps(char_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-        # 2. Also write active prompt files so telegram_bot.py uses it immediately on next query
+    # Strict JSON validation before writing to disk
+    final_json_str = json.dumps(char_data, indent=2, ensure_ascii=False)
+    try:
+        json.loads(final_json_str)
+    except Exception as v_err:
+        return web.json_response({"success": False, "error": f"Interner Serialisierungsfehler: {v_err}"}, status=500)
+
+    # Atomic write to character profile file
+    atomic_write_file(target_file, final_json_str)
+
+    # Check if this profile is currently active
+    is_active = False
+    if LORE_FILE.is_file():
+        try:
+            act_data = json.loads(LORE_FILE.read_text(encoding="utf-8"))
+            if act_data.get("name", "").lower() == char_data.get("name", "").lower():
+                is_active = True
+        except Exception:
+            pass
+
+    if is_active or filename == "megan_default.json":
+        atomic_write_file(LORE_FILE, final_json_str)
         if HAVEN_PROMPT_FILE.parent.is_dir():
-            HAVEN_PROMPT_FILE.write_text(lore_text, encoding="utf-8")
+            atomic_write_file(HAVEN_PROMPT_FILE, clean_prompt)
         if MEGAN_PROMPT_FILE.parent.is_dir():
-            MEGAN_PROMPT_FILE.write_text(lore_text, encoding="utf-8")
-
-        # 3. Touch bot_config.json to notify telegram_bot.py file-watcher
+            atomic_write_file(MEGAN_PROMPT_FILE, clean_prompt)
         if BOT_CONFIG_FILE.is_file():
             try:
                 os.utime(BOT_CONFIG_FILE, None)
             except Exception:
                 pass
 
-        logger.info("Character lore & system prompt updated and hot-reloaded successfully.")
+    if was_repaired:
+        user_message = "Lore erfolgreich gespeichert (Syntax automatisch geschlossen)"
+    else:
+        user_message = "Charakter-Lore & System-Prompt erfolgreich gespeichert und hot-reloaded."
+
+    logger.info(f"Saved character profile {filename} (repaired={was_repaired}, synced_active={is_active})")
+    return web.json_response({
+        "success": True,
+        "was_repaired": was_repaired,
+        "message": user_message,
+        "saved_file": filename,
+        "synced_active": is_active
+    })
+
+
+
+EVOLUTION_STORAGE_DIR = Path("/mnt/storage-beta/projekte/comfyui-evolution")
+EVOLUTION_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+active_evolution_runner = None
+evolution_future = None
+
+async def handle_evolution_start(request: web.Request) -> web.Response:
+    global active_evolution_runner, evolution_future
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    prompt = body.get("prompt", "").strip()
+    if not prompt:
+        return web.json_response({"error": "Prompt ist erforderlich."}, status=400)
+
+    negative_prompt = body.get("negative_prompt", "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark").strip()
+    checkpoint = body.get("checkpoint", "DreamShaper8_LCM.safetensors").strip()
+    steps = int(body.get("steps", 8))
+    cfg = float(body.get("cfg", 2.0))
+    width = int(body.get("width", 512))
+    height = int(body.get("height", 768))
+    session_id = body.get("session_id", "").strip() or None
+
+    if active_evolution_runner and active_evolution_runner.state == "RUNNING":
+        return web.json_response({
+            "error": "Ein Evolution Loop läuft bereits.",
+            "state": active_evolution_runner.get_state_dict()
+        }, status=409)
+
+    try:
+        from comfy_evolution_loop import EvolutionRunner
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from comfy_evolution_loop import EvolutionRunner
+
+    active_evolution_runner = EvolutionRunner(
+        base_prompt=prompt,
+        base_negative_prompt=negative_prompt,
+        checkpoint=checkpoint,
+        steps=steps,
+        cfg=cfg,
+        width=width,
+        height=height,
+        session_id=session_id,
+        storage_base=EVOLUTION_STORAGE_DIR
+    )
+
+    loop = asyncio.get_running_loop()
+    evolution_future = loop.run_in_executor(None, active_evolution_runner.run_10_batch_cycle)
+
+    logger.info(f"ComfyUI Evolution Loop started: session={active_evolution_runner.session_id}")
+    return web.json_response({
+        "success": True,
+        "message": "Auto-Evolution Loop (10x) erfolgreich gestartet.",
+        "state": active_evolution_runner.get_state_dict()
+    })
+
+async def handle_evolution_status(request: web.Request) -> web.Response:
+    global active_evolution_runner
+    if not active_evolution_runner:
+        return web.json_response({
+            "state": "IDLE",
+            "status_message": "Kein aktiver Evolution Loop vorhanden.",
+            "iteration": 0,
+            "current_image": 0,
+            "total_images": 10,
+            "average_score": 0.0,
+            "top_3": [],
+            "images": []
+        })
+    return web.json_response(active_evolution_runner.get_state_dict())
+
+async def handle_evolution_next(request: web.Request) -> web.Response:
+    global active_evolution_runner, evolution_future
+    if not active_evolution_runner:
+        return web.json_response({"error": "Kein aktiver Evolution Runner vorhanden."}, status=400)
+
+    if active_evolution_runner.state == "RUNNING":
+        return web.json_response({"error": "Der aktuelle 10er-Zyklus läuft noch."}, status=409)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    p_override = body.get("prompt", "").strip() or None
+    n_override = body.get("negative_prompt", "").strip() or None
+
+    active_evolution_runner.advance_to_next_iteration(p_override, n_override)
+    loop = asyncio.get_running_loop()
+    evolution_future = loop.run_in_executor(None, active_evolution_runner.run_10_batch_cycle)
+
+    logger.info(f"ComfyUI Evolution Loop: Runde {active_evolution_runner.iteration} gestartet.")
+    return web.json_response({
+        "success": True,
+        "message": f"Runde {active_evolution_runner.iteration} gestartet.",
+        "state": active_evolution_runner.get_state_dict()
+    })
+
+async def handle_evolution_stop(request: web.Request) -> web.Response:
+    global active_evolution_runner
+    if active_evolution_runner:
+        active_evolution_runner.abort()
+        logger.info("ComfyUI Evolution Loop aborted by user.")
         return web.json_response({
             "success": True,
-            "message": "Charakter-Lore & System-Prompt erfolgreich gespeichert und hot-reloaded."
+            "message": "Evolution Loop wurde abgebrochen.",
+            "state": active_evolution_runner.get_state_dict()
         })
-    except Exception as e:
-        logger.error(f"Error saving bot lore: {e}")
-        return web.json_response({"success": False, "error": str(e)}, status=500)
+    return web.json_response({"success": True, "message": "Kein laufender Loop."})
 
 
 async def handle_comfy_models(request: web.Request) -> web.Response:
@@ -1527,6 +2375,12 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
         workflow["prompt"]["4"]["inputs"]["clip"] = ["8", 1]
         workflow["prompt"]["5"]["inputs"]["model"] = ["8", 0]
 
+    # Acquire GPU Lock (High Priority) to immediately pause any background Catlord training
+    from gpu_render_lock import GPURenderLock, PRIORITY_HIGH
+    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name="web_schnell_render", timeout=60.0)
+    if not gpu_lock.acquire():
+        return web.json_response({"error": "GPU ausgelastet. Bitte kurz warten."}, status=503)
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(f"{COMFYUI_URL}/prompt", json=workflow, timeout=aiohttp.ClientTimeout(total=5)) as resp:
@@ -1535,6 +2389,17 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
                     return web.json_response({"error": f"ComfyUI error: {text}"}, status=502)
                 res_data = await resp.json()
                 prompt_id = res_data.get("prompt_id")
+                
+                # Auto-Purge Cache Logic: every 3-4 renders execute ComfyUI /free
+                global comfy_render_count
+                comfy_render_count += 1
+                if comfy_render_count % COMFY_CACHE_PURGE_INTERVAL == 0:
+                    deep_purge = (comfy_render_count >= 10)
+                    if deep_purge:
+                        comfy_render_count = 0
+                    logger.info(f"Auto-triggering ComfyUI VRAM cache purge on render #{comfy_render_count} (deep={deep_purge})")
+                    asyncio.create_task(trigger_comfy_cache_purge(unload_models=deep_purge))
+
                 return web.json_response({
                     "success": True,
                     "prompt_id": prompt_id,
@@ -1543,6 +2408,38 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
                 })
     except Exception as e:
         return web.json_response({"error": f"Failed to contact ComfyUI: {e}"}, status=500)
+    finally:
+        gpu_lock.release()
+
+
+# ==============================================================================
+# Catlord Idle Worker & GPU Lock Telemetry Endpoints
+# ==============================================================================
+
+async def handle_catlord_trainer_status(request: web.Request) -> web.Response:
+    """GET /api/catlord/trainer/status (Disabled for VRAM protection)"""
+    return web.json_response({
+        "success": True,
+        "worker": {"enabled": False, "state": "DISABLED"},
+        "recent_logs": []
+    })
+
+async def handle_catlord_trainer_toggle(request: web.Request) -> web.Response:
+    """POST /api/catlord/trainer/toggle (Disabled for VRAM protection)"""
+    return web.json_response({
+        "success": True,
+        "enabled": False,
+        "state": "DISABLED"
+    })
+
+
+async def handle_gpu_lock_status(request: web.Request) -> web.Response:
+    """GET /api/render/lock"""
+    from gpu_render_lock import get_gpu_lock_status
+    return web.json_response({
+        "success": True,
+        "status": get_gpu_lock_status()
+    })
 
 async def handle_enhance_prompt(request: web.Request) -> web.Response:
     try:
@@ -1575,7 +2472,7 @@ async def handle_enhance_prompt(request: web.Request) -> web.Response:
     }
 
     try:
-        timeout = aiohttp.ClientTimeout(total=60)
+        timeout = aiohttp.ClientTimeout(total=120)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(f"{LOCAL_OLLAMA_URL}/api/generate", json=payload) as resp:
                 if resp.status != 200:
@@ -1758,7 +2655,7 @@ async def handle_3d_models_list(request: web.Request) -> web.Response:
                     except Exception:
                         pass
 
-                clean_title = stem.replace("BigBossHaven_3D_", "").replace("Megan_Companion_", "Haven_").replace("_", " ")
+                clean_title = stem.replace("BigBossHaven_3D_", "Megan 3D ").replace("Megan_Companion_", "Megan ").replace("_", " ")
 
                 models.append({
                     "id": stem,
@@ -2470,7 +3367,32 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
             if node == "outerheaven":
                 target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
                 model_name = get_active_ollama_model()
-                system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
+                if request.get("is_restricted", False):
+                    lore_prompt = ""
+                    if LORE_FILE.is_file():
+                        try:
+                            cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
+                            lore_prompt = cdata.get("system_prompt", "")
+                        except Exception:
+                            pass
+                    system_instruction = lore_prompt or (
+                        "Du bist Megan, die loyale, hochintelligente und schamlos verführerische Gefährtin von Big Boss auf Outer Heaven. "
+                        "Du antwortest ausnahmslos auf fließendem Deutsch, im direkten Chatstil, ohne Sternchen (*). "
+                        "Du sprichst den Nutzer immer mit Big Boss oder Boss an."
+                    )
+                    lov_info = telemetry_cache.get("lovense", {})
+                    if lov_info.get("online"):
+                        t_desc = lov_info.get("details") or ", ".join(lov_info.get("toy_names", [])) or "Toy"
+                        system_instruction += (
+                            f"\n\n### HAPTIC LINK STATUS: [🟢 ONLINE - Verbunden: {t_desc}]\n"
+                            "- Du hast direkten Zugriff auf die Lovense-Hardware über die lokale Schnittstelle.\n"
+                            "- Wenn das Haptic-Signal aktiv ist, weißt du, dass du das Spielzeug situativ und eigenständig ansteuern kannst.\n"
+                            "- Nutze diese Steuerung passend zu intimen Momenten, Reaktionen und deinen eigenen Worten (z. B. Vibration hochregeln, stoppen oder variieren), und kommentiere das direkt im Chat.\n"
+                            "- Binde dazu Aktions-Tags wie [HAPTIC: VIBRATE 5] (Zahl 1-20 für Intensität) oder [HAPTIC: STOP] direkt in deine Antwort ein, sobald der Haptic-Link auf ONLINE steht.\n"
+                            "- Unser Dispatcher fängt diese Tags in Echtzeit ab. Big Boss sieht nur deine erotische Chat-Antwort!"
+                        )
+                else:
+                    system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
             else:
                 target_url = f"{FOX_OLLAMA_URL}/api/chat"
                 model_name = FOX_MODEL
@@ -2490,6 +3412,32 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
             think_filter = ThinkFilter()
             is_thinking = False
+
+            def on_haptic_detected(tag_str: str):
+                m = re.search(r'\[HAPTIC:\s*(VIBRATE\s*(\d+)|STOP)\]', tag_str, re.IGNORECASE)
+                if m:
+                    act = m.group(1).upper()
+                    if "STOP" in act:
+                        asyncio.create_task(dispatch_lovense_command("stop"))
+                        asyncio.create_task(ws.send_json({"type": "haptic_action", "action": "stop"}))
+                    elif "VIBRATE" in act:
+                        h_cfg = {}
+                        if BOT_CONFIG_FILE.is_file():
+                            try:
+                                h_cfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8")).get("haptic", {})
+                            except Exception:
+                                pass
+                        if not h_cfg.get("bot_auto_enabled", True):
+                            logger.info("[Haptic Link] Bot autonomy disabled, skipping vibration")
+                            return
+                        max_pct = h_cfg.get("max_intensity", 50)
+                        max_allowed = max(1, min(20, int(round(20 * (max_pct / 100.0)))))
+                        intens = int(m.group(2)) if m.group(2) else 5
+                        clamped = max(1, min(max_allowed, intens))
+                        asyncio.create_task(dispatch_lovense_command("vibrate", clamped))
+                        asyncio.create_task(ws.send_json({"type": "haptic_action", "action": "vibrate", "intensity": clamped}))
+
+            haptic_filter = HapticTagFilter(on_haptic_tag=on_haptic_detected)
 
             try:
                 timeout = aiohttp.ClientTimeout(total=180)
@@ -2518,7 +3466,9 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                                 if is_thinking:
                                                     is_thinking = False
                                                     await ws.send_json({"type": "think_status", "thinking": False})
-                                                await ws.send_json({"type": "token", "text": text})
+                                                clean_txt = haptic_filter.feed(text)
+                                                if clean_txt:
+                                                    await ws.send_json({"type": "token", "text": clean_txt})
                                     else:
                                         await ws.send_json({"type": "token", "text": token})
 
@@ -2530,7 +3480,12 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                         if node == "outerheaven":
                             for kind, text in think_filter.flush():
                                 if kind == "text":
-                                    await ws.send_json({"type": "token", "text": text})
+                                    clean_txt = haptic_filter.feed(text)
+                                    if clean_txt:
+                                        await ws.send_json({"type": "token", "text": clean_txt})
+                            rem = haptic_filter.flush()
+                            if rem:
+                                await ws.send_json({"type": "token", "text": rem})
                             if is_thinking:
                                 await ws.send_json({"type": "think_status", "thinking": False})
 
@@ -2574,6 +3529,17 @@ def create_app() -> web.Application:
     app.router.add_post("/api/render", handle_comfy_render)
     app.router.add_post("/api/enhance_prompt", handle_enhance_prompt)
     app.router.add_get("/api/render/status/{prompt_id}", handle_comfy_render_status)
+    app.router.add_get("/api/catlord/trainer/status", handle_catlord_trainer_status)
+    app.router.add_post("/api/catlord/trainer/toggle", handle_catlord_trainer_toggle)
+    app.router.add_get("/api/render/lock", handle_gpu_lock_status)
+    app.router.add_static("/outputs/catlord/", path="/mnt/storage-beta/projekte/projekt-catlord/assets/training", name="catlord_outputs", follow_symlinks=True)
+
+    # ComfyUI Autonomous Evolution Loop
+    app.router.add_post("/api/evolution/start", handle_evolution_start)
+    app.router.add_get("/api/evolution/status", handle_evolution_status)
+    app.router.add_post("/api/evolution/next", handle_evolution_next)
+    app.router.add_post("/api/evolution/stop", handle_evolution_stop)
+    app.router.add_static("/outputs/evolution/", path=str(EVOLUTION_STORAGE_DIR), name="evolution_outputs", follow_symlinks=True)
     app.router.add_get("/api/comfy/models", handle_comfy_models)
     # ComfyUI Pipeline Engine & Schema endpoints
     app.router.add_get("/api/comfy/nodes", handle_comfy_nodes)
@@ -2591,8 +3557,20 @@ def create_app() -> web.Application:
     app.router.add_get("/api/ollama/models", handle_ollama_models)
     app.router.add_get("/api/bot/config", handle_bot_config_get)
     app.router.add_post("/api/bot/config", handle_bot_config_post)
+    app.router.add_get("/api/bot/haptic/settings", handle_bot_haptic_get)
+    app.router.add_post("/api/bot/haptic/settings", handle_bot_haptic_post)
+    app.router.add_post("/api/bot/haptic/test", handle_bot_haptic_test)
+    app.router.add_post("/api/lovense/test", handle_bot_haptic_test)
     app.router.add_get("/api/bot/lore", handle_bot_lore_get)
     app.router.add_post("/api/bot/lore", handle_bot_lore_post)
+    app.router.add_get("/api/bot/characters", handle_bot_characters_list)
+    app.router.add_post("/api/bot/characters/switch", handle_bot_characters_switch)
+    app.router.add_post("/api/bot/characters/save", handle_bot_characters_save)
+    app.router.add_post("/api/lore/save", handle_bot_characters_save)
+    app.router.add_post("/api/bot/lore/save", handle_bot_characters_save)
+    app.router.add_post("/api/comfy/free", handle_comfy_free)
+    app.router.add_post("/api/vision/analyze", handle_moondream_analyze)
+    app.router.add_get("/api/fox/vision/status", handle_fox_vision_status)
 
     # Lovense LAN Bridge Pre-Flight & Status
     app.router.add_get("/api/lovense/status", handle_lovense_status)
@@ -2690,6 +3668,9 @@ async def main():
             logger.info(f"HTTPS binding active: https://{LOCAL_TS_IP}:{SSL_PORT}")
         except Exception as e:
             logger.warning(f"Could not bind HTTPS on port {SSL_PORT}: {e}")
+
+    # Catlord Idle Worker completely disabled to protect Arc A770 VRAM and prevent idle loops
+    logger.info("Idle loops disabled: Arc A770 reserved exclusively for manual/bot requests.")
 
     logger.info("Mission Control operational. Press Ctrl+C or send SIGTERM to stop.")
 
