@@ -124,6 +124,7 @@ FOX_OLLAMA_URL = f"http://{FOX_TS_IP}:11434"
 
 LOCAL_MODEL = "deepseek-r1:14b"
 FOX_MODEL = "hermes-3-3b-q4:latest"
+FOX_CONFIG_FILE = BASE_DIR / "data" / "fox_config.json"
 
 def get_active_ollama_model() -> str:
     """
@@ -134,12 +135,30 @@ def get_active_ollama_model() -> str:
         try:
             with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                m = data.get("llm", {}).get("model")
+                m = data.get("llm", {}).get("model") or data.get("active_model")
                 if m and isinstance(m, str) and m.strip():
                     return m.strip()
         except Exception as e:
             logger.debug(f"Could not read model from bot_config: {e}")
     return LOCAL_MODEL
+
+def get_active_fox_model() -> str:
+    """
+    Returns the configured active Ollama model for Fox from fox_config.json,
+    falling back to FOX_MODEL.
+    """
+    global FOX_MODEL
+    if FOX_CONFIG_FILE.is_file():
+        try:
+            with open(FOX_CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                m = data.get("active_model") or data.get("model")
+                if m and isinstance(m, str) and m.strip():
+                    FOX_MODEL = m.strip()
+                    return FOX_MODEL
+        except Exception as e:
+            logger.debug(f"Could not read model from fox_config: {e}")
+    return FOX_MODEL
 
 # Logging setup
 logging.basicConfig(
@@ -561,7 +580,8 @@ async def get_fox_telemetry(session: aiohttp.ClientSession) -> Dict[str, Any]:
         "load": load,
         "ram": ram,
         "services": services,
-        "models": models
+        "models": models,
+        "active_model": get_active_fox_model()
     }
 
 async def check_lovense_health(session: aiohttp.ClientSession) -> dict:
@@ -914,12 +934,13 @@ async def handle_logout(request: web.Request) -> web.Response:
 async def handle_index(request: web.Request) -> web.Response:
     template = jinja_env.get_template("index.html")
     active_oh_model = get_active_ollama_model()
+    active_fox_model = get_active_fox_model()
     is_restricted = bool(request.get("is_restricted", False))
     return web.Response(text=template.render(
         outerheaven_ip=LOCAL_TS_IP,
         fox_ip=FOX_TS_IP,
         local_model=active_oh_model,
-        fox_model=FOX_MODEL,
+        fox_model=active_fox_model,
         is_restricted=is_restricted
     ), content_type="text/html")
 
@@ -1475,10 +1496,9 @@ async def handle_bot_config_get(request: web.Request) -> web.Response:
             "detail_depth_text": "",
             "language": "de"
         },
-        "vision": {
+        "cluster_offload": {
             "enabled": True,
-            "target": "fox",
-            "model": "moondream:latest"
+            "target": "fox"
         },
         "haptic": {
             "bot_auto_enabled": True,
@@ -1544,20 +1564,48 @@ async def handle_bot_config_post(request: web.Request) -> web.Response:
 
 
 async def handle_models_list(request: web.Request) -> web.Response:
-    """GET /api/models - Returns list of all installed Ollama models with active model info."""
+    """GET /api/models?node=outerheaven|fox - Returns list of all installed Ollama models with active model info."""
+    node = (request.query.get("node") or "outerheaven").strip().lower()
     models = []
-    active_model = "darkidol-8b:latest"
 
-    # 1. Read current active model from bot_config.json
-    if BOT_CONFIG_FILE.is_file():
+    if node == "fox":
+        active_model = get_active_fox_model()
         try:
-            with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-                active_model = cfg.get("active_model") or cfg.get("llm", {}).get("model") or active_model
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{FOX_OLLAMA_URL}/api/tags", timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for m in data.get("models", []):
+                            m_name = m.get("name")
+                            if not m_name or "moondream" in m_name.lower():
+                                continue
+                            models.append({
+                                "name": m_name,
+                                "size": m.get("size", 0),
+                                "modified_at": m.get("modified_at", ""),
+                                "is_active": (m_name == active_model)
+                            })
         except Exception as e:
-            logger.warning(f"Could not read active model from bot_config.json: {e}")
+            logger.warning(f"Could not query Fox Ollama /api/tags for /api/models: {e}")
 
-    # 2. Query local Ollama /api/tags
+        if not models:
+            models = [
+                {"name": "hermes-3-3b-q4:latest", "size": 2200000000, "is_active": (active_model == "hermes-3-3b-q4:latest")},
+                {"name": "hermes-3-3b-q6:latest", "size": 2600000000, "is_active": (active_model == "hermes-3-3b-q6:latest")},
+                {"name": "hermes-3-3b-q8:latest", "size": 3400000000, "is_active": (active_model == "hermes-3-3b-q8:latest")},
+                {"name": "darkidol-8b:latest", "size": 4900000000, "is_active": (active_model == "darkidol-8b:latest")}
+            ]
+
+        return web.json_response({
+            "node": "fox",
+            "models": models,
+            "active_model": active_model
+        })
+
+    # Default: Outer Heaven
+    active_model = get_active_ollama_model()
+
+    # Query local Ollama /api/tags
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{LOCAL_OLLAMA_URL}/api/tags", timeout=aiohttp.ClientTimeout(total=4)) as resp:
@@ -1565,6 +1613,8 @@ async def handle_models_list(request: web.Request) -> web.Response:
                     data = await resp.json()
                     for m in data.get("models", []):
                         m_name = m.get("name")
+                        if not m_name or "moondream" in m_name.lower():
+                            continue
                         models.append({
                             "name": m_name,
                             "size": m.get("size", 0),
@@ -1574,7 +1624,7 @@ async def handle_models_list(request: web.Request) -> web.Response:
     except Exception as e:
         logger.warning(f"Could not query Ollama /api/tags for /api/models: {e}")
 
-    # 3. Fallback to CLI `ollama list` if HTTP tags empty
+    # Fallback to CLI `ollama list` if HTTP tags empty
     if not models:
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -1589,6 +1639,8 @@ async def handle_models_list(request: web.Request) -> web.Response:
                     parts = line.split()
                     if parts:
                         name = parts[0]
+                        if "moondream" in name.lower():
+                            continue
                         models.append({
                             "name": name,
                             "size": 0,
@@ -1605,19 +1657,46 @@ async def handle_models_list(request: web.Request) -> web.Response:
         ]
 
     return web.json_response({
+        "node": "outerheaven",
         "models": models,
         "active_model": active_model
     })
 
 
 async def handle_models_select(request: web.Request) -> web.Response:
-    """POST /api/models/select - Atomically switches the active model in bot_config.json."""
+    """POST /api/models/select - Atomically switches the active model on outerheaven or fox."""
     try:
         data = await request.json()
         selected_model = (data.get("model") or data.get("active_model") or "").strip()
+        node = (data.get("node") or "outerheaven").strip().lower()
         if not selected_model:
             return web.json_response({"error": "Modellname ('model') fehlt."}, status=400)
 
+        if node == "fox":
+            global FOX_MODEL
+            FOX_MODEL = selected_model
+            try:
+                FOX_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+                tmp_fox = FOX_CONFIG_FILE.with_suffix(".tmp")
+                with open(tmp_fox, "w", encoding="utf-8") as f:
+                    json.dump({"active_model": selected_model, "model": selected_model}, f, indent=2)
+                tmp_fox.replace(FOX_CONFIG_FILE)
+            except Exception as fe:
+                logger.warning(f"Could not persist fox_config: {fe}")
+
+            if "fox" in telemetry_cache:
+                telemetry_cache["fox"]["model"] = selected_model
+                telemetry_cache["fox"]["active_model"] = selected_model
+
+            logger.info(f"Fox active model switched to '{selected_model}'")
+            return web.json_response({
+                "success": True,
+                "node": "fox",
+                "active_model": selected_model,
+                "message": f"Fox Modell erfolgreich umgeschaltet auf: {selected_model}"
+            })
+
+        # Default: Outer Heaven
         cfg = {}
         if BOT_CONFIG_FILE.is_file():
             try:
@@ -1626,7 +1705,6 @@ async def handle_models_select(request: web.Request) -> web.Response:
             except Exception as e:
                 logger.warning(f"Could not read bot_config.json: {e}")
 
-        # Update active_model at top level and inside llm
         cfg["active_model"] = selected_model
         if "llm" not in cfg:
             cfg["llm"] = {}
@@ -1639,9 +1717,15 @@ async def handle_models_select(request: web.Request) -> web.Response:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
         tmp_file.replace(BOT_CONFIG_FILE)
 
+        if "outerheaven" in telemetry_cache:
+            telemetry_cache["outerheaven"]["model"] = selected_model
+            telemetry_cache["outerheaven"]["active_model"] = selected_model
+        telemetry_cache["active_model"] = selected_model
+
         logger.info(f"Active model successfully switched to '{selected_model}' in {BOT_CONFIG_FILE}")
         return web.json_response({
             "success": True,
+            "node": "outerheaven",
             "active_model": selected_model,
             "message": f"Modell erfolgreich umgeschaltet auf: {selected_model}"
         })
@@ -1746,94 +1830,44 @@ async def trigger_comfy_cache_purge(unload_models: bool = False) -> dict:
         return {"success": False, "error": str(e)}
 
 async def analyze_image_with_moondream(image_path: str, prompt: str = "") -> str:
-    """
-    Analyzes an image using remote Ollama model moondream:latest on Fox.
-    Keeps Outer Heaven VRAM reserved solely for DarkIdol.
-    """
-    p = Path(image_path)
-    if not p.is_file():
-        logger.warning(f"Image not found for Moondream analysis: {image_path}")
-        return ""
-
-    if not prompt:
-        prompt = (
-            "Analyze this image: note any visible anatomical flaws on hands or face, "
-            "and check whether character features like arm tattoo and gamer aesthetic are visible."
-        )
-
-    try:
-        b64_img = base64.b64encode(p.read_bytes()).decode("utf-8")
-        payload = {
-            "model": "moondream:latest",
-            "prompt": prompt,
-            "images": [b64_img],
-            "stream": False,
-            "options": {
-                "temperature": 0.2,
-                "num_predict": 250
-            }
-        }
-        timeout = aiohttp.ClientTimeout(total=45)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(f"http://{FOX_TS_IP}:11434/api/generate", json=payload) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    res_text = data.get("response", "").strip()
-                    logger.info(f"Fox Moondream analysis successful ({len(res_text)} chars)")
-                    return res_text
-                else:
-                    err_txt = await resp.text()
-                    logger.warning(f"Fox Moondream error {resp.status}: {err_txt}")
-                    return ""
-    except Exception as e:
-        logger.error(f"Error in remote analyze_image_with_moondream on Fox: {e}")
-        return ""
+    """Legacy endpoint stub - moondream purged."""
+    return ""
 
 
 async def handle_moondream_analyze(request: web.Request) -> web.Response:
-    """POST /api/vision/analyze - Analyzes an image with moondream:latest."""
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
-
-    image_path = body.get("image_path", "").strip()
-    prompt = body.get("prompt", "").strip()
-    if not image_path:
-        return web.json_response({"error": "image_path required"}, status=400)
-
-    res = await analyze_image_with_moondream(image_path, prompt)
+    """POST /api/vision/analyze - Legacy endpoint stub."""
     return web.json_response({
-        "success": bool(res),
-        "analysis": res
+        "success": False,
+        "analysis": "",
+        "message": "Vision worker disabled"
     })
 
 
 async def handle_fox_vision_status(request: web.Request) -> web.Response:
-    """GET /api/fox/vision/status - Checks if moondream:latest is active on Fox."""
+    """GET /api/fox/vision/status - Returns Fox node cluster status."""
+    active_m = get_active_fox_model()
     fox_url = f"http://{FOX_TS_IP}:11434"
     try:
-        timeout = aiohttp.ClientTimeout(total=3.0)
+        timeout = aiohttp.ClientTimeout(total=2.5)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(f"{fox_url}/api/tags") as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    models = [m.get("name", "") for m in data.get("models", [])]
-                    has_moondream = any("moondream" in m.lower() for m in models)
+                    models = [m.get("name", "") for m in data.get("models", []) if "moondream" not in m.get("name", "").lower()]
                     return web.json_response({
-                        "ready": has_moondream,
-                        "status": "ready" if has_moondream else "missing_model",
-                        "model": "moondream:latest",
+                        "ready": True,
+                        "status": "ready",
+                        "model": active_m,
                         "host": f"Fox ({FOX_TS_IP}:11434)",
                         "models": models
                     })
     except Exception as e:
-        logger.debug(f"Fox vision check error: {e}")
+        logger.debug(f"Fox cluster status check error: {e}")
 
     return web.json_response({
         "ready": False,
         "status": "offline",
-        "model": "moondream:latest",
+        "model": active_m,
         "host": f"Fox ({FOX_TS_IP}:11434)"
     })
 

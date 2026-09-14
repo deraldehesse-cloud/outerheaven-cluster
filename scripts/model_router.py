@@ -38,20 +38,35 @@ FOX_WORKER_HOSTS = [
 ]
 
 ROUTING_TARGETS = [
-    {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "lexi-llama-3-8b-uncensored_q4_k_m:latest", "desc": "Outer Heaven Local - Lexi Llama 3 8B Uncensored"},
     {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "darkidol-8b:latest", "desc": "Outer Heaven Local - DarkIdol 8B Uncensored"},
+    {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "lexi-llama-3-8b-uncensored_q4_k_m:latest", "desc": "Outer Heaven Local - Lexi Llama 3 8B Uncensored"},
     {"hosts": FOX_WORKER_HOSTS, "model": "darkidol-8b:latest", "desc": "Fox Worker Fallback - DarkIdol 8B"},
     {"hosts": FOX_WORKER_HOSTS, "model": "hermes:latest", "desc": "Fox Worker Fallback - Hermes 3.6B"}
 ]
 
 DEFAULT_OPTIONS = {
-    "temperature": 0.95,
+    "temperature": 0.75,
     "top_p": 0.90,
     "top_k": 40,
-    "repeat_penalty": 1.25,
+    "repeat_penalty": 1.18,
     "num_predict": 350,
-    "num_ctx": 4096,
-    "stop": ["<|im_end|>", "<|endoftext|>", "User:", "Assistant:", "\nUser:", "\nAssistant:"]
+    "num_ctx": 8192,
+    "stop": [
+        "<|eot_id|>",
+        "<|end_of_text|>",
+        "<|start_header_id|>",
+        "<|end_header_id|>",
+        "<|im_end|>",
+        "<|im_start|>",
+        "Big Boss:",
+        "User:",
+        "Megan:",
+        "Assistant:",
+        "\nBig Boss:",
+        "\nUser:",
+        "\nMegan:",
+        "\nAssistant:"
+    ]
 }
 
 
@@ -106,7 +121,7 @@ def flush_model_slot(model_name: str, host_url: str = "http://127.0.0.1:11434") 
 def query_uncensored_persona(
     messages: List[Dict[str, str]],
     custom_options: Optional[Dict[str, Any]] = None,
-    timeout: float = 60.0,
+    timeout: float = 90.0,
     override_model: Optional[str] = None
 ) -> Dict[str, Any]:
     """

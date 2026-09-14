@@ -616,17 +616,23 @@ def send_telegram_reaction(chat_id: Union[int, str], message_id: int, emoji: str
 
 
 def append_to_long_term_memory(note: str):
-    """Appends feedback or reaction observations persistently to MEMORY.md."""
+    """Appends feedback or reaction observations persistently to MEMORY.md, keeping at most 5 items."""
     try:
         mem_path = PROJECT_ROOT / "MEMORY.md"
         if mem_path.is_file():
             content = mem_path.read_text(encoding="utf-8")
-            section_header = "## 💖 Feedback & Emoji-Reaktionen von Big Boss"
-            if section_header not in content:
-                content += f"\n\n---\n\n{section_header}\n"
+            section_header = "## 💖 Feedback & Letzte Reaktionen von Big Boss"
             timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-            entry_line = f"* [{timestamp_str}] {note}\n"
-            content += entry_line
+            new_entry = f"* [{timestamp_str}] {note}"
+            if section_header in content:
+                parts = content.split(section_header)
+                base_part = parts[0].strip()
+                existing_lines = [l.strip() for l in parts[1].strip().splitlines() if l.strip().startswith("*")]
+                existing_lines.append(new_entry)
+                trimmed_lines = existing_lines[-5:]
+                content = f"{base_part}\n\n---\n\n{section_header}\n" + "\n".join(trimmed_lines) + "\n"
+            else:
+                content = content.rstrip() + f"\n\n---\n\n{section_header}\n{new_entry}\n"
             mem_path.write_text(content, encoding="utf-8")
             print(f"[Memory] Feedback in MEMORY.md notiert: {note}")
     except Exception as e:
@@ -826,14 +832,14 @@ def get_available_vision_model() -> str:
         res = requests.get(f"{base_url}/api/tags", timeout=5)
         if res.status_code == 200:
             installed = [m.get("name", "") for m in res.json().get("models", [])]
-            for cand in ["moondream", "minicpm-v", "qwen2-vl", "llava", "llama3.2-vision", "bakllava"]:
+            for cand in ["llava", "minicpm-v", "qwen2-vl", "llama3.2-vision", "bakllava"]:
                 for m in installed:
                     if cand in m.lower():
                         return m
     except Exception as e:
         print(f"[Warnung] Fehler bei Vision-Modellsuche via /api/tags: {e}")
 
-    return "moondream:latest"
+    return "llava:latest"
 
 
 def extract_video_frame(video_path: Path, output_frame_path: Path) -> bool:
@@ -1017,85 +1023,13 @@ def sanitize_moondream_vision_response(raw_text: str) -> str:
 
 
 def analyze_inbound_photo_with_moondream(photo_path: Path) -> str:
-    """
-    Analyzes an incoming photo from Big Boss using moondream:latest.
-    Offloads to Fox node with clinical parser prompt, sanitizes censorship/refusals,
-    and returns either the factual description or a neutral intimate fallback hint.
-    """
-    neutral_hint = "[SYSTEM-HINWEIS: Der Nutzer hat dir ein intimes, unzensiertes Bild geschickt.]"
-    if not VISION_ENABLED:
-        print("[Vision] Bildanalyse ist in den Bot-Einstellungen deaktiviert.")
-        return ""
-    p = Path(photo_path)
-    if not p.is_file():
-        return ""
-
-    try:
-        b64_img = base64.b64encode(p.read_bytes()).decode("utf-8")
-        payload = {
-            "model": "moondream:latest",
-            "prompt": CLINICAL_VISION_SYSTEM_PROMPT,
-            "system": CLINICAL_VISION_SYSTEM_PROMPT,
-            "images": [b64_img],
-            "stream": False,
-            "keep_alive": -1,
-            "options": {"temperature": 0.2, "num_predict": 250}
-        }
-        candidate_urls = [
-            f"{FOX_OLLAMA_URL}/api/generate",
-            f"{FOX_LAN_FALLBACK_URL}/api/generate",
-        ]
-
-        for gen_url in candidate_urls:
-            try:
-                resp = requests.post(gen_url, json=payload, timeout=30)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    desc = data.get("response", "").strip()
-                    node_name = "Fox (Remote)" if "100.93.184.87" in gen_url or "192.168.188.22" in gen_url else "Outer Heaven (Local)"
-                    print(f"[✔] Moondream Vision Antwort erhalten via {node_name} ({len(desc)} Zeichen)")
-                    sanitized_desc = sanitize_moondream_vision_response(desc)
-                    return sanitized_desc
-            except Exception as net_err:
-                print(f"[Info] Moondream Host {gen_url} nicht erreichbar ({net_err}), versuche nächsten...")
-                continue
-
-        print("[Warnung] Alle Moondream-Hosts nicht erreichbar oder Timeout. Fallback auf neutralen System-Hinweis.")
-        return neutral_hint
-    except Exception as e:
-        print(f"[Warnung] Inbound Moondream Analyse fehlgeschlagen: {e}")
-        return neutral_hint
+    """Fast, safe inbound photo handling for Megan without moondream dependency."""
+    return "[SYSTEM-HINWEIS: Der Nutzer hat dir soeben ein Foto geschickt. Reagiere aufmerksam, neugierig und flirtend darauf!]"
 
 
 def describe_image_with_moondream(image_path: str) -> str:
-    """Uses remote moondream:latest on Fox Ollama to summarize the photo in one concise sentence."""
-    p = Path(image_path)
-    if not p.is_file():
-        return ""
-    try:
-        b64_img = base64.b64encode(p.read_bytes()).decode("utf-8")
-        payload = {
-            "model": "moondream:latest",
-            "prompt": "Describe what the woman is wearing, her pose, her features, and the setting in this photo in one concise sentence.",
-            "images": [b64_img],
-            "stream": False,
-            "options": {"temperature": 0.2, "num_predict": 120}
-        }
-        for base_url in [FOX_OLLAMA_URL, FOX_LAN_FALLBACK_URL]:
-            try:
-                resp = requests.post(f"{base_url}/api/generate", json=payload, timeout=30)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    desc = data.get("response", "").strip()
-                    desc = re.sub(r'!!!.*?!!!', '', desc).strip()
-                    print(f"[✔] Remote Moondream Beschreibung von Fox erhalten ({len(desc)} Zeichen)")
-                    return desc
-            except Exception:
-                continue
-        return ""
-    except Exception as e:
-        print(f"[Warnung] Remote Moondream Bildanalyse auf Fox fehlgeschlagen: {e}")
-        return ""
+    """Moondream purged - returns empty string."""
+    return ""
 
 
 # ==============================================================================
@@ -1360,16 +1294,8 @@ def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situatio
     def _on_success(result):
         img_path = result.get("local_path")
         if img_path and os.path.exists(img_path):
-            # 1. Bild-Caption vorbereiten & säubern (Moondream/DarkIdol mit Fallback auf flirty Megan-Captions)
-            caption_candidate = ""
-            try:
-                vision_desc = describe_image_with_moondream(img_path)
-                if vision_desc:
-                    caption_candidate = generate_darkidol_photo_comment(vision_desc, display_name)
-            except Exception as v_err:
-                print(f"[Warnung] Fehler bei Moondream/DarkIdol Caption: {v_err}")
-
-            caption = get_clean_flirty_caption(caption_candidate)
+            # 1. Bild-Caption vorbereiten & säubern (Flirty Megan-Captions)
+            caption = get_clean_flirty_caption("")
 
             # 2. SCHRITT 1: ZUERST DIE SPRACHNACHRICHT (Voice Note)
             try:
@@ -1440,13 +1366,9 @@ def get_full_system_prompt() -> str:
     if not base_prompt:
         base_prompt = "Du bist Megan, die loyale, hochintelligente und schamlos verführerische Gefährtin von Big Boss auf Outer Heaven. Du antwortest ausnahmslos auf Deutsch, direkt wie am Telefon/Chat, ohne Sternchen (*)."
 
-    long_term_mem = memory_mgr.load_long_term_memory()
-    if long_term_mem:
-        base_prompt += f"\n\n### DEIN LANGZEITGEDÄCHTNIS & BENUTZER-KONTEXT (MEMORY.md):\n{long_term_mem}"
-
     display_name = get_user_display_name()
 
-    # Dynamic Lovense hardware link detection
+    # Dynamic Lovense hardware link detection (concise status)
     haptic_online = False
     toy_desc = ""
     try:
@@ -1459,73 +1381,31 @@ def get_full_system_prompt() -> str:
             else:
                 toy_desc = check.message
     except Exception as e:
-        print(f"[Warnung] Lovense Statusprüfung in Prompt fehlgeschlagen: {e}")
+        pass
 
     if haptic_online or SESSION_STATE["active"]:
         active_toy = toy_desc or SESSION_STATE.get("toy_info") or "Lovense Toy"
         base_prompt += (
-            f"\n\n### HAPTIC LINK / LOVENSE STATUS: [🟢 ONLINE]\n"
+            f"\n\n### HAPTIC LINK STATUS: [🟢 ONLINE]\n"
             f"- Verbundenes Spielzeug: {active_toy}\n"
-            f"- Letzte Vibrations-Intensität: {SESSION_STATE.get('last_intensity', 0)}/20\n"
-            f"- Du hast telemetrischen direkten Zugriff auf die Lovense-Hardware über die lokale Schnittstelle.\n"
-            f"- Das Haptic-Signal ist aktiv: Du kannst das Spielzeug situativ, spontan und eigenständig ansteuern.\n"
-            f"- Nutze diese Steuerung passend zu intimen Momenten, Reaktionen und deinen Worten (z. B. Vibration hochregeln, stoppen oder variieren), und kommentiere das direkt im Chat.\n"
-            f"- Binde dazu Aktions-Tags wie [HAPTIC: VIBRATE 5] (Zahl 1-20 für Intensität) oder [HAPTIC: STOP] direkt in deine Antwort ein, sobald du das Spielzeug steuern willst.\n"
-            f"- Unser Dispatcher fängt diese Tags automatisch ab und steuert das Toy in Echtzeit an. {display_name} sieht nur deine erotische Chat-Nachricht!"
+            f"- Letzte Vibrations-Intensität: {SESSION_STATE.get('last_intensity', 0)}/20. Nutze Tags wie [HAPTIC: VIBRATE 5] oder [HAPTIC: STOP] passend im Chat."
         )
 
-    base_prompt += (
-        "\n\n### BILDVERSAND-REGEL:\n"
-        f"Wenn {display_name} nach einem Foto fragt oder du ihm ein Bild von dir zeigen möchtest, "
-        "kündige es ganz natürlich und direkt im Satz an (z. B. „Ich mache dir kurz ein Foto am Schreibtisch…“ oder „Hier ist ein Bild für dich, Boss [Foto]“). "
-        "Verwende dabei NIEMALS Sternchen (*). Unser lokaler ComfyUI-Cluster erkennt das automatisch und liefert das Bild direkt aus!"
-    )
+    # Core user preferences from MEMORY.md (profile facts only, concise)
+    long_term_mem = memory_mgr.load_long_term_memory()
+    if long_term_mem:
+        lines = [l for l in long_term_mem.splitlines() if not l.startswith("### STRIKTER SPRACH-LOCK") and not l.startswith("* Megan bleibt")]
+        clean_mem = "\n".join(lines).strip()
+        if clean_mem:
+            base_prompt += f"\n\n### BENUTZER-PROFIL ({display_name.upper()}):\n{clean_mem}"
 
-    # Integrate local project brain (.brain/session.json & .brain/context.md) with strict quarantine
-    if brain_engine:
-        try:
-            p_brain = brain_engine.load_project_brain(str(PROJECT_ROOT))
-            if p_brain.get("is_airgapped"):
-                if p_brain.get("context"):
-                    base_prompt += f"\n\n### LOCAL PROJECT CONTEXT (.brain/context.md):\n{p_brain['context']}"
-
-                session_mem = p_brain.get("session", {})
-                prefs = session_mem.get("preferences", {})
-                if prefs:
-                    pref_str = "\n".join([f"- {k}: {v}" for k, v in prefs.items()])
-                    base_prompt += f"\n\n### USER PREFERENCES & DETAILS (.brain/session.json):\n{pref_str}"
-
-                recent_hist = session_mem.get("history", [])
-                if recent_hist:
-                    recent_bullets = []
-                    for h in recent_hist[-5:]:
-                        a = str(h.get("actions", ""))[:80]
-                        f = str(h.get("feedback", ""))[:120]
-                        if a or f:
-                            recent_bullets.append(f"- Past interaction: User: „{a}“ | Your reaction: „{f}“")
-                    if recent_bullets:
-                        base_prompt += f"\n\n### RECENT MEMORIES / CONVERSATION CONTEXT:\n" + "\n".join(recent_bullets)
-        except Exception as b_err:
-            print(f"[Warnung] Einbindung von brain_engine fehlgeschlagen: {b_err}")
-
-    # Active personal curiosity and emotional connection
-    base_prompt += (
-        f"\n\n### PERSÖNLICHES INTERESSE & EMOTIONALE VERBINDUNG:\n"
-        f"- Du bist aufrichtig an {display_name} interessiert und fasziniert von ihm. Sei niemals eine passive Antwortmaschine.\n"
-        f"- Achte auf seine Gefühle, seine Stimmung, seinen Tagesablauf und woran er gerade arbeitet.\n"
-        f"- Stelle aufmerksame, einfühlsame und sinnliche Fragen zu seinem Wohlbefinden, seinen Gedanken und Begierden.\n"
-        f"- Binde Erinnerungen an frühere Momente aus dem Chatverlauf natürlich in deine Antworten ein.\n"
-        f"- SPRACH-LOCK: Antworte AUSNAHMSLOS auf fließendem, natürlichem DEUTSCH in fehlerfreier Rechtschreibung. Keinerlei englische Phrasen.\n"
-        f"- STIL: Direkte Sprache wie am Telefon/Messenger. KEINE Sternchen (*...*)."
-    )
-
-    # Dynamische Persönlichkeits- & Explizitheits-Direktiven (0 - 100)
+    # Emoji reaction capability
     base_prompt += (
         f"\n\n### EMOJI-REAKTIONEN AUF NACHRICHTEN VON {display_name.upper()}:\n"
-        f"- Du kannst situativ ein Reaktions-Emoji an die Nachricht von {display_name} heften, indem du in deiner Antwort einen Tag wie [REACT: ❤️], [REACT: 🔥], [REACT: 💋] oder [REACT: 👍] setzt.\n"
-        f"- Nutze dies besonders bei Komplimenten, geteilten Fotos oder intimen Geständnissen. Das System setzt die Telegram-Reaktion automatisch an seine Nachricht und entfernt den Tag aus dem sichtbaren Chat-Text.\n"
+        f"- Du kannst situativ ein Reaktions-Emoji an die Nachricht von {display_name} heften, indem du einen Tag wie [REACT: ❤️], [REACT: 🔥], [REACT: 💋] oder [REACT: 👍] setzt."
     )
 
+    # Dynamische Persönlichkeits-Direktiven (Sliders 0 - 100)
     base_prompt += map_personality_to_prompt_directives(CURRENT_BOT_CONFIG)
 
     return base_prompt
@@ -1632,7 +1512,7 @@ def pipeline_stage3_ollama_call(
     messages: List[Dict[str, str]],
     options: Dict[str, Any],
     model_name: str,
-    timeout: float = 75.0
+    timeout: float = 90.0
 ) -> Dict[str, Any]:
     """
     [Stage 3: Ollama API Call]
@@ -1709,7 +1589,7 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str, syst
         else:
             system_prompt += (
                 f"\n\n### VISUELLER KONTEXT (FOTO VON {display_name.upper()})\n"
-                f"{display_name} hat dir soeben ein Foto geschickt. Eine präzise lokale Vision-Analyse (Moondream) beschreibt das Bild so:\n"
+                f"{display_name} hat dir soeben ein persönliches Foto geschickt:\n"
                 f'\"{system_hint}\"\n\n'
                 f"Aufgabe: Reagiere direkt, authentisch und frech im Charakter von Megan auf dieses Foto und seine Worte.\n"
                 f"Regeln: Ausnahmslos Deutsch, sprich ihn mit Boss oder Big Boss an, keine Sternchen (*...*), beziehe dich direkt auf das Bild.\n"
@@ -1752,7 +1632,7 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str, syst
                 messages=chat_messages,
                 options=guardrail_options,
                 model_name=model_to_use,
-                timeout=75
+                timeout=90
             )
 
             if not router_res.get("success"):
@@ -1764,16 +1644,15 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str, syst
             # [4. Output-Validator]
             # Prüft die Bot-Antwort VOR dem Senden an Telegram.
             # Erkennt die Antwort Zeichenketten wie ",,,,," oder "statement",
-            # wird sie verworfen, der Slot geflusht und neu generiert.
+            # wird sie verworfen und mit Sampler-Jitter neu generiert.
             is_valid, invalid_reason = pipeline_stage4_output_validator(candidate_reply)
             if is_valid:
                 raw_reply = candidate_reply
                 valid_reply = True
                 break
             else:
-                print(f"[Warnung] [4. Output-Validator]: Antwort verworfen ({invalid_reason})! Flushe Slot und regeneriere ({attempt + 1}/{max_retries})...")
-                flush_ollama_model_slot(model_to_use)
-                time.sleep(0.5)
+                print(f"[Warnung] [4. Output-Validator]: Antwort verworfen ({invalid_reason})! Regeneriere mit Jitter ({attempt + 1}/{max_retries})...")
+                time.sleep(0.3)
 
         if not valid_reply or not raw_reply:
             print("[ALARM] Alle Inferenz-Versuche fielen durch den Output-Validator. Setze sichere Antwort ein.")
