@@ -107,9 +107,16 @@ def is_corrupted_text(text: str) -> Tuple[bool, str]:
 
     # 7. High punctuation / symbol ratio in long text
     if len(t) >= 40:
-        punct_count = len(re.findall(r"[!@#$%^&*()_+=|~<>?,./;:'\"–—\\]", t))
-        if punct_count / len(t) > 0.28:
+        punct_count = len(re.findall(r"[!@#$%^&*()_+=|~<>?,./;:'\"–—\\\[\]]", t))
+        if punct_count / len(t) > 0.15:
             return True, f"Hoher Symbol-/Satzzeichen-Anteil: {punct_count / len(t):.2%}"
+
+    # 8. Unrealistic uppercase letter density (random BPE token salad like OHHoYeahNOJXOhIA...)
+    letters = [c for c in t if c.isalpha()]
+    if len(t) >= 30 and len(letters) >= 20:
+        upper = [c for c in letters if c.isupper()]
+        if len(upper) / len(letters) > 0.35:
+            return True, f"Unrealistische Großbuchstaben-Dichte (BPE-Kollaps): {len(upper) / len(letters):.2%}"
 
     return False, ""
 

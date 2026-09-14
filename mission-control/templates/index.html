@@ -2851,10 +2851,9 @@
       }
     }
 
-    // --- Service Control Action ---
+    // --- Service Control Action (Silent Non-Blocking Trigger) ---
     async function controlService(node, service, action) {
-      if (!confirm(`Soll der Dienst "${service}" auf ${node} wirklich via "${action}" gesteuert werden?`)) return;
-
+      // Kein nerviges confirm() Pop-Up mehr - Aktion wird direkt getriggert
       try {
         const res = await fetch('/api/service', {
           method: 'POST',
@@ -2862,14 +2861,11 @@
           body: JSON.stringify({ node, service, action })
         });
         const result = await res.json();
-        if (result.success) {
-          alert(`Befehl ausgeführt: ${service} -> ${action}`);
-          updateTelemetry();
-        } else {
-          alert(`Fehler bei Dienststeuerung: ${result.message || result.error}`);
-        }
+        // Schnelle Aktualisierung der Telemetrie ohne störendes alert()-Kästchen
+        setTimeout(() => updateTelemetry(), 1000);
+        setTimeout(() => updateTelemetry(), 3000);
       } catch (e) {
-        alert("Netzwerkfehler bei Dienststeuerung.");
+        console.error("Netzwerkfehler bei Dienststeuerung:", e);
       }
     }
 
