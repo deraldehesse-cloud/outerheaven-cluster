@@ -300,9 +300,10 @@ def check_and_reload_bot_config():
         CURRENT_BOT_CONFIG = cfg
 
         # LLM
+        active_m = cfg.get("active_model") or cfg.get("llm", {}).get("model")
+        if active_m and str(active_m).strip():
+            OLLAMA_MODEL = str(active_m).strip()
         llm = cfg.get("llm", {})
-        if "model" in llm and llm["model"]:
-            OLLAMA_MODEL = str(llm["model"])
         if "temperature" in llm:
             OLLAMA_TEMPERATURE = float(llm["temperature"])
         if "top_p" in llm:

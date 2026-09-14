@@ -1363,11 +1363,16 @@
             </div>
 
             <div>
-              <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Ollama Modell</label>
-              <select id="botLlmModel" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-cyan-200 focus:border-cyan-400 cursor-pointer">
-                <option value="lexi-llama-3-8b-uncensored_q4_k_m:latest">lexi-llama-3-8b-uncensored (Empfohlen)</option>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-[10px] uppercase text-slate-400 font-bold">Ollama Modell</label>
+                <span id="modelStatusBadge" class="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-700/60">Aktiv: Lädt...</span>
+              </div>
+              <select id="modelSelector" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-cyan-200 focus:border-cyan-400 cursor-pointer" onchange="onModelSelectorChanged(this.value)">
                 <option value="darkidol-8b:latest">darkidol-8b:latest</option>
+                <option value="lexi-llama-3-8b-uncensored_q4_k_m:latest">lexi-llama-3-8b-uncensored</option>
               </select>
+              <!-- Hidden compatibility alias for legacy scripts -->
+              <input type="hidden" id="botLlmModel" value="darkidol-8b:latest">
             </div>
 
             <div>
@@ -4889,29 +4894,75 @@
     {% if is_restricted %}
     // --- Companion Bot Runtime Configuration ---
     async function loadOllamaModelsForBotConfig() {
-      const select = document.getElementById("botLlmModel");
+      const select = document.getElementById("modelSelector") || document.getElementById("botLlmModel");
+      const hiddenBotLlm = document.getElementById("botLlmModel");
+      const badge = document.getElementById("modelStatusBadge");
       if (!select) return;
 
       try {
-        const res = await fetch("/api/ollama/models");
+        const res = await fetch("/api/models");
         if (!res.ok) return;
         const data = await res.json();
         const models = data.models || [];
+        const activeModel = data.active_model || (models[0] ? models[0].name : "");
+
         if (models.length > 0) {
-          const prevVal = select.value;
           select.innerHTML = "";
           models.forEach(m => {
             const opt = document.createElement("option");
             opt.value = m.name;
             opt.textContent = m.name;
+            if (m.name === activeModel || m.is_active) {
+              opt.selected = true;
+            }
             select.appendChild(opt);
           });
-          if (prevVal && models.some(m => m.name === prevVal)) {
-            select.value = prevVal;
+          select.value = activeModel;
+          if (hiddenBotLlm) hiddenBotLlm.value = activeModel;
+          if (badge) {
+            badge.textContent = `Aktiv: ${activeModel.split(':')[0]}`;
+            badge.title = `Vollständiger Modellname: ${activeModel}`;
           }
+          updateTacticalAgentModelUI(activeModel);
         }
       } catch (e) {
-        console.warn("Failed to load Ollama models:", e);
+        console.warn("Failed to load models via /api/models:", e);
+      }
+    }
+
+    async function onModelSelectorChanged(newModel) {
+      if (!newModel) return;
+      const hiddenBotLlm = document.getElementById("botLlmModel");
+      if (hiddenBotLlm) hiddenBotLlm.value = newModel;
+      const badge = document.getElementById("modelStatusBadge");
+      if (badge) {
+        badge.textContent = `Schalte um...`;
+        badge.className = "text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-700/60 animate-pulse";
+      }
+
+      try {
+        const res = await fetch("/api/models/select", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: newModel })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (badge) {
+            badge.textContent = `Aktiv: ${newModel.split(':')[0]}`;
+            badge.className = "text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-600/60";
+            badge.title = `Aktiv: ${newModel}`;
+          }
+          updateTacticalAgentModelUI(newModel);
+        } else {
+          throw new Error(data.error || "Fehler beim Modellwechsel");
+        }
+      } catch (err) {
+        alert("Modellwechsel fehlgeschlagen: " + err.message);
+        if (badge) {
+          badge.textContent = `Fehler`;
+          badge.className = "text-[9px] font-mono px-1.5 py-0.2 rounded bg-rose-950/80 text-rose-300 border border-rose-700/60";
+        }
       }
     }
 
@@ -5062,17 +5113,26 @@
 
         // LLM
         const llm = cfg.llm || {};
-        const llmModelEl = document.getElementById("botLlmModel");
-        if (llmModelEl && llm.model) {
-          if (![...llmModelEl.options].some(o => o.value === llm.model)) {
+        const activeModelName = cfg.active_model || llm.model || "darkidol-8b:latest";
+        const modelSel = document.getElementById("modelSelector");
+        const hiddenBotLlm = document.getElementById("botLlmModel");
+        const badge = document.getElementById("modelStatusBadge");
+
+        if (modelSel && activeModelName) {
+          if (![...modelSel.options].some(o => o.value === activeModelName)) {
             const opt = document.createElement("option");
-            opt.value = llm.model;
-            opt.textContent = llm.model;
-            llmModelEl.appendChild(opt);
+            opt.value = activeModelName;
+            opt.textContent = activeModelName;
+            modelSel.appendChild(opt);
           }
-          llmModelEl.value = llm.model;
-          updateTacticalAgentModelUI(llm.model);
+          modelSel.value = activeModelName;
         }
+        if (hiddenBotLlm) hiddenBotLlm.value = activeModelName;
+        if (badge && activeModelName) {
+          badge.textContent = `Aktiv: ${activeModelName.split(':')[0]}`;
+          badge.title = `Aktiv: ${activeModelName}`;
+        }
+        updateTacticalAgentModelUI(activeModelName);
         if (document.getElementById("botLlmTemp")) {
           document.getElementById("botLlmTemp").value = llm.temperature ?? 0.95;
           document.getElementById("botLlmTempDisplay").textContent = llm.temperature ?? 0.95;
@@ -5171,7 +5231,7 @@
 
       const idleHours = parseFloat(document.getElementById("botProactiveIdleHours")?.value || 4);
       const cdHours = parseFloat(document.getElementById("botProactiveCooldownHours")?.value || 6);
-      const selectedModel = document.getElementById("botLlmModel")?.value;
+      const selectedModel = document.getElementById("modelSelector")?.value || document.getElementById("botLlmModel")?.value || "darkidol-8b:latest";
       if (selectedModel) {
         updateTacticalAgentModelUI(selectedModel);
       }
@@ -5182,6 +5242,7 @@
 
       const payload = {
         config: {
+          active_model: selectedModel,
           personality: {
             dominance: parseInt(document.getElementById("botPersDominance")?.value || 50, 10),
             dominance_text: document.getElementById("botPersDominanceCustom")?.value?.trim() || "",
@@ -5198,7 +5259,7 @@
           },
 
           llm: {
-            model: document.getElementById("botLlmModel")?.value || "darkidol-8b:latest",
+            model: selectedModel,
             temperature: parseFloat(document.getElementById("botLlmTemp")?.value || 0.7),
             top_p: parseFloat(document.getElementById("botLlmTopP")?.value || 0.90),
             repeat_penalty: parseFloat(document.getElementById("botLlmRepPenalty")?.value || 1.25),
@@ -6081,6 +6142,7 @@
       });
     }
 
+    loadOllamaModelsForBotConfig();
     loadBotConfig();
     loadCharacterProfilesList();
     {% endif %}

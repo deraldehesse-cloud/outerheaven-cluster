@@ -264,18 +264,64 @@ def build_workflow(
 # 4. Synchronous Remote Dispatch & Image Retrieval
 # ==============================================================================
 
+# Ollama URL for VRAM arbitration & slot flushing
+OLLAMA_LOCAL_URL = os.environ.get("OLLAMA_LOCAL_URL", "http://127.0.0.1:11434").rstrip("/")
+HEAVY_MODELS_TO_UNLOAD = [
+    "deepseek-r1:14b",
+    "deepseek-r1:latest",
+    "deepseek",
+    "llava:latest"
+]
+
+
+def ensure_comfyui_vram_headroom(ollama_url: str = OLLAMA_LOCAL_URL) -> None:
+    """
+    [VRAM Arbitrierung - Arc A770 16GB]
+    Prueft vor ComfyUI-Render-Jobs, ob schwere Modelle wie DeepSeek im VRAM laufen.
+    Falls ja, wird keep_alive: 0 gesendet, um garantiert 8.5 GB VRAM fuer ComfyUI freizuhalten.
+    """
+    try:
+        ps_url = f"{ollama_url}/api/ps"
+        req = urllib.request.Request(ps_url, headers={"User-Agent": "OuterHeaven-VRAM-Guard/1.0"})
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                running_models = data.get("models", [])
+                for rm in running_models:
+                    m_name = rm.get("name", "")
+                    # Check if model matches heavy/non-essential models
+                    for heavy in HEAVY_MODELS_TO_UNLOAD:
+                        if heavy in m_name.lower():
+                            logger.info(f"🧹 [VRAM Guard]: Schweres Modell '{m_name}' vor ComfyUI-Render erkannt -> Sende keep_alive: 0...")
+                            flush_url = f"{ollama_url}/api/generate"
+                            flush_payload = json.dumps({"model": m_name, "keep_alive": 0}).encode("utf-8")
+                            flush_req = urllib.request.Request(
+                                flush_url,
+                                data=flush_payload,
+                                headers={"Content-Type": "application/json"}
+                            )
+                            try:
+                                with urllib.request.urlopen(flush_req, timeout=3) as f_resp:
+                                    logger.info(f"✔ [VRAM Guard]: '{m_name}' erfolgreich entladen (Status {f_resp.status}) - Headroom gesichert.")
+                            except Exception as fe:
+                                logger.warning(f"Fehler beim Entladen von '{m_name}': {fe}")
+    except Exception as e:
+        logger.debug(f"[VRAM Guard]: Konnte Ollama /api/ps nicht pruefen (harmlos): {e}")
+
+
 def dispatch_render_sync(
     situation_prompt: str = "",
     environment_key: str = "schreibtisch",
     clothing_override: Optional[str] = None,
+    save_dir: Optional[Path] = None,
     host: Optional[str] = None,
     timeout: float = 120.0,
     poll_interval: float = 1.5,
-    save_dir: Optional[Path] = None,
     on_status: Optional[Callable[[str], None]] = None
 ) -> Dict[str, Any]:
     """
-    Synchronously renders an image via ComfyUI REST API:
+    Synchronously executes the full render generation pipeline:
+      0. Pre-Flight VRAM Arbitration: Ensures Arc A770 has >= 8.5 GB free for ComfyUI
       1. Assembles prompt from persona.yaml + environment + situation
       2. Checks /queue and reports queue status
       3. POSTs to http://{host}/prompt
@@ -283,6 +329,9 @@ def dispatch_render_sync(
       5. Downloads/stores image locally in output_dir
       6. Returns dict with local file path, prompt_id, and metadata
     """
+    # 0. Pre-flight VRAM arbitration
+    ensure_comfyui_vram_headroom()
+
     config = load_persona_config()
     target_host = host or config.get("render_defaults", {}).get("host", DEFAULT_COMFYUI_HOST)
     comfy_url = resolve_comfyui_url(target_host)

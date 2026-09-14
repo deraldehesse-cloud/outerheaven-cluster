@@ -1543,6 +1543,113 @@ async def handle_bot_config_post(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def handle_models_list(request: web.Request) -> web.Response:
+    """GET /api/models - Returns list of all installed Ollama models with active model info."""
+    models = []
+    active_model = "darkidol-8b:latest"
+
+    # 1. Read current active model from bot_config.json
+    if BOT_CONFIG_FILE.is_file():
+        try:
+            with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                active_model = cfg.get("active_model") or cfg.get("llm", {}).get("model") or active_model
+        except Exception as e:
+            logger.warning(f"Could not read active model from bot_config.json: {e}")
+
+    # 2. Query local Ollama /api/tags
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{LOCAL_OLLAMA_URL}/api/tags", timeout=aiohttp.ClientTimeout(total=4)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    for m in data.get("models", []):
+                        m_name = m.get("name")
+                        models.append({
+                            "name": m_name,
+                            "size": m.get("size", 0),
+                            "modified_at": m.get("modified_at", ""),
+                            "is_active": (m_name == active_model)
+                        })
+    except Exception as e:
+        logger.warning(f"Could not query Ollama /api/tags for /api/models: {e}")
+
+    # 3. Fallback to CLI `ollama list` if HTTP tags empty
+    if not models:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ollama", "list",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await proc.communicate()
+            lines = stdout.decode().strip().split("\n")
+            if len(lines) > 1:
+                for line in lines[1:]:
+                    parts = line.split()
+                    if parts:
+                        name = parts[0]
+                        models.append({
+                            "name": name,
+                            "size": 0,
+                            "modified_at": "",
+                            "is_active": (name == active_model)
+                        })
+        except Exception as cli_err:
+            logger.warning(f"Fallback `ollama list` failed: {cli_err}")
+
+    if not models:
+        models = [
+            {"name": "darkidol-8b:latest", "size": 4900000000, "is_active": (active_model == "darkidol-8b:latest")},
+            {"name": "deepseek-r1:14b", "size": 9000000000, "is_active": (active_model == "deepseek-r1:14b")}
+        ]
+
+    return web.json_response({
+        "models": models,
+        "active_model": active_model
+    })
+
+
+async def handle_models_select(request: web.Request) -> web.Response:
+    """POST /api/models/select - Atomically switches the active model in bot_config.json."""
+    try:
+        data = await request.json()
+        selected_model = (data.get("model") or data.get("active_model") or "").strip()
+        if not selected_model:
+            return web.json_response({"error": "Modellname ('model') fehlt."}, status=400)
+
+        cfg = {}
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception as e:
+                logger.warning(f"Could not read bot_config.json: {e}")
+
+        # Update active_model at top level and inside llm
+        cfg["active_model"] = selected_model
+        if "llm" not in cfg:
+            cfg["llm"] = {}
+        cfg["llm"]["model"] = selected_model
+
+        # Atomic write
+        BOT_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp_file = BOT_CONFIG_FILE.with_suffix(".tmp")
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        tmp_file.replace(BOT_CONFIG_FILE)
+
+        logger.info(f"Active model successfully switched to '{selected_model}' in {BOT_CONFIG_FILE}")
+        return web.json_response({
+            "success": True,
+            "active_model": selected_model,
+            "message": f"Modell erfolgreich umgeschaltet auf: {selected_model}"
+        })
+    except Exception as e:
+        logger.error(f"Error selecting active model: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def handle_bot_haptic_get(request: web.Request) -> web.Response:
     cfg = {}
     if BOT_CONFIG_FILE.is_file():
@@ -3556,6 +3663,8 @@ def create_app() -> web.Application:
     app.router.add_get("/api/workflows/load", handle_workflows_load)
 
     # Ollama & Companion Bot Runtime Configuration
+    app.router.add_get("/api/models", handle_models_list)
+    app.router.add_post("/api/models/select", handle_models_select)
     app.router.add_get("/api/ollama/models", handle_ollama_models)
     app.router.add_get("/api/bot/config", handle_bot_config_get)
     app.router.add_post("/api/bot/config", handle_bot_config_post)
