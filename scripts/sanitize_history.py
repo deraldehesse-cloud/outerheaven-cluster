@@ -11,7 +11,7 @@ import re
 import json
 import time
 from pathlib import Path
-from typing import Tuple, List, Dict, Any, Optional
+from typing import Tuple, List, Dict, Any, Optional, Union
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 HISTORY_PATH = PROJECT_ROOT / "history.json"
@@ -59,8 +59,29 @@ def is_corrupted_text(text: str) -> Tuple[bool, str]:
         return False, ""
 
     t = text.strip()
-    if not t:
-        return False, ""
+    # 0. Pure symbols, isolated brackets, or lacking letters
+    if re.match(r"^[\s\(\)\[\]\{\}\#\-_|~]+$", t):
+        return True, "Reines Klammer-/Symbol-Fragment"
+
+    alpha_count = sum(1 for c in t if c.isalpha())
+    if len(t) <= 10 and alpha_count < 3:
+        return True, "Zu wenige Buchstaben / isoliertes Sonderzeichen-Fragment"
+
+    # Abnormal unsegmented subwords (e.g. genfgKarseblevedfesapakigosfand)
+    for w in t.split():
+        clean_w = w.strip(".,!?:;\"'()[]{}")
+        if len(clean_w) > 22 and not (clean_w.startswith("http://") or clean_w.startswith("https://") or clean_w.startswith("/") or clean_w.startswith("hf.co")):
+            return True, f"Abnormal langes Kunstwort / BPE-Verschmelzung ({clean_w[:20]}...)"
+
+    # Schizophrenic / English hallucinations & out-of-character English chatter
+    if re.search(r"^##\.\s*\(t\)", t) or re.search(r"\b(?:the death in the Death|Queen'ship|nameless but he is not dead)\b", t, re.IGNORECASE):
+        return True, "Schizophrene Englisch-Halluzination"
+    if re.search(r"\b(?:The only thing more confusing|Please specify a new vibration|Are we discussing something in German again|and during while between)\b", t, re.IGNORECASE):
+        return True, "Deplatzierte Englisch-Antwort / Wortsalat"
+    if re.search(r"\b(?:and|during|while|between|over|without|together|before)(?:\s+(?:and|during|while|between|over|without|together|before|\.{2,}))+", t, re.IGNORECASE):
+        return True, "Präpositions-Kollaps-Kette"
+    if re.match(r"^[\(\[\{]\s*\n", t):
+        return True, "Isolierte öffnende Klammer am Zeilenanfang"
 
     # 1. Defective BPE & Known Glitch Tokens
     m = GLITCH_PATTERN.search(t)
@@ -105,10 +126,10 @@ def is_corrupted_text(text: str) -> Tuple[bool, str]:
         if ratio < 0.35:
             return True, f"Niedrige lexikalische Diversitaet (Wiederholungs-Loop): {ratio:.2f}"
 
-    # 7. High punctuation / symbol ratio in long text
-    if len(t) >= 40:
-        punct_count = len(re.findall(r"[!@#$%^&*()_+=|~<>?,./;:'\"–—\\\[\]]", t))
-        if punct_count / len(t) > 0.15:
+    # 7. High punctuation / symbol ratio
+    if len(t) >= 15:
+        punct_count = len(re.findall(r"[!@#$%^&*()_+=|~<>?,./;:'\"–—\\\[\]\{\}]", t))
+        if punct_count / len(t) > 0.25:
             return True, f"Hoher Symbol-/Satzzeichen-Anteil: {punct_count / len(t):.2%}"
 
     # 8. Unrealistic uppercase letter density (random BPE token salad like OHHoYeahNOJXOhIA...)
@@ -139,21 +160,21 @@ def sanitize_history_data(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str
     return cleaned, removed_count
 
 
-def atomic_save_json(file_path: Path, data: Any) -> None:
-    """Safely and atomically writes JSON to disk."""
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = file_path.with_suffix(file_path.suffix + f".tmp.{os.getpid()}_{time.time_ns()}")
+def atomic_save_json(file_path: Union[Path, str], data: Any) -> bool:
+    """Safely writes JSON using a temporary file and atomic replace."""
+    p = Path(file_path)
     try:
-        content = json.dumps(data, indent=2, ensure_ascii=False)
-        tmp_path.write_text(content, encoding="utf-8")
-        with open(tmp_path, "a", encoding="utf-8") as f:
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, file_path)
-    finally:
-        if tmp_path.exists():
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        tmp.replace(p)
+        return True
+    except Exception:
+        return False
+        if 'tmp' in locals() and tmp.exists():
             try:
-                tmp_path.unlink()
+                tmp.unlink()
             except OSError:
                 pass
 

@@ -14,6 +14,7 @@ Features:
 
 import os
 import sys
+import re
 import time
 import json
 import uuid
@@ -39,10 +40,20 @@ logger = logging.getLogger("dispatch_comfy")
 
 # --- Directory Constants ---
 BASE_DIR = Path(__file__).resolve().parent
-PERSONA_CONFIG_PATH = BASE_DIR / "persona.yaml"
-MEMORY_PATH = BASE_DIR / "MEMORY.md"
-HISTORY_PATH = BASE_DIR / "history.json"
-OUTPUT_DIR = BASE_DIR / "output"
+if (BASE_DIR / "persona.yaml").is_file():
+    PROJECT_ROOT = BASE_DIR
+elif (BASE_DIR.parent / "persona.yaml").is_file():
+    PROJECT_ROOT = BASE_DIR.parent
+elif Path("/mnt/storage-beta/projekte/projekt-sexchat/persona.yaml").is_file():
+    PROJECT_ROOT = Path("/mnt/storage-beta/projekte/projekt-sexchat")
+else:
+    PROJECT_ROOT = BASE_DIR
+
+PERSONA_CONFIG_PATH = PROJECT_ROOT / "persona.yaml"
+MEMORY_PATH = PROJECT_ROOT / "MEMORY.md"
+HISTORY_PATH = PROJECT_ROOT / "history.json"
+BOT_CONFIG_PATH = PROJECT_ROOT / "bot_config.json"
+OUTPUT_DIR = PROJECT_ROOT / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ComfyUI Host & Port Configuration
@@ -67,8 +78,6 @@ RENDER_EXECUTOR = ThreadPoolExecutor(max_workers=3, thread_name_prefix="ComfyDis
 # ==============================================================================
 # 1. Configuration & Persona Loader
 # ==============================================================================
-
-BOT_CONFIG_PATH = BASE_DIR / "bot_config.json"
 
 
 def load_persona_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
@@ -101,15 +110,50 @@ def load_persona_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
 # 2. Prompt Assembler
 # ==============================================================================
 
+def load_visual_preferences_from_memory(memory_path: Optional[Path] = None) -> str:
+    """
+    Reads MEMORY.md and extracts active preferences from:
+    - '## 📸 Visuelle Vorlieben & Kinks von Big Boss'
+    Returns a comma-separated string of visual preference tags for ComfyUI.
+    """
+    path = memory_path or MEMORY_PATH
+    if not path.is_file():
+        return ""
+    try:
+        content = path.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        in_section = False
+        pref_items = []
+        for line in lines:
+            line_s = line.strip()
+            if line_s.startswith("## ") and any(k in line_s.lower() for k in ["visuell", "kink"]):
+                in_section = True
+                continue
+            elif in_section and line_s.startswith("## "):
+                break
+            elif in_section and line_s:
+                clean_line = re.sub(r"^[\*\-\d\.]+\s*", "", line_s).strip()
+                if ":" in clean_line:
+                    clean_line = clean_line.split(":", 1)[1].strip()
+                if clean_line and not clean_line.startswith("#"):
+                    pref_items.append(clean_line)
+        if pref_items:
+            return ", ".join(pref_items)
+    except Exception as e:
+        logger.warning(f"Failed to load visual preferences from memory: {e}")
+    return ""
+
+
 def assemble_prompt(
     situation_prompt: str = "",
     environment_key: str = "schreibtisch",
     clothing_override: Optional[str] = None,
+    user_custom_tags: Optional[str] = None,
     config: Optional[Dict[str, Any]] = None
 ) -> Tuple[str, str, Dict[str, Any]]:
     """
-    Combines the base persona tags from persona.yaml with the environment preset
-    and situative description from the bot.
+    Combines the base persona tags from persona.yaml with the environment preset,
+    situative description from the bot, custom user tags, and learned preferences from MEMORY.md.
 
     Returns:
       (positive_prompt, negative_prompt, render_params)
@@ -134,6 +178,9 @@ def assemble_prompt(
     lighting_pos = "soft studio lighting, rim lighting, vibrant, well-lit, high key, clear visibility"
     lighting_neg = "underexposed, dark shadows, pitch black background, gloomy, dim lighting"
 
+    # Learned visual preferences from MEMORY.md
+    learned_visual_prefs = load_visual_preferences_from_memory()
+
     # Positive prompt components
     pos_parts = [
         body,
@@ -143,7 +190,9 @@ def assemble_prompt(
         features,
         scene,
         camera,
-        situation_prompt.strip(),
+        situation_prompt.strip() if situation_prompt else "",
+        user_custom_tags.strip() if user_custom_tags else "",
+        learned_visual_prefs.strip() if learned_visual_prefs else "",
         style,
         lighting_pos
     ]
@@ -156,11 +205,12 @@ def assemble_prompt(
 
     # Negative prompt
     neg_cfg = cfg.get("negative_prompts", {})
+    all_context_for_neg = f"{situation_prompt} {user_custom_tags or ''} {learned_visual_prefs or ''}".lower()
     neg_parts = [
         neg_cfg.get("quality", ""),
         lighting_neg,
         neg_cfg.get("censorship", ""),
-        neg_cfg.get("clothing_filter", "") if ("nude" in situation_prompt.lower() or "naked" in situation_prompt.lower()) else ""
+        neg_cfg.get("clothing_filter", "") if ("nude" in all_context_for_neg or "naked" in all_context_for_neg) else ""
     ]
     clean_neg = ", ".join([p.strip() for p in neg_parts if p and p.strip()])
 
@@ -313,6 +363,7 @@ def dispatch_render_sync(
     situation_prompt: str = "",
     environment_key: str = "schreibtisch",
     clothing_override: Optional[str] = None,
+    user_custom_tags: Optional[str] = None,
     save_dir: Optional[Path] = None,
     host: Optional[str] = None,
     timeout: float = 120.0,
@@ -322,7 +373,7 @@ def dispatch_render_sync(
     """
     Synchronously executes the full render generation pipeline:
       0. Pre-Flight VRAM Arbitration: Ensures Arc A770 has >= 8.5 GB free for ComfyUI
-      1. Assembles prompt from persona.yaml + environment + situation
+      1. Assembles prompt from persona.yaml + environment + situation + custom tags + memory
       2. Checks /queue and reports queue status
       3. POSTs to http://{host}/prompt
       4. Polls /history/{prompt_id} until completion
@@ -358,6 +409,7 @@ def dispatch_render_sync(
         situation_prompt=situation_prompt,
         environment_key=environment_key,
         clothing_override=clothing_override,
+        user_custom_tags=user_custom_tags,
         config=config
     )
 
@@ -487,6 +539,7 @@ def dispatch_render_async(
     situation_prompt: str = "",
     environment_key: str = "schreibtisch",
     clothing_override: Optional[str] = None,
+    user_custom_tags: Optional[str] = None,
     host: Optional[str] = None,
     on_status: Optional[Callable[[str], None]] = None,
     on_complete: Optional[Callable[[Dict[str, Any]], None]] = None,
@@ -505,6 +558,7 @@ def dispatch_render_async(
                 situation_prompt=situation_prompt,
                 environment_key=environment_key,
                 clothing_override=clothing_override,
+                user_custom_tags=user_custom_tags,
                 host=host,
                 on_status=on_status
             )
@@ -610,6 +664,7 @@ def main():
     parser.add_argument("--prompt", "-p", default="", help="Situative Szenenbeschreibung")
     parser.add_argument("--env", "-e", default="schreibtisch", choices=["schreibtisch", "couch", "unterwegs", "schlafzimmer"], help="Umgebungs-Preset")
     parser.add_argument("--clothing", default=None, help="Optionale Kleidungsauswahl / Override")
+    parser.add_argument("--tags", "-t", default=None, help="Optionale benutzerdefinierte visuelle Tags")
     parser.add_argument("--host", default=DEFAULT_COMFYUI_HOST, help=f"ComfyUI Host (Standard: {DEFAULT_COMFYUI_HOST})")
     parser.add_argument("--dry-run", action="store_true", help="Prompt zusammenstellen und anzeigen, aber nicht rendern")
     parser.add_argument("--test", action="store_true", help="Testet Konfiguration und Prompt-Assemblierung")
@@ -617,7 +672,7 @@ def main():
     args = parser.parse_args()
 
     if args.test or args.dry_run:
-        pos, neg, params = assemble_prompt(args.prompt, environment_key=args.env, clothing_override=args.clothing)
+        pos, neg, params = assemble_prompt(args.prompt, environment_key=args.env, clothing_override=args.clothing, user_custom_tags=args.tags)
         print("=== PROMPT ASSEMBLER ERGEBNIS ===")
         print(f"[+] Umgebung: {args.env}")
         print(f"[+] Positiver Prompt:\n{pos}\n")
@@ -632,6 +687,7 @@ def main():
             situation_prompt=args.prompt,
             environment_key=args.env,
             clothing_override=args.clothing,
+            user_custom_tags=args.tags,
             host=args.host
         )
         print("\n[✔] Render erfolgreich abgeschlossen!")

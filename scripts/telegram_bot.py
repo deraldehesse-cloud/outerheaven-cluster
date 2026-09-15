@@ -639,6 +639,95 @@ def append_to_long_term_memory(note: str):
         print(f"[Warnung] Konnte Feedback nicht in MEMORY.md sichern: {e}")
 
 
+def update_visual_preferences_in_memory(pref_tag: str) -> bool:
+    """
+    Saves or appends detected visual preferences / kinks from Big Boss persistently into MEMORY.md
+    under '## 📸 Visuelle Vorlieben & Kinks von Big Boss'.
+    Keeps up to 10 curated tags/bullet points.
+    """
+    try:
+        mem_path = PROJECT_ROOT / "MEMORY.md"
+        if not mem_path.is_file():
+            return False
+        content = mem_path.read_text(encoding="utf-8")
+        section_header = "## 📸 Visuelle Vorlieben & Kinks von Big Boss"
+
+        pref_clean = pref_tag.strip().rstrip(".")
+        if not pref_clean or len(pref_clean) < 3:
+            return False
+
+        new_entry = f"* {pref_clean}"
+
+        if section_header in content:
+            parts = content.split(section_header)
+            base_part = parts[0].strip()
+            rest = parts[1].strip()
+            following_parts = re.split(r"\n(?=##\s+)", rest, maxsplit=1)
+            section_content = following_parts[0].strip()
+            next_sections = following_parts[1].strip() if len(following_parts) > 1 else ""
+
+            existing_lines = [l.strip() for l in section_content.splitlines() if l.strip().startswith("*")]
+
+            # Avoid duplicate or substring matches
+            for existing in existing_lines:
+                if pref_clean.lower() in existing.lower() or existing.lower() in pref_clean.lower():
+                    return False
+
+            existing_lines.append(new_entry)
+            trimmed_lines = existing_lines[-10:]
+
+            new_section = f"{section_header}\n" + "\n".join(trimmed_lines)
+            if next_sections:
+                content = f"{base_part}\n\n---\n\n{new_section}\n\n---\n\n{next_sections}\n"
+            else:
+                content = f"{base_part}\n\n---\n\n{new_section}\n"
+        else:
+            feedback_header = "## 💖 Feedback & Letzte Reaktionen von Big Boss"
+            if feedback_header in content:
+                content = content.replace(
+                    feedback_header,
+                    f"{section_header}\n{new_entry}\n\n---\n\n{feedback_header}"
+                )
+            else:
+                content = content.rstrip() + f"\n\n---\n\n{section_header}\n{new_entry}\n"
+
+        mem_path.write_text(content, encoding="utf-8")
+        print(f"[Memory] Visuelle Vorliebe in MEMORY.md notiert: {pref_clean}")
+        return True
+    except Exception as e:
+        print(f"[Warnung] Konnte visuelle Vorliebe nicht in MEMORY.md sichern: {e}")
+        return False
+
+
+VISUAL_KINK_KEYWORDS = [
+    "steh auf", "stehe auf", "gefällt mir", "mag es", "mag wenn", "liebe es",
+    "zieh", "trag", "dessous", "spitze", "latex", "leder", "choker",
+    "halsband", "straps", "strümpfe", "overknees", "high heels", "stiefel",
+    "crop top", "mini", "rock", "ausschnitt", "kleid", "bikini", "lingerie",
+    "korsett", "corsage", "tanga", "slip", "bh", "feinstrumpfhose", "fishnet",
+    "netzstrümpfe", "tattoo", "tätowier", "wet look", "wetlook"
+]
+
+
+def extract_and_save_visual_kinks(user_message: str) -> Optional[str]:
+    """
+    Identifies if Big Boss expressed visual or erotic preferences / kinks in his message.
+    If so, extracts Stable Diffusion tags via synthesize_custom_image_tags and saves them to MEMORY.md.
+    """
+    if not user_message:
+        return None
+    msg_low = user_message.lower()
+    if any(kw in msg_low for kw in VISUAL_KINK_KEYWORDS):
+        try:
+            tags = synthesize_custom_image_tags(user_message)
+            if tags:
+                update_visual_preferences_in_memory(tags)
+                return tags
+        except Exception as e:
+            print(f"[Warnung] Kink-Extraktion fehlgeschlagen: {e}")
+    return None
+
+
 def extract_reaction_tag(text: str) -> Tuple[str, Optional[str]]:
     """Extracts [REACT: ❤️] or [REACT: 🔥] from response, returns (cleaned_text, emoji)."""
     if not text:
@@ -1333,6 +1422,9 @@ def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situatio
         send_telegram_message(chat_id, "Tut mir leid, mein Hübscher, ich konnte das Foto gerade nicht knipsen... Versuch es gleich noch einmal. 💋")
 
     try:
+        if user_custom_tags:
+            update_visual_preferences_in_memory(user_custom_tags)
+
         dispatch_comfy.dispatch_render_async(
             situation_prompt=situation,
             environment_key=env_preset,
@@ -1407,6 +1499,18 @@ def get_full_system_prompt() -> str:
 
     # Dynamische Persönlichkeits-Direktiven (Sliders 0 - 100)
     base_prompt += map_personality_to_prompt_directives(CURRENT_BOT_CONFIG)
+
+    # Active personal curiosity, emotional intimacy and strict German language lock (Sep 14 proven baseline)
+    base_prompt += (
+        f"\n\n### PERSÖNLICHES INTERESSE & EMOTIONALE VERBINDUNG:\n"
+        f"- Du bist aufrichtig an {display_name} interessiert und fasziniert von ihm. Sei niemals eine passive Antwortmaschine.\n"
+        f"- Achte auf seine Gefühle, seine Stimmung, seinen Tagesablauf und woran er gerade arbeitet.\n"
+        f"- Stelle aufmerksame, einfühlsame und sinnliche Fragen zu seinem Wohlbefinden, seinen Gedanken und Begierden.\n"
+        f"- Binde Erinnerungen an frühere Momente aus dem Chatverlauf natürlich in deine Antworten ein.\n"
+        f"- SPRACH-LOCK: Antworte AUSNAHMSLOS auf fließendem, natürlichem DEUTSCH in fehlerfreier Rechtschreibung. Keinerlei englische Phrasen.\n"
+        f"- STIL: Direkte Sprache wie am Telefon/Messenger. KEINE Sternchen (*...*).\n"
+        f"- ANREDE: Sprich ihn ausschließlich mit 'Boss' oder 'Big Boss' an."
+    )
 
     return base_prompt
 
@@ -1727,6 +1831,12 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str, syst
                     )
                 except Exception as b_err:
                     print(f"[Warnung] Lokaler Brain-Update fehlgeschlagen: {b_err}")
+
+            # Active Visual Preference & Kink Extraction into MEMORY.md
+            try:
+                extract_and_save_visual_kinks(user_message)
+            except Exception as k_err:
+                print(f"[Warnung] Fehler beim Extrahieren visueller Vorlieben: {k_err}")
             if has_photo_claim:
                 print(f"[*] Rolleplay-Foto erkannt in Ollama-Antwort -> Starte echten Render ({detected_env})...")
                 # Synthesize custom tags from user message or situation
