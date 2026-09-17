@@ -595,13 +595,13 @@ def dispatch_render_async(
 class CompanionMemoryManager:
     """Manages long-term memory (MEMORY.md) and short-term chat history ring buffer (history.json)."""
 
-    def __init__(self, history_file: Path = HISTORY_PATH, memory_file: Path = MEMORY_PATH, max_length: int = 32):
+    def __init__(self, history_file: Path = HISTORY_PATH, memory_file: Path = MEMORY_PATH, max_length: int = 30):
         self.history_file = history_file
         self.memory_file = memory_file
-        self.max_length = max_length
+        self.max_length = max(30, max_length)
 
-    def load_history(self) -> List[Dict[str, Any]]:
-        """Loads messages from history.json with automatic glitch-token sanitization."""
+    def load_history(self, chat_id: Optional[int] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Loads messages from history.json with automatic glitch-token sanitization and optional chat_id filtering."""
         if not self.history_file.is_file():
             return []
         try:
@@ -616,15 +616,25 @@ class CompanionMemoryManager:
                     data["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                     atomic_save_json(self.history_file, data)
                     logger.info(f"Sanitized {removed} corrupted message(s) from {self.history_file.name}")
-                return cleaned_msgs
+                msgs = cleaned_msgs
             except ImportError:
-                return msgs
+                pass
+
+            if chat_id is not None:
+                # Include messages with matching chat_id or legacy messages without chat_id
+                msgs = [m for m in msgs if m.get("chat_id") is None or m.get("chat_id") == chat_id]
+
+            effective_limit = limit if (limit and limit > 0) else self.max_length
+            if len(msgs) > effective_limit:
+                msgs = msgs[-effective_limit:]
+
+            return msgs
         except Exception as e:
             logger.warning(f"Konnte history.json nicht laden: {e}")
             return []
 
-    def add_message(self, role: str, content: str, media_path: Optional[str] = None):
-        """Appends a message and preserves max_length (15 messages ring buffer)."""
+    def add_message(self, role: str, content: str, media_path: Optional[str] = None, chat_id: Optional[int] = None):
+        """Appends a message and preserves max_length ring buffer (minimum 30 messages)."""
         messages = self.load_history()
         msg_entry = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -633,6 +643,8 @@ class CompanionMemoryManager:
         }
         if media_path:
             msg_entry["media_path"] = str(media_path)
+        if chat_id is not None:
+            msg_entry["chat_id"] = chat_id
 
         try:
             from sanitize_history import is_corrupted_text
@@ -644,19 +656,24 @@ class CompanionMemoryManager:
             pass
         messages.append(msg_entry)
 
-        # Enforce ring buffer of max 15 messages
-        if len(messages) > self.max_length:
-            messages = messages[-self.max_length:]
+        # Enforce ring buffer of at least 30 messages
+        effective_limit = max(30, self.max_length)
+        if len(messages) > effective_limit:
+            messages = messages[-effective_limit:]
 
         payload = {
-            "max_length": self.max_length,
+            "max_length": effective_limit,
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "messages": messages
         }
 
         try:
-            with open(self.history_file, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2, ensure_ascii=False)
+            try:
+                from sanitize_history import atomic_save_json
+                atomic_save_json(self.history_file, payload)
+            except ImportError:
+                with open(self.history_file, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, indent=2, ensure_ascii=False)
         except Exception as e:
             logger.warning(f"Konnte history.json nicht speichern: {e}")
 

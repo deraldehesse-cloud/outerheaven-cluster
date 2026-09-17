@@ -206,7 +206,7 @@ STOP_TRIGGERS = list(dict.fromkeys(
 memory_mgr = CompanionMemoryManager(
     history_file=PROJECT_ROOT / "history.json",
     memory_file=PROJECT_ROOT / "MEMORY.md",
-    max_length=32
+    max_length=30
 )
 lovense_client = LovenseClient(env_file=PROJECT_ROOT / ".env")
 
@@ -318,7 +318,7 @@ def check_and_reload_bot_config():
             OLLAMA_REPEAT_LAST_N = int(llm["repeat_last_n"])
         if "max_history_turns" in llm:
             try:
-                memory_mgr.max_length = max(8, min(64, int(llm["max_history_turns"])))
+                memory_mgr.max_length = max(30, min(64, int(llm["max_history_turns"])))
             except Exception:
                 pass
 
@@ -656,6 +656,19 @@ def update_visual_preferences_in_memory(pref_tag: str) -> bool:
         if not pref_clean or len(pref_clean) < 3:
             return False
 
+        try:
+            from sanitize_history import is_corrupted_text
+            is_bad, _ = is_corrupted_text(pref_clean)
+            if is_bad:
+                print(f"[Warnung] Visuelle Vorliebe verworfen (korrumpierter Text): {pref_clean[:40]}...")
+                return False
+        except ImportError:
+            pass
+
+        if re.search(r",{2,}", pref_clean) or pref_clean.count(",") > 8 or "[" in pref_clean:
+            print(f"[Warnung] Visuelle Vorliebe verworfen (ungültige Zeichen/Loops): {pref_clean[:40]}...")
+            return False
+
         new_entry = f"* {pref_clean}"
 
         if section_header in content:
@@ -835,12 +848,14 @@ def send_telegram_photo(chat_id: int, photo_path: str, caption: str = "", reply_
         return False
 
 
-def answer_callback_query(callback_id: str, text: str = ""):
+def answer_callback_query(callback_id: str, text: str = "", show_alert: bool = False):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
     try:
         payload = {"callback_query_id": callback_id}
         if text:
             payload["text"] = text
+        if show_alert is not None:
+            payload["show_alert"] = show_alert
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
         print(f"[Warnung] answerCallbackQuery fehlgeschlagen: {e}")
@@ -881,10 +896,17 @@ def handle_telegram_callback_query(cb: Dict[str, Any]):
         return
 
     if data.startswith("rate_good:"):
-        answer_callback_query(cb_id, "❤️ Als Favorit gesichert! [USER_APPROVED]")
+        answer_callback_query(cb_id, text="Feedback erfasst! 👍", show_alert=False)
+        try:
+            display_name = get_user_display_name()
+            feedback_note = f"{display_name} gefällt das Bild (Button-Feedback: Gefällt mir 👍)"
+            append_to_long_term_memory(feedback_note)
+            memory_mgr.add_message("user", f"[{display_name} bewertet das generierte Bild mit: Gefällt mir 👍]", chat_id=chat_id)
+        except Exception as e:
+            print(f"[Warnung] Fehler beim Sichern des positiven Feedbacks: {e}")
         new_markup = {
             "inline_keyboard": [
-                [{"text": "❤️ Gesichert [USER_APPROVED]", "callback_data": "noop"}]
+                [{"text": "✅ Gefällt mir", "callback_data": "noop"}]
             ]
         }
         edit_telegram_message_reply_markup(chat_id, msg_id, new_markup)
@@ -1500,8 +1522,16 @@ def synthesize_custom_image_tags(user_message: str) -> str:
             # Clean unwanted artifacts, prefixes or markdown
             raw_tags = re.sub(r'^(Tags|Prompt|Visual specifications|Stable Diffusion Tags):', '', raw_tags, flags=re.IGNORECASE).strip()
             raw_tags = raw_tags.strip('"\'`').rstrip('.')
-            # Filter out non-tag conversational chatter if any
-            if "nur die tags" in raw_tags.lower() or len(raw_tags) < 3:
+            # Filter out non-tag conversational chatter or corrupted text
+            try:
+                from sanitize_history import is_corrupted_text
+                is_bad, _ = is_corrupted_text(raw_tags)
+                if is_bad:
+                    raw_tags = ""
+            except ImportError:
+                pass
+
+            if "nur die tags" in raw_tags.lower() or len(raw_tags) < 3 or re.search(r",{2,}", raw_tags) or raw_tags.count(",") > 15:
                 raw_tags = ""
             if raw_tags:
                 print(f"[✔] Dynamische Bild-Tags erfolgreich synthetisiert: '{raw_tags}'")
@@ -1570,7 +1600,8 @@ def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situatio
             memory_mgr.add_message(
                 "assistant",
                 f"{spoken_text} [Foto gesendet: {caption}]",
-                media_path=img_path
+                media_path=img_path,
+                chat_id=chat_id
             )
         else:
             send_telegram_message(chat_id, "Tut mir leid, mein Hübscher... das Bild konnte nicht geladen werden. 💋")
@@ -1975,8 +2006,8 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str, syst
                 assistant_reply = "Hey Boss, ich bin gerade voll auf dich konzentriert... Sag mal, was hast du heute Schönes vor?"
 
             # Record in ring buffer
-            memory_mgr.add_message("user", user_message)
-            memory_mgr.add_message("assistant", assistant_reply)
+            memory_mgr.add_message("user", user_message, chat_id=chat_id)
+            memory_mgr.add_message("assistant", assistant_reply, chat_id=chat_id)
 
             # Local Brain-Loop: learn preferences and preserve interaction history (quarantine-enforced)
             if brain_engine:
@@ -2278,6 +2309,8 @@ def main():
     print(f"[*] Session Stop Triggers: {STOP_TRIGGERS}")
     print(f"[*] Whitelist aktiv für User-ID: {ALLOWED_USER_ID}")
     print(f"[*] Ring-Buffer & Memory: {memory_mgr.history_file}")
+    startup_history = memory_mgr.load_history()
+    print(f"[*] Chat-Historie persistent angebunden: {len(startup_history)} Nachrichten aus {memory_mgr.history_file.name} erfolgreich geladen (Ring-Buffer Limit: {memory_mgr.max_length})")
     print(f"[*] Ollama Vision: {get_available_vision_model()}")
     print("[*] Polling läuft... Drücke STRG+C zum Beenden.")
 
@@ -2607,6 +2640,7 @@ def main():
                             situation = parts[2] if len(parts) > 2 else ""
                             if user_msg_id:
                                 send_telegram_reaction(chat_id, user_msg_id, "🔥")
+                            memory_mgr.add_message("user", text, chat_id=chat_id)
                             custom_tags = synthesize_custom_image_tags(situation if situation else text)
                             trigger_async_photo(chat_id, env_preset=env, situation=situation, user_custom_tags=custom_tags)
 
@@ -2615,6 +2649,7 @@ def main():
                             _, env, situation = detect_photo_intent(text)
                             if user_msg_id:
                                 send_telegram_reaction(chat_id, user_msg_id, "🔥")
+                            memory_mgr.add_message("user", text, chat_id=chat_id)
                             custom_tags = synthesize_custom_image_tags(text)
                             trigger_async_photo(chat_id, env_preset=env, situation=situation, user_custom_tags=custom_tags)
 

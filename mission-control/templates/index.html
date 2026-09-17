@@ -108,9 +108,9 @@
 
   <!-- Top Header Navigation -->
   <header class="border-b border-cyan-dim bg-slate-950/80 backdrop-blur sticky top-0 z-30 px-4 py-2.5">
-    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+    <div class="w-full max-w-[1720px] mx-auto flex items-center justify-between gap-3 flex-nowrap">
       <!-- Left: Tactical Insignia & Title -->
-      <div class="flex items-center space-x-3">
+      <div class="flex items-center space-x-3 shrink-0">
         <div class="relative flex items-center justify-center">
           <svg class="w-8 h-8 text-cyan-400 filter drop-shadow hover:text-amber-400 transition cursor-pointer" viewBox="0 0 100 100" fill="none" stroke="currentColor" title="Outer Heaven / Foxhound Insignia">
             <polygon points="50,4 92,26 92,74 50,96 8,74 8,26" stroke="currentColor" stroke-width="2.5" fill="#040711" />
@@ -138,30 +138,30 @@
       </div>
 
       <!-- Center: Tactical Tool Launch Bar (Desktop Direct Links) -->
-      <div class="flex items-center space-x-2 text-xs">
-        <span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider hidden lg:inline">TACTICAL DEPLOY:</span>
+      <div class="flex items-center space-x-2 text-xs shrink-0 whitespace-nowrap overflow-x-auto no-scrollbar">
+        <span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider hidden xl:inline">TACTICAL DEPLOY:</span>
         <a href="http://127.0.0.1:3000" target="_blank" rel="noopener noreferrer"
-           class="px-2.5 py-1 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-800/60 hover:border-cyan-400 text-cyan-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-cyan"
+           class="px-2.5 py-1 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-800/60 hover:border-cyan-400 text-cyan-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-cyan shrink-0 whitespace-nowrap"
            title="Anti-Gravity Web-Interface / Port öffnen">
           <span>⚡ Anti-Gravity</span>
         </a>
         <a href="cursor://"
-           class="px-2.5 py-1 bg-slate-900/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-200 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition"
+           class="px-2.5 py-1 bg-slate-900/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-200 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition shrink-0 whitespace-nowrap"
            title="Cursor IDE auf Host öffnen (cursor://)">
           <span>💻 Cursor / Dev</span>
         </a>
         <a href="http://{{ outerheaven_ip }}:8188" target="_blank" rel="noopener noreferrer"
-           class="px-2.5 py-1 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 hover:border-amber-400 text-amber-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-amber"
+           class="px-2.5 py-1 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 hover:border-amber-400 text-amber-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-amber shrink-0 whitespace-nowrap"
            title="ComfyUI Studio auf Outer Heaven öffnen (:8188)">
           <span>🎨 ComfyUI Studio</span>
         </a>
         <button type="button" id="btnHeaderMeganStudio" onclick="selectWorkspace('megan')"
-           class="px-2.5 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink"
+           class="px-2.5 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink shrink-0 whitespace-nowrap"
            title="Megan Studio (3-Spalten Lovense, Prompts & Lore)">
           <span>💋 Megan Studio</span>
         </button>
         <button type="button" id="btnHeaderAppearance" onclick="window.openAppearanceModal ? window.openAppearanceModal() : (document.getElementById('appearancePresetModal').classList.remove('hidden'), document.getElementById('appearancePresetModal').style.display='flex')"
-           class="px-2.5 py-1 bg-purple-950/40 hover:bg-purple-900/60 border border-purple-800/60 hover:border-purple-400 text-purple-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-purple"
+           class="px-2.5 py-1 bg-purple-950/40 hover:bg-purple-900/60 border border-purple-800/60 hover:border-purple-400 text-purple-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-purple shrink-0 whitespace-nowrap"
            title="RPG Charakter Creator / Aussehen-Presets">
           <span>👤 Aussehen</span>
         </button>
@@ -1202,11 +1202,11 @@
                 <!-- Positiv Preset Controls -->
                 <div class="flex items-center space-x-2 pt-1">
                   <select id="meganPosPresetSelect" onchange="loadMeganPosPreset(this.value)"
-                          class="flex-1 bg-black border border-slate-700 text-pink-300 text-xs rounded px-2 py-1 focus:border-pink-500 focus:outline-none">
+                          class="flex-1 h-8 bg-black border border-slate-700 text-pink-300 text-xs rounded px-2.5 focus:border-pink-500 focus:outline-none">
                     <option value="">📂 Positiv-Preset laden...</option>
                   </select>
                   <button type="button" onclick="saveMeganPosPreset()"
-                          class="px-2.5 py-1 bg-pink-950/70 hover:bg-pink-900 border border-pink-700/80 text-pink-200 rounded text-xs font-bold transition flex items-center space-x-1 shrink-0"
+                          class="h-8 px-2.5 bg-pink-950/70 hover:bg-pink-900 border border-pink-700/80 text-pink-200 rounded text-xs font-bold transition flex items-center space-x-1 shrink-0"
                           title="Aktuellen Positiv-Prompt als Preset speichern">
                     <span>💾</span> <span>Als Preset speichern</span>
                   </button>
@@ -1229,11 +1229,11 @@
                 <!-- Negativ Preset Controls -->
                 <div class="flex items-center space-x-2 pt-1">
                   <select id="meganNegPresetSelect" onchange="loadMeganNegPreset(this.value)"
-                          class="flex-1 bg-black border border-slate-700 text-slate-300 text-xs rounded px-2 py-1 focus:border-pink-500 focus:outline-none">
+                          class="flex-1 h-8 bg-black border border-slate-700 text-slate-300 text-xs rounded px-2.5 focus:border-pink-500 focus:outline-none">
                     <option value="">📂 Negativ-Preset laden...</option>
                   </select>
                   <button type="button" onclick="saveMeganNegPreset()"
-                          class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1 shrink-0"
+                          class="h-8 px-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1 shrink-0"
                           title="Aktuellen Negativ-Prompt als Preset speichern">
                     <span>💾</span> <span>Als Negativ-Preset speichern</span>
                   </button>
@@ -2267,7 +2267,7 @@
       </div>
 
       <!-- Scrollable Form Body -->
-      <div class="flex-1 overflow-y-auto p-4 space-y-3.5 scrollbar-thin">
+      <div class="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3.5 scrollbar-thin">
         
         <!-- Profile Identity Basics -->
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
