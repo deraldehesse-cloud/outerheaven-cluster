@@ -74,10 +74,9 @@
   function populatePresetForm(p) {
     currentPresetId = p.id;
 
-    // Header metadata
+    // 1. Profile Basics
     setVal('appPresetId', p.id || '');
     setVal('appPresetName', p.name || '');
-    setVal('appPresetHeight', p.prompt_height || '');
     setVal('appPresetDesc', p.description || '');
 
     const badge = document.getElementById('appearanceActiveBadge');
@@ -89,23 +88,48 @@
       }
     }
 
-    // Left Column: Visual Tags
+    // 2. SCHRITT 2: RPG-Kopfleiste (Strukturierte Attribute)
+    const rpg = p.rpg || {};
     const vis = p.visual || {};
+    const bodyStr = (vis.body || '').toLowerCase();
+
+    // Gender fallback
+    let genderVal = rpg.gender || '';
+    if (!genderVal) {
+      if (bodyStr.includes('1boy') || bodyStr.includes('male') || bodyStr.includes('man')) {
+        genderVal = 'Männlich';
+      } else if (bodyStr.includes('androgynous') || bodyStr.includes('1person')) {
+        genderVal = 'Androgyn';
+      } else {
+        genderVal = 'Weiblich';
+      }
+    }
+    setVal('appRpgGender', genderVal);
+
+    // Age
+    setVal('appRpgAge', rpg.age || (bodyStr.includes('teen') ? '20' : '24'));
+
+    // Height
+    setVal('appPresetHeight', rpg.height || p.prompt_height || extractHeightFromText(bodyStr) || '168cm tall');
+
+    // Hair Color
+    setVal('appPresetHairColor', rpg.hair_color || vis.hair_color || extractColorFromText(vis.hair || '', 'hair') || 'Dark brown');
+
+    // Eye Color
+    setVal('appPresetEyeColor', rpg.eye_color || vis.eye_color || extractColorFromText(vis.eyes || '', 'eyes') || 'Green-blue');
+
+    // 3. SCHRITT 3: Linke Spalte (Visuelle ComfyUI-Tags)
     setVal('appPresetBody', vis.body || '');
-    setVal('appPresetEyeColor', vis.eye_color || '');
-    setVal('appPresetEyeShape', vis.eye_shape || vis.eyes || '');
-    setVal('appPresetHairColor', vis.hair_color || '');
     setVal('appPresetHairCut', vis.hair_style || vis.hair || '');
+    setVal('appPresetEyeShape', vis.eye_shape || vis.eyes || '');
     setVal('appPresetFeatures', vis.features || '');
 
-    // Right Column: Narrative Lore
+    // 4. SCHRITT 3: Rechte Spalte (Narrative Chat-Lore)
     const lore = p.physical_chat_lore || {};
-    setVal('appLoreStatur', lore.statur || '');
-    setVal('appLoreOberweite', lore.oberweite || '');
-    setVal('appLoreGesicht', lore.gesicht || '');
-    setVal('appLoreHaare', lore.haare || '');
-    setVal('appLoreMarkant', lore.markantes_merkmal || '');
-    setVal('appLoreKoerper', lore.koerperliche_merkmale || '');
+    setVal('appLoreSelbstbild', lore.selbstbild || lore.statur || '');
+    setVal('appLoreIntim', lore.intime_details || lore.oberweite || '');
+    setVal('appLoreGestik', lore.gestik_haltung || lore.gesicht || lore.koerperliche_merkmale || '');
+    setVal('appLoreMarkant', lore.signatur_merkmale || lore.markantes_merkmal || '');
 
     updateCombinedVisualPreview();
     updateLorePreview();
@@ -121,136 +145,175 @@
     return el ? el.value.trim() : '';
   }
 
+  function extractHeightFromText(txt) {
+    const m = txt.match(/\b(\d{3}\s*cm\s*tall|\d[.,]\d{2}\s*m)\b/i);
+    return m ? m[0] : '';
+  }
+
+  function extractColorFromText(txt, type) {
+    if (!txt) return '';
+    const clean = txt.replace(new RegExp(type, 'gi'), '').replace(/,/g, '').trim();
+    return clean || txt;
+  }
+
   window.updateCombinedVisualPreview = function() {
-    const body = getVal('appPresetBody');
-    const eyeCol = getVal('appPresetEyeColor');
-    const eyeShape = getVal('appPresetEyeShape');
+    const gender = getVal('appRpgGender');
+    const age = getVal('appRpgAge');
+    const height = getVal('appPresetHeight');
     const hairCol = getVal('appPresetHairColor');
+    const eyeCol = getVal('appPresetEyeColor');
+
+    const body = getVal('appPresetBody');
     const hairCut = getVal('appPresetHairCut');
-    const feat = getVal('appPresetFeatures');
+    const eyeShape = getVal('appPresetEyeShape');
+    const features = getVal('appPresetFeatures');
 
-    const parts = [];
-    if (body) parts.push(body);
-    if (eyeCol || eyeShape) parts.push([eyeCol, eyeShape].filter(Boolean).join(', '));
-    if (hairCol || hairCut) parts.push([hairCol, hairCut].filter(Boolean).join(', '));
-    if (feat) parts.push(feat);
+    const tags = [];
 
-    const comb = parts.filter(Boolean).join(', ');
+    // Base subject
+    if (gender === 'Männlich') tags.push('1boy, solo');
+    else if (gender === 'Androgyn') tags.push('1person, solo, androgynous');
+    else tags.push('1girl, solo');
+
+    if (height && !body.toLowerCase().includes(height.toLowerCase())) tags.push(height);
+    if (age && !body.toLowerCase().includes(`${age}yo`)) {
+      const numAge = parseInt(age);
+      if (!isNaN(numAge)) tags.push(`${numAge}yo`);
+    }
+
+    if (body) {
+      // Avoid duplicating 1girl/solo
+      const cleanBody = body.replace(/^(1girl|1boy|1person|solo|\s*,\s*)+/gi, '').trim();
+      if (cleanBody) tags.push(cleanBody);
+    }
+
+    // Hair
+    const hairParts = [hairCol, hairCut].filter(Boolean);
+    if (hairParts.length) tags.push(hairParts.join(', '));
+
+    // Eyes
+    const eyeParts = [eyeCol, eyeShape].filter(Boolean);
+    if (eyeParts.length) tags.push(eyeParts.join(', '));
+
+    // Features
+    if (features) tags.push(features);
+
+    const comb = tags.filter(Boolean).join(', ');
     const previewEl = document.getElementById('appPresetCombinedPreview');
     if (previewEl) {
-      previewEl.textContent = comb || '1girl, solo, ... (Wird automatisch aus den Feldern zusammengestellt)';
+      previewEl.textContent = comb || '1girl, solo, ... (Wird automatisch zusammengestellt)';
     }
     return comb;
   };
 
   window.updateLorePreview = function() {
-    const statur = getVal('appLoreStatur');
-    const oberweite = getVal('appLoreOberweite');
-    const gesicht = getVal('appLoreGesicht');
-    const haare = getVal('appLoreHaare');
+    const selbstbild = getVal('appLoreSelbstbild');
+    const intim = getVal('appLoreIntim');
+    const gestik = getVal('appLoreGestik');
     const markant = getVal('appLoreMarkant');
-    const koerper = getVal('appLoreKoerper');
 
     const previewEl = document.getElementById('appLoreSystemPromptPreview');
     if (previewEl) {
       previewEl.textContent =
 `### PHYSISCHE PRÄSENZ & EROTIK (AUS DEM PROFIL)
-* **Statur & Silhouette:** ${statur || '--'}
-* **Oberweite:** ${oberweite || '--'}
-* **Gesicht & Blick:** ${gesicht || '--'}
-* **Haare:** ${haare || '--'}
-* **Markantes Merkmal:** ${markant || '--'}
-* **Körperliche Merkmale:** ${koerper || '--'}`;
+* **Selbstbild & Physis:** ${selbstbild || '--'}
+* **Intime Details & Dekolleté:** ${intim || '--'}
+* **Gestik & Haltung:** ${gestik || '--'}
+* **Signatur-Merkmale:** ${markant || '--'}`;
     }
   };
 
   /**
    * [ ✨ Aus Merkmalen generieren ]
-   * Translates visual ComfyUI tags into natural German narrative lore.
+   * Liest RPG-Kopfdaten + visuelle Tags aus und baut automatisch zusammenhängende deutsche Lore-Sätze.
    */
   window.generateLoreFromVisualTags = function() {
-    const body = getVal('appPresetBody').toLowerCase();
-    const eyeCol = getVal('appPresetEyeColor');
-    const eyeShape = getVal('appPresetEyeShape');
-    const hairCol = getVal('appPresetHairColor');
-    const hairCut = getVal('appPresetHairCut');
-    const features = getVal('appPresetFeatures');
+    const gender = getVal('appRpgGender') || 'Weiblich';
+    const age = getVal('appRpgAge') || '24';
     const height = getVal('appPresetHeight');
+    const hairCol = getVal('appPresetHairColor');
+    const eyeCol = getVal('appPresetEyeColor');
 
-    // 1. Statur & Silhouette
-    let staturText = '';
+    const body = getVal('appPresetBody').toLowerCase();
+    const hairCut = getVal('appPresetHairCut');
+    const eyeShape = getVal('appPresetEyeShape');
+    const features = getVal('appPresetFeatures');
+
+    // --- 1. Selbstbild & Physis ---
+    let heightFormatted = '';
     if (height) {
-      staturText += `${height.replace(/tall/i, '').trim()} groß. `;
+      const cmMatch = height.match(/(\d{3})/);
+      if (cmMatch) {
+        const meters = (parseInt(cmMatch[1]) / 100).toFixed(2).replace('.', ',');
+        heightFormatted = `${meters} m groß`;
+      } else {
+        heightFormatted = height.replace(/tall/i, '').trim();
+      }
     }
+
+    let personDesc = 'junge Frau';
+    if (gender === 'Männlich') personDesc = 'junger Mann';
+    else if (gender === 'Androgyn') personDesc = 'androgyne Person';
+
+    let agePart = age ? `${age} Jahre alt` : 'Anfang zwanzig';
+    let baseIntro = [heightFormatted, agePart].filter(Boolean).join(', ');
+    if (baseIntro) baseIntro += `. Eine attraktive ${personDesc} `;
+    else baseIntro = `Eine attraktive ${personDesc} `;
+
+    let buildDesc = '';
     if (body.includes('slender') && body.includes('athletic')) {
-      staturText += 'Schlank und athletisch trainiert mit einer femininen Sanduhr-Figur.';
+      buildDesc = 'mit schlankem, athletisch durchtrainiertem Körperbau und sehr femininer Sanduhr-Figur.';
     } else if (body.includes('curvy') || body.includes('voluptuous')) {
-      staturText += 'Sinnlich kurvig mit üppigen, wohlgeformten weiblichen Rundungen und schmaler Taille.';
+      buildDesc = 'mit sinnlich üppigen Rundungen, schmaler Taille und weichen, femininen Kurven.';
     } else if (body.includes('petite')) {
-      staturText += 'Zierlich und feminin mit straffem, jugendlich anmutendem Körperbau.';
+      buildDesc = 'mit zierlicher, kompakter und sportlich straffer Statur.';
+    } else if (body.includes('toned') || body.includes('fit')) {
+      buildDesc = 'mit sportlich straffem Körper, klar definierten Linien und natürlicher Eleganz.';
     } else {
-      staturText += 'Schlanke und wohlproportionierte weibliche Silhouette mit weichen Kurven.';
+      buildDesc = 'mit harmonischer, wohlproportionierter Silhouette und eleganter Ausstrahlung.';
     }
-    setVal('appLoreStatur', staturText.trim());
+    setVal('appLoreSelbstbild', (baseIntro + buildDesc).trim());
 
-    // 2. Oberweite & Dekolleté
-    let oberweiteText = '';
+    // --- 2. Intime/Physische Details (Dekolleté/Vorlieben) ---
+    let intimText = '';
     if (body.includes('very large') || body.includes('heavy breasts') || body.includes('huge breasts')) {
-      oberweiteText = 'Sehr große, pralle und wunderschön geformte natürliche Brüste mit tiefem, atemberaubendem Dekolleté.';
-    } else if (body.includes('large breasts')) {
-      oberweiteText = 'Große, straffe und perfekt geformte Brüste, die jedes Top verführerisch ausfüllen.';
+      intimText = 'Sehr große, pralle und wunderschön geformte natürliche Brüste mit tiefem, atemberaubendem Dekolleté, flachem Bauch und samtweicher, makelloser Haut.';
+    } else if (body.includes('large breasts') || body.includes('big breasts')) {
+      intimText = 'Große, feste und wohlgeformte Brüste, die jedes Top verführerisch ausfüllen, sowie sinnlich geschwungene Hüften.';
     } else if (body.includes('medium breasts')) {
-      oberweiteText = 'Wohlgeformte, straffe und natürlich proportionierte Oberweite.';
+      intimText = 'Wohlproportionierte, straffe und natürlich geformte Oberweite mit sanften Rundungen und zarter Haut.';
     } else if (body.includes('small breasts') || body.includes('petite breasts')) {
-      oberweiteText = 'Zarte, straffe und feste kleine Brüste mit empfindlichen Knospen.';
+      intimText = 'Zarte, straffe und feste kleine Brüste mit empfindlichen Knospen und flachem trainiertem Bauch.';
     } else {
-      oberweiteText = 'Straffe, feste und perfekt geformte Brüste mit wohlgeformten Rundungen.';
+      intimText = 'Perfekt geformte, feste Oberweite mit sinnlichem Dekolleté, knackigem Hintern und seidig glatter Haut.';
     }
-    setVal('appLoreOberweite', oberweiteText);
+    setVal('appLoreIntim', intimText);
 
-    // 3. Gesicht & Blick
-    let gesichtText = '';
-    const augenFarbeDe = translateColor(eyeCol);
-    const augenBlick = eyeShape || 'sanfter, betörender Blick';
-    if (augenFarbeDe) {
-      gesichtText = `Wunderschönes, markantes Gesicht mit faszinierenden ${augenFarbeDe}en Augen (${augenBlick}) und vollen, leicht glänzenden Lippen.`;
-    } else {
-      gesichtText = `Wunderschönes, feminines Gesicht mit ausdrucksstarkem Blick (${augenBlick}) und sanft geschwungenen Lippen.`;
-    }
-    setVal('appLoreGesicht', gesichtText);
+    // --- 3. Gestik / Haltung ---
+    const augenFarbeDe = translateColor(eyeCol) || 'ausdrucksstarken';
+    const augenBlick = eyeShape || 'betörender, direkter Blick';
+    let gestikText = `Selbstbewusste und offene Körpersprache; faszinierende ${augenFarbeDe}e Augen mit unverstelltem Ausdruck (${augenBlick}) und einem verspielten, leicht fordernden Lächeln.`;
+    setVal('appLoreGestik', gestikText);
 
-    // 4. Haare & Frisur
-    let haareText = '';
-    const haarFarbeDe = translateColor(hairCol);
-    const schnitt = hairCut || 'weiche Wellen';
-    if (haarFarbeDe) {
-      haareText = `Glänzende, seidige ${haarFarbeDe}e Haare im Stil: ${schnitt}.`;
-    } else {
-      haareText = `Seidig glänzende, verführerische Haare (${schnitt}).`;
-    }
-    setVal('appLoreHaare', haareText);
+    // --- 4. Signatur-Merkmale (Haare, Tattoos, Piercings) ---
+    const haarFarbeDe = translateColor(hairCol) || 'gepflegte';
+    const schnitt = hairCut || 'natürliche Wellen';
+    let markantParts = [];
+    markantParts.push(`Seidig glänzende, ${haarFarbeDe}e Haare im Stil: ${schnitt}`);
 
-    // 5. Markantes Merkmal (Tattoos & Piercings)
-    let markantText = '';
     if (features) {
       if (features.toLowerCase().includes('sleeve')) {
-        markantText = 'Ein kunstvolles, detailreiches Sleeve-Tattoo auf dem linken Arm sowie feine Piercings.';
+        markantParts.push('ein massives, kunstvoll detailliertes Sleeve-Tattoo auf dem linken Arm sowie feiner Körperschmuck');
       } else if (features.toLowerCase().includes('tattoo')) {
-        markantText = `Einzigartige Tattoo-Verzierungen (${features}) und dezent blitzender Körperschmuck.`;
+        markantParts.push(`charakteristische Verzierungen (${features})`);
       } else {
-        markantText = `Besondere körperliche Akzente: ${features}.`;
+        markantParts.push(`besondere Akzente: ${features}`);
       }
     } else {
-      markantText = 'Ein dezentes silbernes Bauchnabel-Piercing und samtweiche, makellose Haut.';
+      markantParts.push('ein dezentes silbernes Bauchnabel-Piercing und makellose, reine Haut');
     }
-    setVal('appLoreMarkant', markantText);
 
-    // 6. Körperliche Merkmale
-    let koerperText = 'Flacher, leicht definierter Bauch, straffer trainierter Hintern und samtige, sonnengeküsste Haut.';
-    if (body.includes('abs') || body.includes('toned stomach')) {
-      koerperText = 'Deutlich sichtbare Bauchmuskeln, flacher durchtrainierter Bauch, fester knackiger Po und samtweiche Haut.';
-    }
-    setVal('appLoreKoerper', koerperText);
+    setVal('appLoreMarkant', markantParts.join(' sowie ') + '.');
 
     updateLorePreview();
 
@@ -258,21 +321,23 @@
     const rightCol = document.getElementById('appearanceModalRightCol');
     if (rightCol) {
       rightCol.classList.add('ring-2', 'ring-pink-500');
-      setTimeout(() => rightCol.classList.remove('ring-2', 'ring-pink-500'), 1000);
+      setTimeout(() => rightCol.classList.remove('ring-2', 'ring-pink-500'), 800);
     }
   };
 
   function translateColor(col) {
     if (!col) return '';
     const c = col.toLowerCase();
+    if (c.includes('orange') || c.includes('ginger')) return 'leuchtend orange/kupferrot';
     if (c.includes('dark brown')) return 'dunkelbraun';
     if (c.includes('brown')) return 'braun';
-    if (c.includes('auburn')) return 'kupferbraun';
-    if (c.includes('blonde')) return 'blond';
+    if (c.includes('auburn')) return 'kastanienbraun';
+    if (c.includes('blonde') || c.includes('blond')) return 'blond';
     if (c.includes('black')) return 'tiefschwarz';
     if (c.includes('green-blue') || c.includes('blue-green')) return 'grün-blau';
     if (c.includes('hazel')) return 'haselnussbraun';
-    if (c.includes('green')) return 'smaragdgrün';
+    if (c.includes('amber')) return 'bernsteinfarben';
+    if (c.includes('green') || c.includes('emerald')) return 'smaragdgrün';
     if (c.includes('blue')) return 'strahlend blau';
     if (c.includes('grey') || c.includes('gray')) return 'silbergrau';
     return col;
@@ -280,18 +345,26 @@
 
   window.initNewAppearancePreset = function() {
     currentPresetId = '';
-    setVal('appPresetId', 'megan_custom_' + Math.floor(Math.random() * 1000));
-    setVal('appPresetName', 'Megan (Neues Aussehen)');
-    setVal('appPresetHeight', '178cm tall');
-    setVal('appPresetDesc', 'Individuelles Aussehen');
-    setVal('appPresetBody', '1girl, solo, 178cm tall, slender athletic build, voluptuous hourglass figure, very large full natural breasts, flat toned stomach');
-    setVal('appPresetEyeColor', 'green-blue eyes');
-    setVal('appPresetEyeShape', 'alluring captivating gaze, playful seductive smile');
-    setVal('appPresetHairColor', 'dark brown hair');
+    const randomId = 'megan_rpg_' + Math.floor(Math.random() * 1000);
+    setVal('appPresetId', randomId);
+    setVal('appPresetName', 'Megan (RPG Custom)');
+    setVal('appPresetDesc', 'Individuell erstelltes RPG-Aussehen');
+
+    // RPG attributes
+    setVal('appRpgGender', 'Weiblich');
+    setVal('appRpgAge', '24');
+    setVal('appPresetHeight', '168cm tall');
+    setVal('appPresetHairColor', 'Orange/Ginger');
+    setVal('appPresetEyeColor', 'Grün-Blau');
+
+    // Visual tags
+    setVal('appPresetBody', '1girl, solo, 168cm tall, slender athletic build, voluptuous hourglass figure, very large full natural breasts, flat toned stomach');
     setVal('appPresetHairCut', 'long layered hair, soft natural waves');
-    setVal('appPresetFeatures', 'massive intricate sleeve tattoo left arm, silver navel piercing');
+    setVal('appPresetEyeShape', 'alluring captivating gaze, playful seductive smile');
+    setVal('appPresetFeatures', 'massive intricate sleeve tattoo left arm, subtle navel piercing');
 
     window.generateLoreFromVisualTags();
+
     const badge = document.getElementById('appearanceActiveBadge');
     if (badge) badge.classList.add('hidden');
   };
@@ -299,8 +372,26 @@
   window.saveAppearancePresetForm = async function() {
     const id = getVal('appPresetId') || 'megan_custom';
     const name = getVal('appPresetName') || id;
-    const height = getVal('appPresetHeight');
     const desc = getVal('appPresetDesc');
+
+    // RPG data
+    const gender = getVal('appRpgGender') || 'Weiblich';
+    const age = getVal('appRpgAge') || '24';
+    const height = getVal('appPresetHeight');
+    const hairColor = getVal('appPresetHairColor');
+    const eyeColor = getVal('appPresetEyeColor');
+
+    // Visual tags
+    const body = getVal('appPresetBody');
+    const hairCut = getVal('appPresetHairCut');
+    const eyeShape = getVal('appPresetEyeShape');
+    const features = getVal('appPresetFeatures');
+
+    // Lore fields
+    const selbstbild = getVal('appLoreSelbstbild');
+    const intim = getVal('appLoreIntim');
+    const gestik = getVal('appLoreGestik');
+    const markant = getVal('appLoreMarkant');
 
     const statusEl = document.getElementById('appearanceModalStatus');
     if (statusEl) {
@@ -313,25 +404,37 @@
       name: name,
       description: desc,
       prompt_height: height,
+      rpg: {
+        gender: gender,
+        age: age,
+        height: height,
+        hair_color: hairColor,
+        eye_color: eyeColor
+      },
       visual: {
-        body: getVal('appPresetBody'),
-        eyes: [getVal('appPresetEyeColor'), getVal('appPresetEyeShape')].filter(Boolean).join(', '),
-        eye_color: getVal('appPresetEyeColor'),
-        eye_shape: getVal('appPresetEyeShape'),
-        hair: [getVal('appPresetHairColor'), getVal('appPresetHairCut')].filter(Boolean).join(', '),
-        hair_color: getVal('appPresetHairColor'),
-        hair_style: getVal('appPresetHairCut'),
-        face: [getVal('appPresetEyeColor'), getVal('appPresetEyeShape')].filter(Boolean).join(', '),
-        features: getVal('appPresetFeatures'),
+        body: body,
+        eyes: [eyeColor, eyeShape].filter(Boolean).join(', '),
+        eye_color: eyeColor,
+        eye_shape: eyeShape,
+        hair: [hairColor, hairCut].filter(Boolean).join(', '),
+        hair_color: hairColor,
+        hair_style: hairCut,
+        face: [eyeColor, eyeShape].filter(Boolean).join(', '),
+        features: features,
         style_aesthetic: 'photorealistic, raw photo, 8k uhd, dslr, high quality, soft studio lighting, rim lighting, vibrant, well-lit, high key, detailed skin texture, natural skin pores'
       },
       physical_chat_lore: {
-        statur: getVal('appLoreStatur'),
-        oberweite: getVal('appLoreOberweite'),
-        gesicht: getVal('appLoreGesicht'),
-        haare: getVal('appLoreHaare'),
-        markantes_merkmal: getVal('appLoreMarkant'),
-        koerperliche_merkmale: getVal('appLoreKoerper')
+        selbstbild: selbstbild,
+        intime_details: intim,
+        gestik_haltung: gestik,
+        signatur_merkmale: markant,
+        // Standard mappings for character.json system_prompt synchronization:
+        statur: selbstbild,
+        oberweite: intim,
+        gesicht: gestik,
+        haare: `Glänzende ${hairColor ? translateColor(hairColor) + 'e' : 'schöne'} Haare (${hairCut || 'weiche Wellen'}).`,
+        markantes_merkmal: markant,
+        koerperliche_merkmale: gestik
       }
     };
 
@@ -369,7 +472,7 @@
       return;
     }
 
-    // Save first to ensure latest edits are captured
+    // Save first to capture any unsaved edits
     await window.saveAppearancePresetForm();
 
     const statusEl = document.getElementById('appearanceModalStatus');
@@ -385,7 +488,7 @@
       const data = await res.json();
       if (res.ok && data.success) {
         if (statusEl) {
-          statusEl.textContent = `✔ Aussehen '${id}' ist jetzt aktiv! (Bot neu gestartet)`;
+          statusEl.textContent = `✔ Profil '${id}' aktiv! (Cluster-Sync & Bot-Reload)`;
           statusEl.className = 'text-xs font-mono text-emerald-400';
         }
         await loadAppearancePresets();
@@ -432,12 +535,23 @@
 
   // Bind live preview listeners
   document.addEventListener('DOMContentLoaded', () => {
-    ['appPresetBody', 'appPresetEyeColor', 'appPresetEyeShape', 'appPresetHairColor', 'appPresetHairCut', 'appPresetFeatures'].forEach(id => {
+    // Header RPG fields
+    ['appRpgGender', 'appRpgAge', 'appPresetHeight', 'appPresetHairColor', 'appPresetEyeColor'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', updateCombinedVisualPreview);
+        el.addEventListener('change', updateCombinedVisualPreview);
+      }
+    });
+
+    // Left column tags
+    ['appPresetBody', 'appPresetHairCut', 'appPresetEyeShape', 'appPresetFeatures'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('input', updateCombinedVisualPreview);
     });
 
-    ['appLoreStatur', 'appLoreOberweite', 'appLoreGesicht', 'appLoreHaare', 'appLoreMarkant', 'appLoreKoerper'].forEach(id => {
+    // Right column lore
+    ['appLoreSelbstbild', 'appLoreIntim', 'appLoreGestik', 'appLoreMarkant'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('input', updateLorePreview);
     });

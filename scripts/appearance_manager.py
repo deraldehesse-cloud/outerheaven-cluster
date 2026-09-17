@@ -55,6 +55,7 @@ def list_appearance_presets() -> List[Dict[str, Any]]:
                 "description": data.get("description", ""),
                 "prompt_height": data.get("prompt_height", ""),
                 "is_active": (pid == active_id),
+                "rpg": data.get("rpg", {}),
                 "visual": data.get("visual", {}),
                 "physical_chat_lore": data.get("physical_chat_lore", {})
             })
@@ -115,33 +116,58 @@ def save_appearance_preset(preset_data: Dict[str, Any]) -> Tuple[bool, str]:
     if not body:
         return False, "Körper-/Statur-Tags ('body') dürfen nicht leer sein."
 
+    rpg = preset_data.get("rpg", {})
+    gender = rpg.get("gender") or preset_data.get("gender", "Weiblich")
+    age = rpg.get("age") or preset_data.get("age", "24")
+    height = rpg.get("height") or preset_data.get("prompt_height", "")
+    hair_color = rpg.get("hair_color") or visual.get("hair_color", "")
+    eye_color = rpg.get("eye_color") or visual.get("eye_color", "")
+
+    lore = preset_data.get("physical_chat_lore", {})
+    selbstbild = lore.get("selbstbild") or lore.get("statur", "Schlank und feminin.")
+    intime_details = lore.get("intime_details") or lore.get("oberweite", "Natürlich und wohlgeformt.")
+    gestik_haltung = lore.get("gestik_haltung") or lore.get("gesicht", "Wunderschönes, markantes Gesicht.")
+    signatur_merkmale = lore.get("signatur_merkmale") or lore.get("markantes_merkmal", visual.get("features", ""))
+    haare = lore.get("haare", "Lange, glänzende Haare.")
+
     target_path = PRESETS_DIR / f"{clean_id}.json"
     clean_preset = {
         "id": clean_id,
         "name": name,
         "description": preset_data.get("description", "").strip(),
-        "prompt_height": preset_data.get("prompt_height", "").strip(),
+        "prompt_height": height.strip(),
         "prompt_weight": preset_data.get("prompt_weight", "").strip(),
+        "rpg": {
+            "gender": str(gender).strip(),
+            "age": str(age).strip(),
+            "height": height.strip(),
+            "hair_color": str(hair_color).strip(),
+            "eye_color": str(eye_color).strip()
+        },
         "visual": {
             "body": body,
             "eyes": visual.get("eyes", "").strip(),
-            "eye_color": visual.get("eye_color", "").strip(),
+            "eye_color": eye_color.strip(),
             "eye_shape": visual.get("eye_shape", "").strip(),
             "hair": hair,
-            "hair_color": visual.get("hair_color", "").strip(),
+            "hair_color": hair_color.strip(),
             "hair_style": visual.get("hair_style", "").strip(),
             "face": face,
             "features": visual.get("features", "").strip(),
             "style_aesthetic": visual.get("style_aesthetic", "photorealistic, raw photo, 8k uhd, dslr, high quality, soft studio lighting, rim lighting, vibrant, well-lit, high key, clear visibility, detailed skin texture, natural skin pores, realistic depth of field")
         },
-        "physical_chat_lore": preset_data.get("physical_chat_lore", {
-            "statur": "Schlank und feminin.",
-            "oberweite": "Natürlich und wohlgeformt.",
-            "gesicht": "Wunderschönes, markantes Gesicht.",
-            "haare": "Lange, glänzende Haare.",
-            "markantes_merkmal": visual.get("features", ""),
-            "koerperliche_merkmale": "Sinnliche weibliche Kurven."
-        })
+        "physical_chat_lore": {
+            "selbstbild": selbstbild,
+            "intime_details": intime_details,
+            "gestik_haltung": gestik_haltung,
+            "signatur_merkmale": signatur_merkmale,
+            "statur": selbstbild,
+            "oberweite": intime_details,
+            "gesicht": gestik_haltung,
+            "haare": haare,
+            "markantes_merkmal": signatur_merkmale,
+            "koerperliche_merkmale": gestik_haltung
+        }
     }
 
     try:
@@ -177,31 +203,43 @@ def delete_appearance_preset(preset_id: str) -> Tuple[bool, str]:
 
 def _update_system_prompt_physical_lore(system_prompt: str, chat_lore: Dict[str, str]) -> str:
     """Replaces or injects the physical description bullet points in system_prompt."""
-    statur = chat_lore.get("statur", "1,78 m groß, 58 kg schwer. Schlank, athletisch mit sehr weiblicher Sanduhr-Figur.")
-    oberweite = chat_lore.get("oberweite", "sehr große, pralle und wunderschön geformte natürliche Brüste, tiefes Dekolleté.")
-    gesicht = chat_lore.get("gesicht", "Wunderschönes, markantes Gesicht mit verführerischen grün-blauen Augen und sinnlichen Lippen.")
-    haare = chat_lore.get("haare", "Lange, seidig glänzende dunkelbraune Haare mit weichen, sanften Wellen.")
-    markant = chat_lore.get("markantes_merkmal", "Ein massives, detailreiches Sleeve-Tattoo auf dem linken Arm.")
-    koerper = chat_lore.get("koerperliche_merkmale", "Knackiger Hintern, flacher trainierter Bauch, samtige Haut mit feiner Textur.")
+    selbstbild = chat_lore.get("selbstbild") or chat_lore.get("statur", "1,78 m groß, 24 Jahre alt. Schlank, athletisch mit sehr weiblicher Sanduhr-Figur.")
+    intim = chat_lore.get("intime_details") or chat_lore.get("oberweite", "sehr große, pralle und wunderschön geformte natürliche Brüste, tiefes Dekolleté.")
+    gestik = chat_lore.get("gestik_haltung") or chat_lore.get("gesicht", "Wunderschönes, markantes Gesicht mit betörendem Blick und sinnlichen Lippen.")
+    haare = chat_lore.get("haare", "Lange, seidig glänzende Haare mit weichen, sanften Wellen.")
+    markant = chat_lore.get("signatur_merkmale") or chat_lore.get("markantes_merkmal", "Ein massives, detailreiches Sleeve-Tattoo auf dem linken Arm.")
+    koerper = chat_lore.get("koerperliche_merkmale") or chat_lore.get("gestik_haltung", "Knackiger Hintern, flacher trainierter Bauch, samtige Haut mit feiner Textur.")
 
-    # Regex replacement for the standard section
     updated = system_prompt
 
-    # Replace Statur & Silhouette
+    # Replace Statur & Silhouette / Selbstbild
     if "* **Statur & Silhouette:**" in updated:
-        updated = re.sub(r"\* \*\*Statur & Silhouette:\*\*.*", f"* **Statur & Silhouette:** {statur}", updated)
-    # Replace Oberweite
+        updated = re.sub(r"\* \*\*Statur & Silhouette:\*\*.*", f"* **Statur & Silhouette:** {selbstbild}", updated)
+    elif "* **Selbstbild & Physis:**" in updated:
+        updated = re.sub(r"\* \*\*Selbstbild & Physis:\*\*.*", f"* **Selbstbild & Physis:** {selbstbild}", updated)
+
+    # Replace Oberweite / Intime Details
     if "* **Oberweite:**" in updated:
-        updated = re.sub(r"\* \*\*Oberweite:\*\*.*", f"* **Oberweite:** {oberweite}", updated)
-    # Replace Gesicht & Blick
+        updated = re.sub(r"\* \*\*Oberweite:\*\*.*", f"* **Oberweite:** {intim}", updated)
+    elif "* **Intime Details & Dekolleté:**" in updated:
+        updated = re.sub(r"\* \*\*Intime Details & Dekolleté:\*\*.*", f"* **Intime Details & Dekolleté:** {intim}", updated)
+
+    # Replace Gesicht & Blick / Gestik
     if "* **Gesicht & Blick:**" in updated:
-        updated = re.sub(r"\* \*\*Gesicht & Blick:\*\*.*", f"* **Gesicht & Blick:** {gesicht}", updated)
+        updated = re.sub(r"\* \*\*Gesicht & Blick:\*\*.*", f"* **Gesicht & Blick:** {gestik}", updated)
+    elif "* **Gestik & Haltung:**" in updated:
+        updated = re.sub(r"\* \*\*Gestik & Haltung:\*\*.*", f"* **Gestik & Haltung:** {gestik}", updated)
+
     # Replace Haare
     if "* **Haare:**" in updated:
         updated = re.sub(r"\* \*\*Haare:\*\*.*", f"* **Haare:** {haare}", updated)
-    # Replace Markantes Merkmal
+
+    # Replace Markantes Merkmal / Signatur
     if "* **Markantes Merkmal:**" in updated:
         updated = re.sub(r"\* \*\*Markantes Merkmal:\*\*.*", f"* **Markantes Merkmal:** {markant}", updated)
+    elif "* **Signatur-Merkmale:**" in updated:
+        updated = re.sub(r"\* \*\*Signatur-Merkmale:\*\*.*", f"* **Signatur-Merkmale:** {markant}", updated)
+
     # Replace Körperliche Merkmale
     if "* **Körperliche Merkmale:**" in updated:
         updated = re.sub(r"\* \*\*Körperliche Merkmale:\*\*.*", f"* **Körperliche Merkmale:** {koerper}", updated)
@@ -212,7 +250,7 @@ def _update_system_prompt_physical_lore(system_prompt: str, chat_lore: Dict[str,
 def apply_appearance_preset(preset_id: str, trigger_bot_reload: bool = True) -> Tuple[bool, str, Dict[str, Any]]:
     """
     Activates an appearance preset and synchronizes all cluster files:
-      1. character.json (visual tags + German system_prompt body lore)
+      1. character.json (visual tags, rpg attributes & German system_prompt body lore)
       2. persona.yaml (persona.appearance)
       3. bot_config.json (render.positive_prompt)
       4. Restarts bigboss-haven-bot.service if requested
@@ -229,6 +267,7 @@ def apply_appearance_preset(preset_id: str, trigger_bot_reload: bool = True) -> 
     features = visual.get("features", "")
     style = visual.get("style_aesthetic", "")
     chat_lore = preset.get("physical_chat_lore", {})
+    rpg = preset.get("rpg", {})
 
     errors = []
 
@@ -240,6 +279,9 @@ def apply_appearance_preset(preset_id: str, trigger_bot_reload: bool = True) -> 
                 cdata["visual"] = {}
 
             cdata["active_appearance_preset"] = preset["id"]
+            if rpg:
+                cdata["rpg_attributes"] = rpg
+
             cdata["visual"]["body"] = body
             cdata["visual"]["face"] = face
             cdata["visual"]["hair"] = hair
@@ -248,6 +290,14 @@ def apply_appearance_preset(preset_id: str, trigger_bot_reload: bool = True) -> 
             cdata["visual"]["features"] = features
             if style:
                 cdata["visual"]["style_aesthetic"] = style
+
+            # Keep appearance dict in sync
+            if "appearance" not in cdata:
+                cdata["appearance"] = {}
+            for k, v in visual.items():
+                cdata["appearance"][k] = v
+            if rpg:
+                cdata["appearance"]["rpg"] = rpg
 
             # Rebuild base_positive_prompt while keeping clothes separate
             base_tags = [body, eyes, hair, face, features, style]
