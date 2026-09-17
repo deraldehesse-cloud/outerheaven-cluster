@@ -1,0 +1,15 @@
+[Unit]
+Description=Fox Document Ingest Routine & Service-Health Guard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/fox
+ExecStart=/home/fox/.hermes/.venv/bin/python /home/fox/scripts/fox_doc_ingest.py
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
