@@ -65,3 +65,4 @@ env/
 .DS_Store
 Thumbs.db
 
+.server_secret
