@@ -212,6 +212,21 @@ def assemble_prompt(
         neg_cfg.get("censorship", ""),
         neg_cfg.get("clothing_filter", "") if ("nude" in all_context_for_neg or "naked" in all_context_for_neg) else ""
     ]
+
+    # Pending flaws injection from pending_flaws.json
+    pending_flaws_path = PROJECT_ROOT / "pending_flaws.json"
+    if not pending_flaws_path.is_file() and Path("/mnt/storage-beta/projekte/projekt-sexchat/pending_flaws.json").is_file():
+        pending_flaws_path = Path("/mnt/storage-beta/projekte/projekt-sexchat/pending_flaws.json")
+    if pending_flaws_path.is_file():
+        try:
+            flaws_data = json.loads(pending_flaws_path.read_text(encoding="utf-8"))
+            if isinstance(flaws_data, list):
+                for fl in flaws_data:
+                    if fl and isinstance(fl, str) and not fl.startswith("User feedback:"):
+                        neg_parts.append(fl.strip())
+        except Exception as e:
+            logger.warning(f"Error loading pending_flaws.json: {e}")
+
     clean_neg = ", ".join([p.strip() for p in neg_parts if p and p.strip()])
 
     # Render parameters

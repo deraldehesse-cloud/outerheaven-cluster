@@ -806,7 +806,7 @@ def send_telegram_message(chat_id: int, text: str):
         print(f"[Fehler] Telegram-Nachricht senden fehlgeschlagen: {e}")
 
 
-def send_telegram_photo(chat_id: int, photo_path: str, caption: str = "") -> bool:
+def send_telegram_photo(chat_id: int, photo_path: str, caption: str = "", reply_markup: Optional[Dict[str, Any]] = None) -> bool:
     """Sends a real image file via Telegram sendPhoto API."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
     p = Path(photo_path)
@@ -821,6 +821,8 @@ def send_telegram_photo(chat_id: int, photo_path: str, caption: str = "") -> boo
             data = {"chat_id": chat_id}
             if caption:
                 data["caption"] = caption
+            if reply_markup:
+                data["reply_markup"] = json.dumps(reply_markup)
             res = requests.post(url, data=data, files=files, timeout=60)
             if res.status_code == 200:
                 print(f"[✔] Foto erfolgreich an Chat {chat_id} ausgeliefert: {photo_path}")
@@ -831,6 +833,154 @@ def send_telegram_photo(chat_id: int, photo_path: str, caption: str = "") -> boo
     except Exception as e:
         print(f"[Fehler] Exception beim Telegram-Fotoversand: {e}")
         return False
+
+
+def answer_callback_query(callback_id: str, text: str = ""):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
+    try:
+        payload = {"callback_query_id": callback_id}
+        if text:
+            payload["text"] = text
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"[Warnung] answerCallbackQuery fehlgeschlagen: {e}")
+
+
+def edit_telegram_message_reply_markup(chat_id: int, message_id: int, reply_markup: Dict[str, Any]):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup"
+    try:
+        payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reply_markup": json.dumps(reply_markup)
+        }
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"[Warnung] editMessageReplyMarkup fehlgeschlagen: {e}")
+
+
+def handle_telegram_callback_query(cb: Dict[str, Any]):
+    """Handles inline button clicks for image review, ratings, and evolution confirmations."""
+    cb_id = cb.get("id")
+    from_user = cb.get("from", {})
+    user_id = str(from_user.get("id"))
+    msg = cb.get("message", {})
+    chat_id = msg.get("chat", {}).get("id")
+    msg_id = msg.get("message_id")
+    data = cb.get("data", "")
+
+    auth_ok, _ = check_user_authentication(user_id, chat_id)
+    if not auth_ok:
+        answer_callback_query(cb_id, "Zugriff verweigert.")
+        return
+
+    print(f"[*] Telegram Callback Query: {data} von User {user_id}")
+
+    if data == "evo_dismiss" or data == "noop":
+        answer_callback_query(cb_id, "Alles klar!")
+        return
+
+    if data.startswith("rate_good:"):
+        answer_callback_query(cb_id, "❤️ Als Favorit gesichert! [USER_APPROVED]")
+        new_markup = {
+            "inline_keyboard": [
+                [{"text": "❤️ Gesichert [USER_APPROVED]", "callback_data": "noop"}]
+            ]
+        }
+        edit_telegram_message_reply_markup(chat_id, msg_id, new_markup)
+        return
+
+    if data.startswith("rate_bad:"):
+        parts = data.split(":")
+        session_id = parts[1] if len(parts) > 1 else "direct"
+        idx = parts[2] if len(parts) > 2 else "0"
+        answer_callback_query(cb_id, "Was soll korrigiert werden?")
+        new_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "🩻 deformiert", "callback_data": f"flaw:deformed:{session_id}:{idx}"},
+                    {"text": "🦴 bad anatomy", "callback_data": f"flaw:bad_anatomy:{session_id}:{idx}"},
+                    {"text": "🖐 extra fingers...", "callback_data": f"flaw:extra_fingers:{session_id}:{idx}"}
+                ],
+                [
+                    {"text": "👤 deformed face", "callback_data": f"flaw:deformed_face:{session_id}:{idx}"},
+                    {"text": "🎨 low quality", "callback_data": f"flaw:low_quality:{session_id}:{idx}"},
+                    {"text": "🦵 bad limbs", "callback_data": f"flaw:bad_limbs:{session_id}:{idx}"}
+                ],
+                [
+                    {"text": "🖋️ Tattoos", "callback_data": f"flaw:tattoos:{session_id}:{idx}"}
+                ],
+                [
+                    {"text": "⏳ zu alt", "callback_data": f"flaw:zu_alt:{session_id}:{idx}"},
+                    {"text": "👶 zu jung", "callback_data": f"flaw:zu_jung:{session_id}:{idx}"}
+                ],
+                [
+                    {"text": "📸 realistischer art", "callback_data": f"flaw:realistisch:{session_id}:{idx}"},
+                    {"text": "🖌️ mehr cartoon art", "callback_data": f"flaw:cartoon:{session_id}:{idx}"}
+                ]
+            ]
+        }
+        edit_telegram_message_reply_markup(chat_id, msg_id, new_markup)
+        return
+
+    if data.startswith("flaw:"):
+        parts = data.split(":")
+        flaw_type = parts[1] if len(parts) > 1 else "gen"
+
+        flaw_tags_map = {
+            # Kategorie Körper
+            "deformed": "deformed, distorted, disfigured",
+            "bad_anatomy": "bad anatomy, gross proportions",
+            "extra_fingers": "extra fingers, missing fingers, fused fingers, mutated hands",
+            "deformed_face": "deformed face, bad eyes, mutated face",
+            "low_quality": "low quality, worst quality, lowres, blurry",
+            "bad_limbs": "bad limbs, mutated limbs, missing limbs",
+            "tattoos": "tattoos, tattoo markings, unwanted tattoos",
+            # Kategorie Charakter
+            "zu_alt": "older, mature, elderly, wrinkles",
+            "zu_jung": "child, loli, infantile, teen, underage",
+            "realistisch": "cartoon, anime, 3d, render, illustration, drawing",
+            "cartoon": "photorealistic, raw photo, realistic art, dslr"
+        }
+        flaw_labels = {
+            "deformed": "deformiert",
+            "bad_anatomy": "bad anatomy",
+            "extra_fingers": "extra fingers...",
+            "deformed_face": "deformed face",
+            "low_quality": "low quality",
+            "bad_limbs": "bad limbs",
+            "tattoos": "Tattoos",
+            "zu_alt": "zu alt",
+            "zu_jung": "zu jung",
+            "realistisch": "realistischer art",
+            "cartoon": "mehr cartoon art"
+        }
+        flaw_str = flaw_tags_map.get(flaw_type, "bad anatomy")
+        flaw_label = flaw_labels.get(flaw_type, flaw_type)
+        answer_callback_query(cb_id, f"Korrektur ({flaw_label}) vermerkt! ✍️")
+
+        pending_file = Path("/mnt/storage-beta/projekte/projekt-sexchat/pending_flaws.json")
+        flaws_list = []
+        if pending_file.is_file():
+            try:
+                flaws_list = json.loads(pending_file.read_text(encoding="utf-8"))
+            except Exception:
+                flaws_list = []
+        if flaw_str not in flaws_list:
+            flaws_list.append(flaw_str)
+        try:
+            pending_file.parent.mkdir(parents=True, exist_ok=True)
+            pending_file.write_text(json.dumps(flaws_list, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+        new_markup = {
+            "inline_keyboard": [
+                [{"text": f"✓ Korrektur ({flaw_label}) vermerkt", "callback_data": "noop"}]
+            ]
+        }
+        edit_telegram_message_reply_markup(chat_id, msg_id, new_markup)
+        return
 
 
 def send_telegram_voice(chat_id: int, voice_path: str, caption: str = "") -> bool:
@@ -1400,8 +1550,16 @@ def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situatio
             except Exception as tts_err:
                 print(f"[Fehler] Voice Note vor Foto fehlgeschlagen: {tts_err}")
 
-            # 3. SCHRITT 2: DANACH DAS FOTO
-            delivered = send_telegram_photo(chat_id, img_path, caption=caption)
+            # 3. SCHRITT 2: DANACH DAS FOTO (Mit Mangel-Melden Tastatur)
+            feedback_markup = {
+                "inline_keyboard": [
+                    [
+                        {"text": "👍 Gefällt mir", "callback_data": "rate_good:direct:0"},
+                        {"text": "👎 Mangel melden", "callback_data": "rate_bad:direct:0"}
+                    ]
+                ]
+            }
+            delivered = send_telegram_photo(chat_id, img_path, caption=caption, reply_markup=feedback_markup)
 
             # 4. SCHRITT 3: OPTIONAL / FALLS AKTIVIERT: BEGLEITTEXT NACHREICHEN
             send_accompanying = SESSION_STATE.get("send_text_accompanying", True)
@@ -2163,6 +2321,12 @@ def main():
                                 emoji_str = " ".join(emojis)
                                 print(f"[User {user_id}] 💖 Telegram-Reaktion erhalten: {emoji_str} auf Nachricht {msg_id}")
                                 handle_incoming_reaction(chat_id, user_id, msg_id, emoji_str)
+                        continue
+
+                    # 1b. Eingehende Callback Queries (Inline Keyboard Buttons / Flaws)
+                    callback_query = update.get("callback_query")
+                    if callback_query:
+                        handle_telegram_callback_query(callback_query)
                         continue
 
                     message = update.get("message")

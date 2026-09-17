@@ -1083,6 +1083,10 @@
             <span>💋</span>
             <span>MEGAN</span>
           </button>
+          <button type="button" id="btnAppearancePresets" onclick="openAppearanceModal()" class="px-2 py-1 rounded font-bold transition text-pink-300 hover:text-pink-100 border border-pink-900/60 hover:border-pink-500/80 bg-pink-950/40 flex items-center space-x-1 shadow" title="Megan's Aussehen-Presets & physische Lore öffnen">
+            <span>👤</span>
+            <span>AUSSEHEN</span>
+          </button>
           {% endif %}
         </div>
         <div class="flex items-center space-x-2">
@@ -1774,55 +1778,67 @@
   </div>
   {% endif %}
 
-  <!-- Lightbox Modal with PNG Metadata Inspector & Replay -->
-  <div id="lightbox" class="fixed inset-0 bg-black/95 backdrop-blur-md z-50 hidden flex items-center justify-center p-2 sm:p-4">
-    <div class="relative max-w-5xl w-full max-h-[92vh] bg-slate-950/90 border border-cyan-500/40 rounded-lg shadow-2xl flex flex-col md:flex-row overflow-hidden">
-      <!-- Left: Image Preview -->
-      <div class="flex-1 flex flex-col items-center justify-center p-3 bg-black/60 relative overflow-hidden">
-        <button onclick="closeLightbox()" class="md:hidden absolute top-2 right-2 text-slate-400 hover:text-white text-sm font-bold z-10 px-2 py-1">
+  <!-- Lightbox Modal with PNG Metadata Inspector, Actions & Flaw Feedback -->
+  <div id="lightbox" class="fixed inset-0 bg-black/95 backdrop-blur-md z-50 hidden flex items-center justify-center p-2 sm:p-4 select-none">
+    <div class="relative max-w-6xl w-full max-h-[94vh] bg-slate-950/90 border border-cyan-500/40 rounded-lg shadow-2xl flex flex-col md:flex-row overflow-hidden">
+      <!-- Left: Image Preview & Zoom/Pan Viewport -->
+      <div id="lightboxImgContainer" class="flex-1 flex flex-col items-center justify-center p-3 bg-black/70 relative overflow-hidden min-h-[350px]">
+        <!-- Zoom Level Badge -->
+        <span id="lightboxZoomLevel" onclick="resetZoom()" class="hidden absolute top-3 left-3 bg-black/80 border border-cyan-500/60 text-cyan-300 text-[10px] font-mono px-2 py-0.5 rounded cursor-pointer z-20 shadow" title="Klick zum Zurücksetzen">100%</span>
+
+        <!-- Mobile Close Button -->
+        <button onclick="closeLightbox()" class="md:hidden absolute top-2 right-2 text-slate-400 hover:text-white text-sm font-bold z-20 px-2 py-1 bg-slate-900/80 rounded">
           ✕ CLOSE
         </button>
-        <img id="lightboxImg" src="" alt="Render" class="max-h-[55vh] md:max-h-[78vh] max-w-full rounded border border-slate-800 shadow-2xl object-contain">
-        <div class="mt-2.5 flex flex-wrap items-center justify-center gap-2 shrink-0">
-          <a id="lightboxDownload" href="" download class="text-xs bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-1.5 rounded transition">
-            ⬇️ DOWNLOAD
+
+        <!-- Edge Navigation Arrows -->
+        <button type="button" id="lightboxPrevBtn" onclick="navigateLightbox(-1)" class="absolute left-3 top-1/2 -translate-y-1/2 bg-black/70 hover:bg-cyan-950/90 border border-slate-700 hover:border-cyan-400 text-cyan-300 rounded-full w-9 h-9 flex items-center justify-center text-sm font-bold shadow-xl transition z-20" title="Vorheriges Bild (Pfeiltaste Links)">
+          ◀
+        </button>
+        <button type="button" id="lightboxNextBtn" onclick="navigateLightbox(1)" class="absolute right-3 top-1/2 -translate-y-1/2 bg-black/70 hover:bg-cyan-950/90 border border-slate-700 hover:border-cyan-400 text-cyan-300 rounded-full w-9 h-9 flex items-center justify-center text-sm font-bold shadow-xl transition z-20" title="Nächstes Bild (Pfeiltaste Rechts)">
+          ▶
+        </button>
+
+        <!-- Main Image -->
+        <img id="lightboxImg" src="" alt="Render" class="max-h-[55vh] md:max-h-[75vh] max-w-full rounded border border-slate-800 shadow-2xl object-contain select-none pointer-events-auto">
+
+        <!-- Action Bar -->
+        <div class="mt-3 flex flex-wrap items-center justify-center gap-2 shrink-0 z-20">
+          <button type="button" id="lightboxDeleteBtn" onclick="deleteCurrentLightboxImage()" class="text-xs bg-red-950/80 hover:bg-red-700 border border-red-500/80 text-red-200 font-bold px-3 py-1.5 rounded transition font-mono flex items-center space-x-1 shadow" title="Bild dauerhaft löschen (mit Confirm-Dialog)">
+            <span>🗑️</span> <span>Löschen</span>
+          </button>
+          <a id="lightboxDownload" href="" download class="text-xs bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-1.5 rounded transition font-mono flex items-center space-x-1 shadow" title="Direktdownload auf Rechner">
+            <span>💾</span> <span>Speichern</span>
           </a>
-          <button id="lightboxDeleteBtn" onclick="deleteCurrentLightboxImage()" class="text-xs bg-red-950/80 hover:bg-red-700 border border-red-500/80 text-red-200 font-bold px-3 py-1.5 rounded transition font-mono">
-            🗑️ DELETE
+          <button type="button" id="lightboxMoveBtn" onclick="openMoveImageModal()" class="text-xs bg-indigo-950/80 hover:bg-indigo-800 border border-indigo-500/80 text-indigo-200 font-bold px-3 py-1.5 rounded transition font-mono flex items-center space-x-1 shadow" title="In Whitelist-Projekte verschieben (/api/gallery/move)">
+            <span>📁</span> <span>Verschieben</span>
           </button>
         </div>
       </div>
 
-      <!-- Right: Extracted PNG Metadata & Replay Controls -->
-      <div class="w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/90 flex flex-col text-xs font-mono">
+      <!-- Right: Extracted PNG Metadata & Flaws Feedback Panel -->
+      <div class="w-full md:w-84 lg:w-96 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/90 flex flex-col text-xs font-mono select-text">
         <div class="p-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between shrink-0">
           <span class="text-cyan-300 font-bold flex items-center space-x-1.5">
-            <span>🔬 PNG-METADATEN & WORKFLOW</span>
+            <span>🔬 METADATEN & FEEDBACK</span>
           </span>
           <button onclick="closeLightbox()" class="hidden md:inline-block text-slate-400 hover:text-white text-xs uppercase font-bold px-2 py-0.5">
             ✕
           </button>
         </div>
 
-        <div class="flex-1 p-3 overflow-y-auto space-y-2.5 scrollbar-thin text-[11px]" id="lightboxMetaBody">
+        <div class="flex-1 p-3 overflow-y-auto space-y-3 scrollbar-thin text-[11px]" id="lightboxMetaBody">
+          <!-- Prompts -->
           <div>
             <span class="text-slate-500 uppercase text-[10px] font-bold block mb-0.5">Positiver Prompt:</span>
-            <div id="metaPosPrompt" class="p-2 rounded bg-black/60 border border-slate-800/80 text-cyan-200 max-h-24 overflow-y-auto scrollbar-thin select-text whitespace-pre-wrap">--</div>
+            <div id="metaPosPrompt" class="p-2 rounded bg-black/60 border border-slate-800/80 text-cyan-200 max-h-20 overflow-y-auto scrollbar-thin select-text whitespace-pre-wrap">--</div>
           </div>
           <div>
             <span class="text-slate-500 uppercase text-[10px] font-bold block mb-0.5">Negativer Prompt:</span>
-            <div id="metaNegPrompt" class="p-2 rounded bg-black/60 border border-slate-800/80 text-rose-300/80 max-h-20 overflow-y-auto scrollbar-thin select-text whitespace-pre-wrap">--</div>
+            <div id="metaNegPrompt" class="p-2 rounded bg-black/60 border border-slate-800/80 text-rose-300/80 max-h-16 overflow-y-auto scrollbar-thin select-text whitespace-pre-wrap">--</div>
           </div>
-          <div class="grid grid-cols-2 gap-2">
-            <div class="p-2 rounded bg-slate-900/60 border border-slate-800/80">
-              <span class="text-slate-500 text-[10px] block">CHECKPOINT:</span>
-              <span id="metaCheckpoint" class="text-slate-200 font-bold truncate block">--</span>
-            </div>
-            <div class="p-2 rounded bg-slate-900/60 border border-slate-800/80">
-              <span class="text-slate-500 text-[10px] block">SAMPLER / SCHED:</span>
-              <span id="metaSampler" class="text-amber-400 font-bold truncate block">--</span>
-            </div>
-          </div>
+
+          <!-- Sampling Parameters -->
           <div class="grid grid-cols-3 gap-1.5 text-center">
             <div class="p-1.5 rounded bg-slate-900/60 border border-slate-800/80">
               <span class="text-slate-500 text-[9px] block">STEPS</span>
@@ -1837,9 +1853,51 @@
               <span id="metaSeed" class="text-slate-400 truncate block">--</span>
             </div>
           </div>
-          <div id="metaLorasRow" class="hidden">
-            <span class="text-slate-500 uppercase text-[10px] font-bold block mb-0.5">LoRAs:</span>
-            <div id="metaLorasList" class="text-[10px] text-amber-300"></div>
+
+          <!-- ============================================================== -->
+          <!-- NEUES FLAW- & FEEDBACK-SYSTEM (KÖRPER & CHARAKTER)             -->
+          <!-- ============================================================== -->
+          <div class="pt-2 border-t border-slate-800/80 space-y-2" id="lightboxFlawChipsContainer">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-bold uppercase text-pink-300 flex items-center space-x-1">
+                <span>⚠️</span> <span>MÄNGEL MELDEN (FLAWS)</span>
+              </span>
+              <span class="text-[9px] text-slate-500">Klick aktiviert Tag</span>
+            </div>
+
+            <!-- Kategorie 1: KÖRPER -->
+            <div class="space-y-1">
+              <span class="text-[9px] text-slate-400 font-bold block uppercase tracking-wider">Körper:</span>
+              <div class="flex flex-wrap gap-1">
+                <button type="button" onclick="toggleLightboxFlaw('deformiert')" data-flaw="deformiert" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">deformiert</button>
+                <button type="button" onclick="toggleLightboxFlaw('bad_anatomy')" data-flaw="bad_anatomy" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">bad anatomy</button>
+                <button type="button" onclick="toggleLightboxFlaw('extra_fingers')" data-flaw="extra_fingers" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">extra fingers...</button>
+                <button type="button" onclick="toggleLightboxFlaw('deformed_face')" data-flaw="deformed_face" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">deformed face</button>
+                <button type="button" onclick="toggleLightboxFlaw('low_quality')" data-flaw="low_quality" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">low quality</button>
+                <button type="button" onclick="toggleLightboxFlaw('bad_limbs')" data-flaw="bad_limbs" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">bad limbs</button>
+                <button type="button" onclick="toggleLightboxFlaw('tattoos')" data-flaw="tattoos" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">Tattoos</button>
+              </div>
+            </div>
+
+            <!-- Kategorie 2: CHARAKTER -->
+            <div class="space-y-1 pt-1">
+              <span class="text-[9px] text-slate-400 font-bold block uppercase tracking-wider">Charakter:</span>
+              <div class="flex flex-wrap gap-1">
+                <button type="button" onclick="toggleLightboxFlaw('zu_alt')" data-flaw="zu_alt" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">⏳ zu alt</button>
+                <button type="button" onclick="toggleLightboxFlaw('zu_jung')" data-flaw="zu_jung" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">👶 zu jung</button>
+                <button type="button" onclick="toggleLightboxFlaw('realistisch')" data-flaw="realistisch" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">📸 realistischer art</button>
+                <button type="button" onclick="toggleLightboxFlaw('cartoon')" data-flaw="cartoon" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">🖌️ mehr cartoon art</button>
+              </div>
+            </div>
+
+            <!-- Freitextzeile & Submit -->
+            <div class="pt-1 space-y-1.5">
+              <input type="text" id="lightboxFlawFeedback" placeholder="Freitext-Feedback eingeben (optional)..." class="w-full bg-black/80 border border-slate-800 rounded px-2.5 py-1 text-[11px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-pink-500">
+              <button type="button" onclick="submitLightboxFlaws()" class="w-full py-1.5 bg-pink-950/80 hover:bg-pink-900 border border-pink-700/80 text-pink-200 font-bold rounded text-[11px] font-mono transition flex items-center justify-center space-x-1">
+                <span>✍️</span> <span>MÄNGEL IN NEGATIV-PROMPT SICHERN</span>
+              </button>
+              <div id="lightboxFlawStatus" class="min-h-[1rem] text-[10px] text-center font-mono"></div>
+            </div>
           </div>
         </div>
 
@@ -1903,6 +1961,196 @@
           </div>
         </div>
       </div>
+  <!-- ========================================================================= -->
+  <!-- MEGAN'S AUSSEHEN / APPEARANCE PRESETS MODAL (2-SPALTEN REDESIGN)           -->
+  <!-- ========================================================================= -->
+  <div id="appearancePresetModal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 select-none" onclick="closeAppearanceModal()">
+    <div class="relative w-full max-w-5xl bg-slate-950/95 border border-pink-600/50 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh] font-mono text-xs select-text" onclick="event.stopPropagation()">
+      
+      <!-- Modal Header -->
+      <div class="p-3.5 border-b border-slate-800/80 bg-slate-900/80 flex items-center justify-between shrink-0">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-rose-600 to-pink-500 flex items-center justify-center text-base shadow-[0_0_15px_rgba(244,63,94,0.4)]">
+            👤
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-sm font-extrabold text-pink-300 tracking-wider">MEGAN'S AUSSEHEN (APPEARANCE PRESETS)</h2>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-pink-950/80 border border-pink-700/60 text-pink-300 font-bold">2-SPALTEN-SYNC</span>
+            </div>
+            <p class="text-[11px] text-slate-400">Links: Visuelle ComfyUI-Tags • Rechts: Narrative Lore & System-Prompt • Clusterweit synchronisiert</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeAppearanceModal()" class="px-2.5 py-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 text-xs font-bold transition">✕ Schließen</button>
+      </div>
+
+      <!-- Preset Selector Bar -->
+      <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center space-x-2">
+          <label for="appearancePresetSelect" class="text-xs font-bold text-slate-300">Profil:</label>
+          <select id="appearancePresetSelect" onchange="onAppearancePresetSelectChange(this.value)" class="bg-black border border-pink-900/70 text-pink-200 text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-pink-500 font-mono max-w-[280px]">
+            <option value="">Lade Profile...</option>
+          </select>
+          <span id="appearanceActiveBadge" class="hidden px-2 py-0.5 rounded bg-emerald-950/90 border border-emerald-700/60 text-emerald-300 text-[10px] font-mono font-bold">✓ Aktives Aussehen</span>
+        </div>
+
+        <button type="button" onclick="initNewAppearancePreset()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded text-xs font-mono transition flex items-center space-x-1.5">
+          <span>➕</span> <span>Neues Profil</span>
+        </button>
+      </div>
+
+      <!-- Scrollable Form Body -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-3.5 scrollbar-thin">
+        
+        <!-- Metadata Header Row -->
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Profil-ID</label>
+            <input type="text" id="appPresetId" placeholder="z.B. megan_athletic_sleeve" class="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-pink-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Anzeigename</label>
+            <input type="text" id="appPresetName" placeholder="z.B. Megan Athletic Sleeve" class="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Körpergröße (Tag)</label>
+            <input type="text" id="appPresetHeight" placeholder="z.B. 178cm tall" class="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-pink-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Kurzbeschreibung</label>
+            <input type="text" id="appPresetDesc" placeholder="z.B. 1,78m, schlank & sportlich..." class="w-full bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+          </div>
+        </div>
+
+        <!-- 2 Column Layout with Center Transformation Button -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 relative">
+          
+          <!-- LEFT: ComfyUI Visual Tags -->
+          <div class="bg-slate-900/40 border border-cyan-500/30 rounded-xl p-3.5 space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+              <span class="text-xs font-bold text-cyan-300 flex items-center space-x-1.5">
+                <span>🎨</span> <span>LINKS: VISUELLE COMFYUI-TAGS</span>
+              </span>
+              <span class="text-[10px] text-slate-500">Physische Merkmale</span>
+            </div>
+            
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">1. Körperbau & Silhouette (Body)</label>
+              <textarea id="appPresetBody" rows="3" placeholder="1girl, solo, 178cm tall, slender athletic build, voluptuous hourglass figure, very large full natural heavy breasts..." class="w-full bg-black/80 border border-slate-800 text-emerald-300 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none leading-relaxed"></textarea>
+            </div>
+
+            <!-- Isolierte Augen: Farbe & Form/Blick getrennt -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">2a. Isolierte Augenfarbe</label>
+                <input type="text" id="appPresetEyeColor" placeholder="z. B. green-blue eyes, hazel eyes" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">2b. Augenform & Blick</label>
+                <input type="text" id="appPresetEyeShape" placeholder="z. B. alluring captivating gaze, seductive smile" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
+              </div>
+            </div>
+
+            <!-- Haare nach Farbe & Schnitt getrennt -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">3a. Haarfarbe</label>
+                <input type="text" id="appPresetHairColor" placeholder="z. B. dark brown hair, auburn" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">3b. Haarschnitt & Stil</label>
+                <input type="text" id="appPresetHairCut" placeholder="z. B. long layered hair, soft natural waves" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">4. Tattoos, Piercings & Merkmale (Features)</label>
+              <input type="text" id="appPresetFeatures" placeholder="z. B. massive intricate sleeve tattoo left arm, subtle navel piercing" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
+            </div>
+
+            <!-- Live Combined Prompt Preview -->
+            <div class="pt-1">
+              <label class="block text-[9px] uppercase font-bold text-slate-500 mb-1">Kombinierte ComfyUI-Tags (Vorschau)</label>
+              <div id="appPresetCombinedPreview" class="bg-black/60 border border-slate-800/80 rounded p-2 text-[10px] text-cyan-200/90 font-mono max-h-16 overflow-y-auto leading-relaxed">
+                1girl, solo, ...
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT: German Conversational Lore (System-Prompt) -->
+          <div id="appearanceModalRightCol" class="bg-slate-900/40 border border-pink-500/30 rounded-xl p-3.5 space-y-3 transition">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+              <span class="text-xs font-bold text-pink-300 flex items-center space-x-1.5">
+                <span>💬</span> <span>RECHTS: NARRATIVE LORE (WIE DER BOT SPRICHT)</span>
+              </span>
+              <!-- Central Action Button -->
+              <button type="button" onclick="generateLoreFromVisualTags()" class="px-2.5 py-1 bg-gradient-to-r from-amber-600 to-pink-600 hover:from-amber-500 hover:to-pink-500 text-slate-950 font-extrabold rounded text-[11px] shadow transition flex items-center space-x-1 cursor-pointer" title="Generiert aus den linken ComfyUI-Tags die deutsche Chat-Beschreibung">
+                <span>✨</span> <span>Aus Merkmalen generieren</span>
+              </button>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Statur & Silhouette</label>
+                <input type="text" id="appLoreStatur" placeholder="1,78 m groß... Schlank und athletisch mit Sanduhr-Figur" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Oberweite & Dekolleté</label>
+                <input type="text" id="appLoreOberweite" placeholder="Sehr große, pralle natürliche Brüste..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Gesicht, Augen & Blick</label>
+                <input type="text" id="appLoreGesicht" placeholder="Wunderschönes Gesicht mit grün-blauen Augen..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Haare & Frisur</label>
+                <input type="text" id="appLoreHaare" placeholder="Lange seidige dunkelbraune Haare..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Markantes Merkmal</label>
+                <input type="text" id="appLoreMarkant" placeholder="Massives Sleeve-Tattoo linker Arm..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Körperliche Merkmale</label>
+                <input type="text" id="appLoreKoerper" placeholder="Flacher trainierter Bauch, samtige Haut..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              </div>
+            </div>
+
+            <!-- Lore System Prompt Preview -->
+            <div class="pt-1">
+              <label class="block text-[9px] uppercase font-bold text-slate-500 mb-1">System-Prompt Vorschau (Injektion in character.json)</label>
+              <pre id="appLoreSystemPromptPreview" class="bg-black/60 border border-slate-800/80 rounded p-2 text-[10px] text-pink-200/90 font-mono max-h-20 overflow-y-auto leading-relaxed whitespace-pre-wrap">--</pre>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="p-3 border-t border-slate-800 bg-slate-950 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div>
+          <button type="button" onclick="deleteAppearancePresetForm()" class="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900 border border-rose-800/60 text-rose-300 rounded text-xs font-mono transition flex items-center space-x-1">
+            <span>🗑️</span> <span>Profil löschen</span>
+          </button>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <span id="appearanceModalStatus" class="text-xs font-mono"></span>
+          <button type="button" onclick="saveAppearancePresetForm()" class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 rounded text-xs font-bold transition flex items-center space-x-1 cursor-pointer">
+            <span>💾</span> <span>Profil speichern</span>
+          </button>
+          <button type="button" onclick="activateAppearancePresetForm()" class="px-4 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold transition shadow-[0_0_15px_rgba(244,63,94,0.4)] flex items-center space-x-1.5 cursor-pointer">
+            <span>✨</span> <span>Aussehen aktivieren (Sync)</span>
+          </button>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -6345,5 +6593,9 @@
     setInterval(fetchClusterHealth, 10000);
     setInterval(fetchBueroData, 20000);
   </script>
+  <!-- Modular Upgrade-Suite Scripts (Additive, Crash-Schutz) -->
+  <script src="/static/lightbox.js"></script>
+  <script src="/static/autocomplete.js"></script>
+  <script src="/static/appearance_presets.js"></script>
 </body>
 </html>
