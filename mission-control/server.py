@@ -1789,16 +1789,37 @@ async def handle_bot_haptic_post(request: web.Request) -> web.Response:
 
 
 async def handle_bot_haptic_test(request: web.Request) -> web.Response:
-    cfg = {}
-    if BOT_CONFIG_FILE.is_file():
+    action = "vibrate"
+    intensity = None
+    time_sec = 2
+    if request.can_read_body:
         try:
-            with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
-                cfg = json.load(f).get("haptic", {})
+            body = await request.json()
+            if isinstance(body, dict):
+                action = str(body.get("action", action)).strip().lower()
+                if "intensity" in body:
+                    intensity = int(body["intensity"])
+                if "time_sec" in body:
+                    time_sec = int(body["time_sec"])
         except Exception:
             pass
-    max_pct = cfg.get("max_intensity", 50)
-    level = max(1, min(20, int(round(20 * (max_pct / 100.0)))))
-    result = await dispatch_lovense_command("vibrate", intensity=level, time_sec=2)
+
+    if action in ["stop", "stop_all", "off", "0"] or intensity == 0:
+        result = await dispatch_lovense_command("stop")
+        return web.json_response(result)
+
+    if intensity is None:
+        cfg = {}
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f).get("haptic", {})
+            except Exception:
+                pass
+        max_pct = cfg.get("max_intensity", 50)
+        intensity = max(1, min(20, int(round(20 * (max_pct / 100.0)))))
+
+    result = await dispatch_lovense_command("vibrate", intensity=intensity, time_sec=time_sec)
     return web.json_response(result)
 
 
@@ -3792,6 +3813,18 @@ async def handle_prompts_presets_post(request: web.Request) -> web.Response:
 
         PROMPT_PRESETS_FILE.parent.mkdir(parents=True, exist_ok=True)
         PROMPT_PRESETS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        # Mirror save to local repo workflows/data as fallback
+        try:
+            mirror_files = [
+                BASE_DIR / "workflows" / "prompt_presets.json",
+                BASE_DIR / "data" / "prompt_presets.json"
+            ]
+            for mf in mirror_files:
+                mf.parent.mkdir(parents=True, exist_ok=True)
+                mf.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception as me:
+            logger.warning(f"Could not mirror prompt presets: {me}")
 
         return web.json_response({
             "success": True,

@@ -155,6 +155,16 @@
            title="ComfyUI Studio auf Outer Heaven öffnen (:8188)">
           <span>🎨 ComfyUI Studio</span>
         </a>
+        <button type="button" id="btnHeaderMeganStudio" onclick="selectWorkspace('megan')"
+           class="px-2.5 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink"
+           title="Megan Studio (3-Spalten Lovense, Prompts & Lore)">
+          <span>💋 Megan Studio</span>
+        </button>
+        <button type="button" id="btnHeaderAppearance" onclick="window.openAppearanceModal ? window.openAppearanceModal() : (document.getElementById('appearancePresetModal').classList.remove('hidden'), document.getElementById('appearancePresetModal').style.display='flex')"
+           class="px-2.5 py-1 bg-purple-950/40 hover:bg-purple-900/60 border border-purple-800/60 hover:border-purple-400 text-purple-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-purple"
+           title="RPG Charakter Creator / Aussehen-Presets">
+          <span>👤 Aussehen</span>
+        </button>
       </div>
 
       <!-- Right: Quick Status Badges with IP Masking -->
@@ -1034,6 +1044,263 @@
       </div>
       </section>
       </div> <!-- End bueroWorkspaceView -->
+
+      <!-- MEGAN STUDIO WORKSPACE (3-SPALTEN-LAYOUT) -->
+      <div id="meganWorkspaceView" class="w-full hidden space-y-4">
+        <!-- Megan Studio Top Bar -->
+        <div class="bg-slate-950/90 border border-pink-500/40 rounded-lg p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-lg glow-pink">
+          <div class="flex items-center space-x-3">
+            <span class="text-2xl">💋</span>
+            <div>
+              <div class="flex items-center space-x-2">
+                <h1 class="text-sm font-extrabold tracking-wider text-pink-300 font-mono">MEGAN STUDIO // UNRESTRICTED</h1>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-pink-950/80 border border-pink-700/60 text-pink-300">LIVE SYNC</span>
+              </div>
+              <p class="text-[11px] text-slate-400 font-mono">3-Spalten-Architektur: Lovense Haptic & Chat • ComfyUI Prompt-Studio • Canonical Vault (character.json)</p>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button type="button" id="btnMeganStudioAppearance" onclick="window.openAppearanceModal()"
+                    class="px-3 py-1.5 bg-gradient-to-r from-purple-900/80 to-pink-900/80 hover:from-purple-800 hover:to-pink-800 border border-pink-500/60 text-pink-200 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5 shadow"
+                    title="RPG Charakter Creator / Aussehen-Presets öffnen">
+              <span>👤</span> <span>RPG-AUSSEHEN MODAL</span>
+            </button>
+            <button type="button" onclick="selectWorkspace('catlord')"
+                    class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-cyan-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5">
+              <span>🐱</span> <span>Catlord Studio</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3-Spalten Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 font-mono">
+          
+          <!-- SPALTE LINKS: Lovense-Statusanzeige, Intensitätsregler (0-20), Quick-Buttons (5, 10, 15, MAX, STOP) und Chatfenster -->
+          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-4 shadow-lg">
+            
+            <!-- Lovense Controller Card -->
+            <div class="space-y-3 pb-3 border-b border-pink-950">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-pink-500 animate-pulse"></span>
+                  <h2 class="text-xs font-bold text-pink-300 uppercase tracking-wider">HAPTIC LINK / LOVENSE</h2>
+                </div>
+                <span id="meganLovenseStatusBadge" class="px-2.5 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-rose-950/80 border border-rose-700 text-rose-300">
+                  OFFLINE
+                </span>
+              </div>
+
+              <div id="meganLovenseSubtext" class="text-[10px] text-slate-500 truncate">
+                192.168.188.34:20010 • Lovense Connect
+              </div>
+
+              <!-- Intensitätsregler (0 - 20) -->
+              <div class="space-y-1.5 bg-slate-900/70 p-2.5 rounded border border-slate-800">
+                <div class="flex justify-between items-center text-xs">
+                  <span class="text-slate-400">Intensität:</span>
+                  <span id="meganLovenseIntensityLabel" class="text-pink-400 font-bold text-sm">Stufe 10 / 20 (50%)</span>
+                </div>
+                <input type="range" id="meganLovenseSlider" min="0" max="20" value="10" step="1"
+                       oninput="onMeganLovenseSliderChange(this.value)"
+                       class="w-full accent-pink-500 cursor-pointer h-2 bg-slate-800 rounded-lg">
+                <div class="flex justify-between text-[9px] text-slate-500">
+                  <span>0 (Aus)</span>
+                  <span>10 (Mittel)</span>
+                  <span>20 (MAX)</span>
+                </div>
+              </div>
+
+              <!-- Quick Buttons (5, 10, 15, MAX, STOP) -->
+              <div>
+                <div class="text-[10px] uppercase text-slate-500 font-bold mb-1.5">Quick Vibration Presets:</div>
+                <div class="grid grid-cols-5 gap-1.5 text-xs">
+                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 5)"
+                          class="py-1.5 px-1 rounded bg-pink-950/50 hover:bg-pink-900 border border-pink-800/60 text-pink-300 font-bold text-center transition hover:border-pink-500"
+                          title="Stufe 5 (Leicht)">
+                    5
+                  </button>
+                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 10)"
+                          class="py-1.5 px-1 rounded bg-pink-950/50 hover:bg-pink-900 border border-pink-800/60 text-pink-300 font-bold text-center transition hover:border-pink-500"
+                          title="Stufe 10 (Mittel)">
+                    10
+                  </button>
+                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 15)"
+                          class="py-1.5 px-1 rounded bg-pink-950/50 hover:bg-pink-900 border border-pink-800/60 text-pink-300 font-bold text-center transition hover:border-pink-500"
+                          title="Stufe 15 (Stark)">
+                    15
+                  </button>
+                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 20)"
+                          class="py-1.5 px-1 rounded bg-gradient-to-r from-pink-700 to-rose-700 hover:from-pink-600 hover:to-rose-600 text-white font-extrabold text-center transition shadow"
+                          title="Stufe 20 (MAXIMAL)">
+                    MAX
+                  </button>
+                  <button type="button" onclick="sendMeganLovenseCommand('stop', 0)"
+                          class="py-1.5 px-1 rounded bg-rose-950/80 hover:bg-rose-900 border border-rose-700 text-rose-200 font-extrabold text-center transition hover:border-rose-500"
+                          title="Sofort stoppen">
+                    STOP
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Chatfenster -->
+            <div class="flex-1 flex flex-col min-h-[360px] space-y-2">
+              <div class="flex items-center justify-between pb-1 border-b border-slate-800">
+                <div class="flex items-center space-x-1.5 text-xs text-pink-300 font-bold">
+                  <span>💬</span> <span>MEGAN COMPANION CHAT</span>
+                </div>
+                <button type="button" onclick="clearChat()" class="text-[10px] text-slate-500 hover:text-rose-400 transition" title="Chat leeren">
+                  Leeren
+                </button>
+              </div>
+
+              <!-- Stream Container -->
+              <div id="meganChatMessages" class="flex-1 p-2.5 bg-slate-900/60 border border-slate-800/80 rounded-lg space-y-2.5 overflow-y-auto max-h-[380px] text-xs scrollbar-thin">
+                <div class="p-2 bg-slate-950/70 rounded border border-pink-950 text-slate-400 text-[11px]">
+                  <span class="text-pink-400 font-bold">💋 MEGAN ACTIVE:</span> Bereit für Dialoge. Haptic Trigger werden autonom mit Lovense synchronisiert.
+                </div>
+              </div>
+
+              <!-- Chat Input -->
+              <form id="meganChatForm" onsubmit="handleMeganChatSubmit(event)" class="flex items-center space-x-1.5 pt-1">
+                <input type="text" id="meganChatInput" autocomplete="off"
+                       placeholder="Nachricht an Megan..."
+                       class="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2.5 py-1.5 focus:border-pink-500 focus:outline-none">
+                <button type="submit" id="btnMeganChatSend"
+                        class="px-3 py-1.5 bg-pink-600 hover:bg-pink-500 text-white rounded text-xs font-bold transition flex items-center space-x-1 shadow">
+                  <span>Senden</span>
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <!-- SPALTE MITTE: ComfyUI Prompt-Studio mit Positiv-Prompt, Negativ-Prompt, Preset Laden/Speichern & Render-Button -->
+          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-4 shadow-lg">
+            
+            <div class="space-y-3.5">
+              <div class="flex items-center justify-between pb-2 border-b border-pink-950">
+                <div class="flex items-center space-x-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-pink-400 animate-pulse"></span>
+                  <h2 class="text-xs font-bold text-pink-300 uppercase tracking-wider">COMFYUI PROMPT-STUDIO</h2>
+                </div>
+                <span class="text-[10px] text-slate-500 font-mono">ARC A770 (16GB VRAM)</span>
+              </div>
+
+              <!-- Positiv-Prompt Section -->
+              <div class="space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <label class="text-[11px] font-bold text-pink-300 flex items-center space-x-1">
+                    <span>✨</span> <span>POSITIV-PROMPT</span>
+                  </label>
+                  <span id="meganPosCharCount" class="text-[10px] text-slate-500">0 Zeichen</span>
+                </div>
+                <textarea id="meganPositivePrompt" rows="5"
+                          oninput="document.getElementById('meganPosCharCount').textContent=this.value.length + ' Zeichen'"
+                          placeholder="Positiver Bild-Prompt (z. B. masterwork, highly detailed portrait of megan...)"
+                          class="w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-xs text-slate-200 focus:border-pink-500 focus:outline-none resize-y leading-relaxed font-mono"></textarea>
+                
+                <!-- Positiv Preset Controls -->
+                <div class="flex items-center space-x-2 pt-1">
+                  <select id="meganPosPresetSelect" onchange="loadMeganPosPreset(this.value)"
+                          class="flex-1 bg-black border border-slate-700 text-pink-300 text-xs rounded px-2 py-1 focus:border-pink-500 focus:outline-none">
+                    <option value="">📂 Positiv-Preset laden...</option>
+                  </select>
+                  <button type="button" onclick="saveMeganPosPreset()"
+                          class="px-2.5 py-1 bg-pink-950/70 hover:bg-pink-900 border border-pink-700/80 text-pink-200 rounded text-xs font-bold transition flex items-center space-x-1 shrink-0"
+                          title="Aktuellen Positiv-Prompt als Preset speichern">
+                    <span>💾</span> <span>Als Preset speichern</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Negativ-Prompt Section -->
+              <div class="space-y-1.5 pt-2">
+                <div class="flex items-center justify-between">
+                  <label class="text-[11px] font-bold text-slate-400 flex items-center space-x-1">
+                    <span>🚫</span> <span>NEGATIV-PROMPT</span>
+                  </label>
+                  <span id="meganNegCharCount" class="text-[10px] text-slate-500">0 Zeichen</span>
+                </div>
+                <textarea id="meganNegativePrompt" rows="3"
+                          oninput="document.getElementById('meganNegCharCount').textContent=this.value.length + ' Zeichen'"
+                          placeholder="Negativer Bild-Prompt (z. B. deformed, blurry, bad anatomy, glasses...)"
+                          class="w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-xs text-slate-300 focus:border-pink-500 focus:outline-none resize-y leading-relaxed font-mono"></textarea>
+
+                <!-- Negativ Preset Controls -->
+                <div class="flex items-center space-x-2 pt-1">
+                  <select id="meganNegPresetSelect" onchange="loadMeganNegPreset(this.value)"
+                          class="flex-1 bg-black border border-slate-700 text-slate-300 text-xs rounded px-2 py-1 focus:border-pink-500 focus:outline-none">
+                    <option value="">📂 Negativ-Preset laden...</option>
+                  </select>
+                  <button type="button" onclick="saveMeganNegPreset()"
+                          class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1 shrink-0"
+                          title="Aktuellen Negativ-Prompt als Preset speichern">
+                    <span>💾</span> <span>Als Negativ-Preset speichern</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Execution / Render Section -->
+            <div class="pt-3 border-t border-slate-800 space-y-2">
+              <div id="meganRenderStatus" class="hidden text-xs p-2 rounded text-center font-mono bg-cyan-950/60 border border-cyan-800 text-cyan-300">
+                ⚙️ Übermittle Render-Job...
+              </div>
+
+              <button type="button" id="btnMeganExecuteRender" onclick="executeMeganRender()"
+                      class="w-full py-2.5 bg-gradient-to-r from-pink-600 via-rose-600 to-amber-600 hover:from-pink-500 hover:via-rose-500 hover:to-amber-500 text-slate-950 font-black text-xs uppercase tracking-wider rounded transition shadow-lg flex items-center justify-center space-x-2 glow-pink">
+                <span>🚀</span>
+                <span>RENDER ON ARC A770</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- SPALTE RECHTS: Canonical Vault Live-Binding (character.json Ansicht mit Speichern-Button) -->
+          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-3 shadow-lg">
+            
+            <div class="space-y-3 flex-1 flex flex-col">
+              <div class="flex items-center justify-between pb-2 border-b border-pink-950">
+                <div class="flex items-center space-x-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+                  <h2 class="text-xs font-bold text-amber-300 uppercase tracking-wider">CANONICAL VAULT // LIVE-BINDING</h2>
+                </div>
+                <span id="meganVaultStatusNotice" class="text-[10px] font-mono text-emerald-400 hidden">✔ Geladen</span>
+              </div>
+
+              <!-- Vault File Info -->
+              <div class="text-[10px] text-slate-400 flex items-center justify-between bg-slate-900/70 p-2 rounded border border-slate-800">
+                <span class="truncate">Datei: <code class="text-pink-400">character.json</code></span>
+                <span class="text-slate-500 shrink-0 ml-2">Sync: <code class="text-cyan-400">megan_system_prompt.txt</code></span>
+              </div>
+
+              <!-- Vault Editor Textarea -->
+              <div class="flex-1 flex flex-col space-y-1 min-h-[300px]">
+                <div class="flex justify-between items-center text-[10px] text-slate-500">
+                  <span>System-Prompt & Rollen-Definition (JSON/Text):</span>
+                  <span id="meganVaultCharCount">0 Zeichen</span>
+                </div>
+                <textarea id="meganVaultLoreText" rows="16"
+                          oninput="document.getElementById('meganVaultCharCount').textContent=this.value.length + ' Zeichen'"
+                          placeholder="Lade character.json..."
+                          class="flex-1 w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-xs text-pink-100 font-mono focus:border-pink-500 focus:outline-none resize-y leading-relaxed"></textarea>
+              </div>
+            </div>
+
+            <!-- Vault Actions -->
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between space-x-2">
+              <button type="button" onclick="loadMeganVaultLore()"
+                      class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1.5">
+                <span>🔄</span> <span>Neu laden</span>
+              </button>
+              <button type="button" onclick="saveMeganVaultLore()"
+                      class="flex-1 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold transition shadow-md flex items-center justify-center space-x-1.5">
+                <span>💾</span> <span>character.json speichern</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div> <!-- End meganWorkspaceView -->
 
     </main>
 
@@ -2369,6 +2636,7 @@
     let chatSocket = null;
     let chatHistory = [];
     let currentAssistantBubble = null;
+    let currentMeganAssistantBubble = null;
     let currentActiveOllamaModel = "{{ local_model }}";
 
     // --- 3-Zone Cockpit Workspace Navigation ---
@@ -2380,6 +2648,8 @@
       const navBuero = document.getElementById('navItemBuero');
       const catlordView = document.getElementById('catlordWorkspaceView');
       const bueroView = document.getElementById('bueroWorkspaceView');
+      const meganView = document.getElementById('meganWorkspaceView');
+      const headerMeganBtn = document.getElementById('btnHeaderMeganStudio');
 
       const defaultClass = "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white transition text-left group";
       if (navCatlord) navCatlord.className = (workspace === 'catlord') ?
@@ -2389,14 +2659,37 @@
         "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-emerald-500/40 bg-emerald-950/40 text-emerald-300 transition text-left group" :
         defaultClass;
 
+      if (headerMeganBtn) {
+        if (workspace === 'megan') {
+          headerMeganBtn.className = "px-2.5 py-1 bg-pink-900 border border-pink-400 text-white rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink ring-1 ring-pink-400";
+        } else {
+          headerMeganBtn.className = "px-2.5 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink";
+        }
+      }
+
       if (workspace === 'catlord') {
         if (catlordView) catlordView.classList.remove('hidden');
         if (bueroView) bueroView.classList.add('hidden');
+        if (meganView) meganView.classList.add('hidden');
       } else if (workspace === 'buero') {
         if (catlordView) catlordView.classList.add('hidden');
         if (bueroView) bueroView.classList.remove('hidden');
+        if (meganView) meganView.classList.add('hidden');
         if (typeof fetchBueroData === 'function') {
           fetchBueroData();
+        }
+      } else if (workspace === 'megan') {
+        if (catlordView) catlordView.classList.add('hidden');
+        if (bueroView) bueroView.classList.add('hidden');
+        if (meganView) meganView.classList.remove('hidden');
+        if (typeof loadMeganStudioPresets === 'function') {
+          loadMeganStudioPresets();
+        }
+        if (typeof loadMeganVaultLore === 'function') {
+          loadMeganVaultLore();
+        }
+        if (typeof checkLovenseStatus === 'function') {
+          checkLovenseStatus();
         }
       {% if is_restricted %}
       } else if (workspace === 'companion') {
@@ -2637,6 +2930,22 @@
         chatMessages.appendChild(bubble);
         currentAssistantBubble = bubble.querySelector('.assistant-content');
         chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        const meganChat = document.getElementById('meganChatMessages');
+        if (meganChat) {
+          const mbubble = document.createElement('div');
+          mbubble.className = "flex flex-col space-y-1";
+          mbubble.innerHTML = `
+            <div class="flex items-center space-x-2 text-[10px] text-pink-400 font-bold">
+              <span>[MEGAN // ${modelLabel}]</span>
+              <span class="text-slate-500">${new Date().toLocaleTimeString()}</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-900 border border-pink-900/60 text-pink-100 font-mono leading-relaxed whitespace-pre-wrap megan-assistant-content"></div>
+          `;
+          meganChat.appendChild(mbubble);
+          currentMeganAssistantBubble = mbubble.querySelector('.megan-assistant-content');
+          meganChat.scrollTop = meganChat.scrollHeight;
+        }
       } else if (msg.type === 'haptic_action') {
         const notif = document.createElement('div');
         notif.className = "px-2.5 py-1 rounded bg-pink-950/80 border border-pink-500/80 text-pink-300 text-[10px] font-mono flex items-center space-x-1.5 shadow-lg animate-pulse";
@@ -2644,10 +2953,24 @@
         notif.innerHTML = `<span>⚡</span> <span class="font-bold tracking-wider">HAPTIC LINK AKTIV: ${actLabel}</span>`;
         chatMessages.appendChild(notif);
         chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        const meganChat = document.getElementById('meganChatMessages');
+        if (meganChat) {
+          const mnotif = document.createElement('div');
+          mnotif.className = "px-2.5 py-1 rounded bg-pink-950/80 border border-pink-500/80 text-pink-300 text-[10px] font-mono flex items-center space-x-1 shadow-lg animate-pulse";
+          mnotif.innerHTML = `<span>⚡</span> <span class="font-bold tracking-wider">HAPTIC: ${actLabel}</span>`;
+          meganChat.appendChild(mnotif);
+          meganChat.scrollTop = meganChat.scrollHeight;
+        }
       } else if (msg.type === 'token') {
         if (currentAssistantBubble) {
           currentAssistantBubble.textContent += msg.text;
           chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        if (currentMeganAssistantBubble) {
+          currentMeganAssistantBubble.textContent += msg.text;
+          const meganChat = document.getElementById('meganChatMessages');
+          if (meganChat) meganChat.scrollTop = meganChat.scrollHeight;
         }
       } else if (msg.type === 'done') {
         thinkingBadge.classList.add('hidden');
@@ -2657,14 +2980,25 @@
           speakText(fullReply);
           currentAssistantBubble = null;
         }
+        currentMeganAssistantBubble = null;
         document.getElementById('sendBtn').disabled = false;
         document.getElementById('chatInput').disabled = false;
         document.getElementById('chatInput').focus();
+
+        const meganSend = document.getElementById('btnMeganChatSend');
+        const meganInput = document.getElementById('meganChatInput');
+        if (meganSend) meganSend.disabled = false;
+        if (meganInput) meganInput.disabled = false;
       } else if (msg.type === 'error') {
         thinkingBadge.classList.add('hidden');
         alert("Chat Fehler: " + msg.text);
         document.getElementById('sendBtn').disabled = false;
         document.getElementById('chatInput').disabled = false;
+
+        const meganSend = document.getElementById('btnMeganChatSend');
+        const meganInput = document.getElementById('meganChatInput');
+        if (meganSend) meganSend.disabled = false;
+        if (meganInput) meganInput.disabled = false;
       }
     }
 
@@ -6019,6 +6353,24 @@
           subtext.className = isNoToys ? "text-[10px] text-amber-400/80 font-mono" : "text-[10px] text-slate-500 font-mono";
         }
       }
+
+      const meganBadge = document.getElementById('meganLovenseStatusBadge');
+      const meganSubtext = document.getElementById('meganLovenseSubtext');
+      if (meganBadge) {
+        if (info && info.online) {
+          meganBadge.className = "px-2.5 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-emerald-950/80 border border-emerald-600 text-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.25)]";
+          meganBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1 inline-block"></span><span>ONLINE</span>`;
+        } else {
+          const isNoToys = info && (info.status === 'NO_TOYS');
+          meganBadge.className = isNoToys
+            ? "px-2.5 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-amber-950/80 border border-amber-600 text-amber-300"
+            : "px-2.5 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-rose-950/80 border border-rose-700 text-rose-300";
+          meganBadge.textContent = isNoToys ? "KEIN TOY" : "OFFLINE";
+        }
+      }
+      if (meganSubtext) {
+        meganSubtext.textContent = (info && info.details) ? info.details : "192.168.188.34:20010 • Lovense Connect";
+      }
     }
     {% endif %}
 
@@ -6626,7 +6978,350 @@
       }
       if (text) text.textContent = "🔴 OFFLINE";
     }
-    window.checkFoxVisionStatus = checkFoxNodeStatus;
+    // --- MEGAN STUDIO CONTROLLER LOGIC (3-SPALTEN-LAYOUT) ---
+    function handleMeganChatSubmit(event) {
+      if (event) event.preventDefault();
+      const input = document.getElementById('meganChatInput');
+      if (!input) return;
+      const text = input.value.trim();
+      if (!text || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) return;
+
+      // Append to meganChatMessages
+      const meganChat = document.getElementById('meganChatMessages');
+      if (meganChat) {
+        const userBubble = document.createElement('div');
+        userBubble.className = "flex flex-col space-y-1 items-end";
+        userBubble.innerHTML = `
+          <div class="flex items-center space-x-2 text-[10px] text-slate-400 font-bold">
+            <span class="text-slate-500">${new Date().toLocaleTimeString()}</span>
+            <span class="text-pink-300">[BIG BOSS]</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-pink-950/40 border border-pink-700/50 text-pink-100 font-mono leading-relaxed max-w-[85%] whitespace-pre-wrap">${text}</div>
+        `;
+        meganChat.appendChild(userBubble);
+        meganChat.scrollTop = meganChat.scrollHeight;
+      }
+
+      // Append to drawer chatMessages as well
+      const chatMessages = document.getElementById('chatMessages');
+      if (chatMessages) {
+        const userBubble = document.createElement('div');
+        userBubble.className = "flex flex-col space-y-1 items-end";
+        userBubble.innerHTML = `
+          <div class="flex items-center space-x-2 text-[10px] text-slate-400 font-bold">
+            <span class="text-slate-500">${new Date().toLocaleTimeString()}</span>
+            <span class="text-slate-300">[BIG BOSS]</span>
+          </div>
+          <div class="p-3 rounded-lg bg-cyan-950/40 border border-cyan-700/50 text-cyan-100 font-mono leading-relaxed max-w-[85%] whitespace-pre-wrap">${text}</div>
+        `;
+        chatMessages.appendChild(userBubble);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+
+      chatHistory.push({ role: 'user', content: text });
+      chatSocket.send(JSON.stringify({
+        node: activeChatNode,
+        message: text,
+        history: chatHistory
+      }));
+
+      input.value = '';
+      const sendBtn = document.getElementById('btnMeganChatSend');
+      if (sendBtn) sendBtn.disabled = true;
+    }
+
+    function onMeganLovenseSliderChange(val) {
+      const num = parseInt(val, 10);
+      const label = document.getElementById('meganLovenseIntensityLabel');
+      if (label) {
+        label.textContent = `Stufe ${num} / 20 (${num * 5}%)`;
+      }
+      if (num === 0) {
+        sendMeganLovenseCommand('stop', 0, false);
+      } else {
+        sendMeganLovenseCommand('vibrate', num, false);
+      }
+    }
+
+    async function sendMeganLovenseCommand(action, intensity, updateSlider = true) {
+      const num = parseInt(intensity, 10);
+      if (updateSlider) {
+        const slider = document.getElementById('meganLovenseSlider');
+        if (slider) slider.value = num;
+        const label = document.getElementById('meganLovenseIntensityLabel');
+        if (label) {
+          label.textContent = `Stufe ${num} / 20 (${num * 5}%)`;
+        }
+      }
+
+      try {
+        const res = await fetch('/api/bot/haptic/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: action, intensity: num, time_sec: action === 'stop' ? 0 : 2 })
+        });
+        const data = await res.json();
+        console.log('Lovense command dispatched:', data);
+      } catch (err) {
+        console.warn('sendMeganLovenseCommand error:', err);
+      }
+    }
+
+    let meganPresetsCache = { positive: [], negative: [] };
+
+    async function loadMeganStudioPresets() {
+      try {
+        const res = await fetch('/api/prompts/presets');
+        if (!res.ok) return;
+        const data = await res.json();
+        meganPresetsCache.positive = data.positive || [];
+        meganPresetsCache.negative = data.negative || [];
+
+        const posSel = document.getElementById('meganPosPresetSelect');
+        if (posSel) {
+          posSel.innerHTML = '<option value="">📂 Positiv-Preset laden...</option>';
+          meganPresetsCache.positive.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name || p.id;
+            posSel.appendChild(opt);
+          });
+        }
+
+        const negSel = document.getElementById('meganNegPresetSelect');
+        if (negSel) {
+          negSel.innerHTML = '<option value="">📂 Negativ-Preset laden...</option>';
+          meganPresetsCache.negative.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name || p.id;
+            negSel.appendChild(opt);
+          });
+        }
+      } catch (err) {
+        console.warn('loadMeganStudioPresets failed:', err);
+      }
+    }
+
+    function loadMeganPosPreset(presetId) {
+      if (!presetId) return;
+      const found = meganPresetsCache.positive.find(p => p.id === presetId);
+      if (found) {
+        const el = document.getElementById('meganPositivePrompt');
+        if (el) {
+          el.value = found.text || found.positive || '';
+          const countEl = document.getElementById('meganPosCharCount');
+          if (countEl) countEl.textContent = el.value.length + ' Zeichen';
+        }
+      }
+    }
+
+    async function saveMeganPosPreset() {
+      const el = document.getElementById('meganPositivePrompt');
+      const text = el ? el.value.trim() : '';
+      if (!text) {
+        alert('Bitte gib zuerst einen positiven Prompt ein.');
+        return;
+      }
+      const title = prompt('Name für das neue Positiv-Preset:', 'Megan Positiv Preset');
+      if (!title) return;
+
+      try {
+        const res = await fetch('/api/prompts/presets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category: 'positive', name: title, text: text, positive: text })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert(`Positiv-Preset '${title}' erfolgreich gespeichert!`);
+          await loadMeganStudioPresets();
+        } else {
+          alert('Fehler beim Speichern: ' + (data.error || 'Unbekannt'));
+        }
+      } catch (err) {
+        alert('Netzwerkfehler: ' + err.message);
+      }
+    }
+
+    function loadMeganNegPreset(presetId) {
+      if (!presetId) return;
+      const found = meganPresetsCache.negative.find(p => p.id === presetId);
+      if (found) {
+        const el = document.getElementById('meganNegativePrompt');
+        if (el) {
+          el.value = found.text || found.negative || '';
+          const countEl = document.getElementById('meganNegCharCount');
+          if (countEl) countEl.textContent = el.value.length + ' Zeichen';
+        }
+      }
+    }
+
+    async function saveMeganNegPreset() {
+      const el = document.getElementById('meganNegativePrompt');
+      const text = el ? el.value.trim() : '';
+      if (!text) {
+        alert('Bitte gib zuerst einen negativen Prompt ein.');
+        return;
+      }
+      const title = prompt('Name für das neue Negativ-Preset:', 'Megan Negativ Preset');
+      if (!title) return;
+
+      try {
+        const res = await fetch('/api/prompts/presets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category: 'negative', name: title, text: text, negative: text })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert(`Negativ-Preset '${title}' erfolgreich gespeichert!`);
+          await loadMeganStudioPresets();
+        } else {
+          alert('Fehler beim Speichern: ' + (data.error || 'Unbekannt'));
+        }
+      } catch (err) {
+        alert('Netzwerkfehler: ' + err.message);
+      }
+    }
+
+    async function executeMeganRender() {
+      const posEl = document.getElementById('meganPositivePrompt');
+      const negEl = document.getElementById('meganNegativePrompt');
+      const statusEl = document.getElementById('meganRenderStatus');
+      const btn = document.getElementById('btnMeganExecuteRender');
+
+      const posText = posEl ? posEl.value.trim() : '';
+      const negText = negEl ? negEl.value.trim() : '';
+      if (!posText) {
+        alert('Bitte gib einen Positiv-Prompt für den Render an.');
+        return;
+      }
+
+      if (btn) btn.disabled = true;
+      if (statusEl) {
+        statusEl.className = 'text-xs p-2 rounded text-center font-mono bg-cyan-950/60 border border-cyan-800 text-cyan-300';
+        statusEl.textContent = '⚙️ Übermittle Render-Job an Intel Arc A770 (ComfyUI)...';
+        statusEl.classList.remove('hidden');
+      }
+
+      try {
+        const res = await fetch('/api/render', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: posText, negative_prompt: negText })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Fehler beim Starten des Renderings');
+        }
+
+        const promptId = data.prompt_id;
+        if (statusEl) statusEl.textContent = `🚀 In Warteschlange (ID: ${promptId.slice(0, 8)}...). Render läuft...`;
+
+        let attempts = 0;
+        const interval = setInterval(async () => {
+          attempts++;
+          try {
+            const pollRes = await fetch(`/api/render/status/${promptId}`);
+            const pollData = await pollRes.json();
+            if (pollData.completed) {
+              clearInterval(interval);
+              if (statusEl) {
+                statusEl.className = 'text-xs p-2 rounded text-center font-mono bg-emerald-950/60 border border-emerald-800 text-emerald-300';
+                statusEl.textContent = '✅ Render abgeschlossen! Galerie aktualisiert.';
+              }
+              if (btn) btn.disabled = false;
+              if (typeof loadGallery === 'function') loadGallery();
+            } else if (attempts > 50) {
+              clearInterval(interval);
+              if (statusEl) statusEl.textContent = '⚠️ Timeout beim Warten auf Fertigstellung.';
+              if (btn) btn.disabled = false;
+            }
+          } catch (e) {
+            console.error('Megan render poll error:', e);
+          }
+        }, 2000);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'text-xs p-2 rounded text-center font-mono bg-rose-950/60 border border-rose-800 text-rose-300';
+          statusEl.textContent = 'Fehler: ' + err.message;
+        }
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function loadMeganVaultLore() {
+      const notice = document.getElementById('meganVaultStatusNotice');
+      if (notice) {
+        notice.textContent = 'Lade...';
+        notice.className = 'text-[10px] font-mono text-amber-400';
+        notice.classList.remove('hidden');
+      }
+
+      try {
+        const res = await fetch('/api/bot/lore');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const textEl = document.getElementById('meganVaultLoreText');
+        if (textEl) {
+          textEl.value = data.lore || '';
+          const countEl = document.getElementById('meganVaultCharCount');
+          if (countEl) countEl.textContent = textEl.value.length + ' Zeichen';
+        }
+        if (notice) {
+          notice.textContent = '✔ character.json geladen';
+          notice.className = 'text-[10px] font-mono text-emerald-400';
+          setTimeout(() => notice.classList.add('hidden'), 2500);
+        }
+      } catch (err) {
+        if (notice) {
+          notice.textContent = `Fehler: ${err.message}`;
+          notice.className = 'text-[10px] font-mono text-rose-400';
+        }
+      }
+    }
+
+    async function saveMeganVaultLore() {
+      const notice = document.getElementById('meganVaultStatusNotice');
+      if (notice) {
+        notice.textContent = 'Speichere...';
+        notice.className = 'text-[10px] font-mono text-amber-400';
+        notice.classList.remove('hidden');
+      }
+
+      const textEl = document.getElementById('meganVaultLoreText');
+      const loreText = textEl ? textEl.value : '';
+
+      try {
+        const res = await fetch('/api/bot/characters/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: 'character.json', lore: loreText })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (notice) {
+            notice.textContent = data.was_repaired ? '✔ character.json gespeichert (Syntax repariert)' : '✔ character.json gespeichert & Live-Sync aktiv!';
+            notice.className = 'text-[10px] font-mono text-emerald-400 font-bold';
+            setTimeout(() => notice.classList.add('hidden'), 4500);
+          }
+          // Also sync to characterLoreText in modal if open
+          const modalLore = document.getElementById('characterLoreText');
+          if (modalLore) modalLore.value = loreText;
+        } else {
+          if (notice) {
+            notice.textContent = `Fehler: ${data.error || 'Speichern fehlgeschlagen'}`;
+            notice.className = 'text-[10px] font-mono text-rose-400';
+          }
+        }
+      } catch (err) {
+        if (notice) {
+          notice.textContent = `Netzwerkfehler: ${err.message}`;
+          notice.className = 'text-[10px] font-mono text-rose-400';
+        }
+      }
+    }
 
     // Initialize Cluster Models & Fox status on load
     loadNodeModels('outerheaven');

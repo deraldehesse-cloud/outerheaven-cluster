@@ -18,13 +18,17 @@
     const modal = document.getElementById('appearancePresetModal');
     if (modal) {
       modal.classList.remove('hidden');
+      modal.style.display = 'flex';
       loadAppearancePresets();
     }
   };
 
   window.closeAppearanceModal = function() {
     const modal = document.getElementById('appearancePresetModal');
-    if (modal) modal.classList.add('hidden');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+    }
   };
 
   window.loadAppearancePresets = async function() {
@@ -554,6 +558,17 @@
     ['appLoreSelbstbild', 'appLoreIntim', 'appLoreGestik', 'appLoreMarkant'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('input', updateLorePreview);
+    });
+
+    // Appearance button click handlers
+    ['btnHeaderAppearance', 'btnAppearancePresets', 'btnMeganHeadAppearance', 'btnOpenAppearanceModal', 'btnMeganStudioAppearance'].forEach(btnId => {
+      const btn = document.getElementById(btnId);
+      if (btn) {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          window.openAppearanceModal();
+        });
+      }
     });
   });
 })();
