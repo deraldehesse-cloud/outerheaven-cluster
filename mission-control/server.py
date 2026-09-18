@@ -3046,6 +3046,52 @@ async def handle_appearance_preset_get(request: web.Request) -> web.Response:
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
+def apply_preset_to_character(preset: dict, clean_id: str) -> None:
+    """Atomically writes preset appearance & physical lore into character.json."""
+    if not LORE_FILE.is_file():
+        return
+    try:
+        cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
+        cdata["active_appearance_preset"] = clean_id
+        if "appearance" not in cdata:
+            cdata["appearance"] = {}
+        vis = preset.get("visual", {})
+        for k, v in vis.items():
+            cdata["appearance"][k] = v
+
+        # Update system_prompt if physical lore exists
+        lore = preset.get("physical_chat_lore", {})
+        if lore and "system_prompt" in cdata:
+            sp = cdata["system_prompt"]
+            statur_val = lore.get("statur") or lore.get("selbstbild")
+            oberweite_val = lore.get("oberweite") or lore.get("intime_details")
+            gesicht_val = lore.get("gesicht") or lore.get("gestik_haltung")
+            haare_val = lore.get("haare")
+            markant_val = lore.get("markantes_merkmal") or lore.get("signatur_merkmale")
+            koerper_val = lore.get("koerperliche_merkmale") or lore.get("gestik_haltung")
+
+            if "* **Statur & Silhouette:**" in sp and statur_val:
+                sp = re.sub(r"\* \*\*Statur & Silhouette:\*\*.*", f"* **Statur & Silhouette:** {statur_val}", sp)
+            if "* **Oberweite:**" in sp and oberweite_val:
+                sp = re.sub(r"\* \*\*Oberweite:\*\*.*", f"* **Oberweite:** {oberweite_val}", sp)
+            if "* **Gesicht & Blick:**" in sp and gesicht_val:
+                sp = re.sub(r"\* \*\*Gesicht & Blick:\*\*.*", f"* **Gesicht & Blick:** {gesicht_val}", sp)
+            if "* **Haare:**" in sp and haare_val:
+                sp = re.sub(r"\* \*\*Haare:\*\*.*", f"* **Haare:** {haare_val}", sp)
+            if "* **Markantes Merkmal:**" in sp and markant_val:
+                sp = re.sub(r"\* \*\*Markantes Merkmal:\*\*.*", f"* **Markantes Merkmal:** {markant_val}", sp)
+            if "* **Körperliche Merkmale:**" in sp and koerper_val:
+                sp = re.sub(r"\* \*\*Körperliche Merkmale:\*\*.*", f"* **Körperliche Merkmale:** {koerper_val}", sp)
+            cdata["system_prompt"] = sp
+
+        # Atomic write
+        tmp_file = LORE_FILE.with_suffix(".tmp")
+        tmp_file.write_text(json.dumps(cdata, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp_file.replace(LORE_FILE)
+        logger.info(f"Character lore atomically synchronized with preset {clean_id}")
+    except Exception as e:
+        logger.warning(f"Failed to atomically apply preset {clean_id} to character.json: {e}")
+
 async def handle_appearance_preset_save(request: web.Request) -> web.Response:
     try:
         body = await request.json()
@@ -3061,8 +3107,22 @@ async def handle_appearance_preset_save(request: web.Request) -> web.Response:
     p_file = APPEARANCE_PRESETS_DIR / f"{clean_id}.json"
     try:
         body["id"] = clean_id
-        p_file.write_text(json.dumps(body, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp_file = p_file.with_suffix(".tmp")
+        tmp_file.write_text(json.dumps(body, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp_file.replace(p_file)
         logger.info(f"Appearance preset saved: {clean_id}")
+
+        # Check if this preset is currently active
+        active_id = "megan_athletic_sleeve"
+        if LORE_FILE.is_file():
+            try:
+                cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
+                active_id = cdata.get("active_appearance_preset", active_id)
+            except Exception:
+                pass
+        if clean_id == active_id:
+            apply_preset_to_character(body, clean_id)
+
         return web.json_response({"success": True, "id": clean_id, "message": "Preset erfolgreich gespeichert."})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
@@ -3076,35 +3136,8 @@ async def handle_appearance_preset_activate(request: web.Request) -> web.Respons
 
     try:
         preset = json.loads(p_file.read_text(encoding="utf-8"))
-        # 1. Update character.json
-        if LORE_FILE.is_file():
-            cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
-            cdata["active_appearance_preset"] = clean_id
-            if "appearance" not in cdata:
-                cdata["appearance"] = {}
-            vis = preset.get("visual", {})
-            for k, v in vis.items():
-                cdata["appearance"][k] = v
-
-            # Update system_prompt if physical lore exists
-            lore = preset.get("physical_chat_lore", {})
-            if lore and "system_prompt" in cdata:
-                sp = cdata["system_prompt"]
-                if "* **Statur & Silhouette:**" in sp and lore.get("statur"):
-                    sp = re.sub(r"\* \*\*Statur & Silhouette:\*\*.*", f"* **Statur & Silhouette:** {lore.get('statur')}", sp)
-                if "* **Oberweite:**" in sp and lore.get("oberweite"):
-                    sp = re.sub(r"\* \*\*Oberweite:\*\*.*", f"* **Oberweite:** {lore.get('oberweite')}", sp)
-                if "* **Gesicht & Blick:**" in sp and lore.get("gesicht"):
-                    sp = re.sub(r"\* \*\*Gesicht & Blick:\*\*.*", f"* **Gesicht & Blick:** {lore.get('gesicht')}", sp)
-                if "* **Haare:**" in sp and lore.get("haare"):
-                    sp = re.sub(r"\* \*\*Haare:\*\*.*", f"* **Haare:** {lore.get('haare')}", sp)
-                if "* **Markantes Merkmal:**" in sp and lore.get("markantes_merkmal"):
-                    sp = re.sub(r"\* \*\*Markantes Merkmal:\*\*.*", f"* **Markantes Merkmal:** {lore.get('markantes_merkmal')}", sp)
-                if "* **Körperliche Merkmale:**" in sp and lore.get("koerperliche_merkmale"):
-                    sp = re.sub(r"\* \*\*Körperliche Merkmale:\*\*.*", f"* **Körperliche Merkmale:** {lore.get('koerperliche_merkmale')}", sp)
-                cdata["system_prompt"] = sp
-
-            LORE_FILE.write_text(json.dumps(cdata, indent=2, ensure_ascii=False), encoding="utf-8")
+        # 1. Update character.json atomically
+        apply_preset_to_character(preset, clean_id)
 
         # 2. Update bot_config.json if exists
         if BOT_CONFIG_FILE.is_file():

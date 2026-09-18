@@ -206,11 +206,14 @@ STOP_TRIGGERS = list(dict.fromkeys(
 memory_mgr = CompanionMemoryManager(
     history_file=PROJECT_ROOT / "history.json",
     memory_file=PROJECT_ROOT / "MEMORY.md",
-    max_length=30
+    max_length=50
 )
 lovense_client = LovenseClient(env_file=PROJECT_ROOT / ".env")
 
-# Runtime Session State
+# Runtime Session State & Rating/Flaw Metadata Cache
+RECENT_IMAGE_GENERATIONS: Dict[Any, Any] = {}
+AWAITING_FLAW_FEEDBACK: Dict[int, int] = {}
+
 SESSION_STATE = {
     "active": False,
     "started_at": None,
@@ -819,8 +822,8 @@ def send_telegram_message(chat_id: int, text: str):
         print(f"[Fehler] Telegram-Nachricht senden fehlgeschlagen: {e}")
 
 
-def send_telegram_photo(chat_id: int, photo_path: str, caption: str = "", reply_markup: Optional[Dict[str, Any]] = None) -> bool:
-    """Sends a real image file via Telegram sendPhoto API."""
+def send_telegram_photo(chat_id: int, photo_path: str, caption: str = "", reply_markup: Optional[Dict[str, Any]] = None) -> Any:
+    """Sends a real image file via Telegram sendPhoto API. Returns message_id or True on success, False on error."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
     p = Path(photo_path)
     if not p.is_file():
@@ -838,8 +841,11 @@ def send_telegram_photo(chat_id: int, photo_path: str, caption: str = "", reply_
                 data["reply_markup"] = json.dumps(reply_markup)
             res = requests.post(url, data=data, files=files, timeout=60)
             if res.status_code == 200:
-                print(f"[✔] Foto erfolgreich an Chat {chat_id} ausgeliefert: {photo_path}")
-                return True
+                resp_json = res.json()
+                sent_msg = resp_json.get("result", {})
+                sent_msg_id = sent_msg.get("message_id")
+                print(f"[✔] Foto erfolgreich an Chat {chat_id} ausgeliefert (Msg {sent_msg_id}): {photo_path}")
+                return sent_msg_id if sent_msg_id is not None else True
             else:
                 print(f"[!] Fehler beim Senden des Fotos ({res.status_code}): {res.text}")
                 return False
@@ -917,18 +923,20 @@ def handle_telegram_callback_query(cb: Dict[str, Any]):
     print(f"[*] [TELEGRAM-CALLBACK] query.data='{data}' von User={user_id} (chat_id={chat_id}, msg_id={msg_id})")
     logger.info(f"[TELEGRAM-CALLBACK] data='{data}' user_id='{user_id}' msg_id='{msg_id}' chat_id='{chat_id}'")
 
+    # Vorgabe: Sofortige Bestätigung an Telegram für instantanes UI-Feedback
+    if cb_id:
+        answer_callback_query(cb_id, text="Wird verarbeitet...", show_alert=False)
+
     auth_ok, _ = check_user_authentication(user_id, chat_id)
     if not auth_ok:
         answer_callback_query(cb_id, "Zugriff verweigert.")
         return
 
     if data == "evo_dismiss" or data == "noop":
-        answer_callback_query(cb_id, "Alles klar!")
         return
 
     if data == "rate_good" or data.startswith("rate_good:"):
         print(f"[✔] [TELEGRAM-RATING] Positives Feedback registriert für Msg {msg_id}: '{data}'")
-        answer_callback_query(cb_id, text="Feedback erfasst! 👍", show_alert=False)
         try:
             display_name = get_user_display_name()
             feedback_note = f"{display_name} gefällt das Bild (Button-Feedback: Gefällt mir 👍)"
@@ -937,7 +945,42 @@ def handle_telegram_callback_query(cb: Dict[str, Any]):
         except Exception as e:
             print(f"[Warnung] Fehler beim Sichern des positiven Feedbacks: {e}")
 
-        # In persistente Feedback-Datei (image_ratings.json) schreiben
+        # Letzte Render-Metadaten ermitteln (Prompt, Seed, Parameter)
+        img_info = RECENT_IMAGE_GENERATIONS.get(msg_id) or RECENT_IMAGE_GENERATIONS.get(str(msg_id)) or RECENT_IMAGE_GENERATIONS.get("latest") or {}
+        pos_prompt = img_info.get("positive_prompt") or ""
+        seed = img_info.get("seed") or ""
+        render_params = img_info.get("render_params") or {}
+        filename = img_info.get("filename") or ""
+
+        # In positive_feedback.json persistieren
+        try:
+            pf_file = PROJECT_ROOT / "positive_feedback.json"
+            pf_list = []
+            if pf_file.is_file():
+                try:
+                    pf_list = json.loads(pf_file.read_text(encoding="utf-8"))
+                except Exception:
+                    pf_list = []
+            pf_list.append({
+                "timestamp": datetime.datetime.now().isoformat(),
+                "rating": "positive",
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "message_id": msg_id,
+                "prompt": pos_prompt,
+                "seed": seed,
+                "parameters": render_params,
+                "filename": filename
+            })
+            pf_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_pf = pf_file.with_suffix(".tmp")
+            tmp_pf.write_text(json.dumps(pf_list, indent=2, ensure_ascii=False), encoding="utf-8")
+            tmp_pf.replace(pf_file)
+            print(f"[✔] Positives Rating mit Parametern in {pf_file.name} persistiert.")
+        except Exception as pf_err:
+            print(f"[Warnung] Fehler beim Speichern in positive_feedback.json: {pf_err}")
+
+        # In allgemeine image_ratings.json persistieren
         try:
             ratings_file = PROJECT_ROOT / "image_ratings.json"
             ratings_list = []
@@ -953,15 +996,19 @@ def handle_telegram_callback_query(cb: Dict[str, Any]):
                 "data": data,
                 "user_id": user_id,
                 "chat_id": chat_id,
-                "message_id": msg_id
+                "message_id": msg_id,
+                "prompt": pos_prompt,
+                "seed": seed,
+                "filename": filename
             })
             ratings_file.parent.mkdir(parents=True, exist_ok=True)
-            ratings_file.write_text(json.dumps(ratings_list, indent=2, ensure_ascii=False), encoding="utf-8")
-            print(f"[✔] Positives Rating in {ratings_file.name} persistiert.")
-        except Exception as rf_err:
-            print(f"[Warnung] Fehler beim Speichern in image_ratings.json: {rf_err}")
+            tmp_rf = ratings_file.with_suffix(".tmp")
+            tmp_rf.write_text(json.dumps(ratings_list, indent=2, ensure_ascii=False), encoding="utf-8")
+            tmp_rf.replace(ratings_file)
+        except Exception:
+            pass
 
-        # Button-Markup visuell ändern (zu ✅ Gefällt mir)
+        # Button-Markup visuell ändern (zu ✅ Gefällt mir) - Mehrfachklick-Sperre
         new_markup = {
             "inline_keyboard": [
                 [{"text": "✅ Gefällt mir", "callback_data": "noop"}]
@@ -972,37 +1019,98 @@ def handle_telegram_callback_query(cb: Dict[str, Any]):
             print(f"[✔] Button-Markup für Nachricht {msg_id} erfolgreich auf '✅ Gefällt mir' geändert.")
         return
 
-    if data.startswith("rate_bad:"):
+    if data == "rate_bad" or data.startswith("rate_bad:"):
         parts = data.split(":")
         session_id = parts[1] if len(parts) > 1 else "direct"
         idx = parts[2] if len(parts) > 2 else "0"
-        answer_callback_query(cb_id, "Was soll korrigiert werden?")
+        # Neues Hauptmenü: [ 🦴 Körper ], [ 👤 Charakter ], [ ✍️ Freies Feedback ]
         new_markup = {
             "inline_keyboard": [
                 [
-                    {"text": "🩻 deformiert", "callback_data": f"flaw:deformed:{session_id}:{idx}"},
-                    {"text": "🦴 bad anatomy", "callback_data": f"flaw:bad_anatomy:{session_id}:{idx}"},
-                    {"text": "🖐 extra fingers...", "callback_data": f"flaw:extra_fingers:{session_id}:{idx}"}
+                    {"text": "🦴 Körper", "callback_data": f"flaw_cat:body:{session_id}:{idx}"},
+                    {"text": "👤 Charakter", "callback_data": f"flaw_cat:char:{session_id}:{idx}"}
                 ],
                 [
-                    {"text": "👤 deformed face", "callback_data": f"flaw:deformed_face:{session_id}:{idx}"},
-                    {"text": "🎨 low quality", "callback_data": f"flaw:low_quality:{session_id}:{idx}"},
-                    {"text": "🦵 bad limbs", "callback_data": f"flaw:bad_limbs:{session_id}:{idx}"}
+                    {"text": "✍️ Freies Feedback (Reply)", "callback_data": f"flaw_cat:text:{session_id}:{idx}"}
                 ],
                 [
-                    {"text": "🖋️ Tattoos", "callback_data": f"flaw:tattoos:{session_id}:{idx}"}
-                ],
-                [
-                    {"text": "⏳ zu alt", "callback_data": f"flaw:zu_alt:{session_id}:{idx}"},
-                    {"text": "👶 zu jung", "callback_data": f"flaw:zu_jung:{session_id}:{idx}"}
-                ],
-                [
-                    {"text": "📸 realistischer art", "callback_data": f"flaw:realistisch:{session_id}:{idx}"},
-                    {"text": "🖌️ mehr cartoon art", "callback_data": f"flaw:cartoon:{session_id}:{idx}"}
+                    {"text": "⬅️ Zurück", "callback_data": f"flaw_cat:cancel:{session_id}:{idx}"}
                 ]
             ]
         }
         edit_telegram_message_reply_markup(chat_id, msg_id, new_markup)
+        return
+
+    if data.startswith("flaw_cat:body:"):
+        parts = data.split(":")
+        session_id = parts[2] if len(parts) > 2 else "direct"
+        idx = parts[3] if len(parts) > 3 else "0"
+        # Unterpunkte: deformiert / bad anatomy, extra fingers, deformed face, low quality, bad limbs, tattoos
+        new_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "deformiert / bad anatomy", "callback_data": f"flaw:bad_anatomy:{session_id}:{idx}"}
+                ],
+                [
+                    {"text": "extra fingers", "callback_data": f"flaw:extra_fingers:{session_id}:{idx}"},
+                    {"text": "deformed face", "callback_data": f"flaw:deformed_face:{session_id}:{idx}"}
+                ],
+                [
+                    {"text": "low quality", "callback_data": f"flaw:low_quality:{session_id}:{idx}"},
+                    {"text": "bad limbs", "callback_data": f"flaw:bad_limbs:{session_id}:{idx}"}
+                ],
+                [
+                    {"text": "tattoos", "callback_data": f"flaw:tattoos:{session_id}:{idx}"}
+                ],
+                [
+                    {"text": "⬅️ Zurück zum Hauptmenü", "callback_data": f"rate_bad:{session_id}:{idx}"}
+                ]
+            ]
+        }
+        edit_telegram_message_reply_markup(chat_id, msg_id, new_markup)
+        return
+
+    if data.startswith("flaw_cat:char:"):
+        parts = data.split(":")
+        session_id = parts[2] if len(parts) > 2 else "direct"
+        idx = parts[3] if len(parts) > 3 else "0"
+        # Unterpunkte Alter: zu alt, zu jung; Darstellung: realistischer art, mehr cartoon art
+        new_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "zu alt", "callback_data": f"flaw:zu_alt:{session_id}:{idx}"},
+                    {"text": "zu jung", "callback_data": f"flaw:zu_jung:{session_id}:{idx}"}
+                ],
+                [
+                    {"text": "realistischer art", "callback_data": f"flaw:realistisch:{session_id}:{idx}"},
+                    {"text": "mehr cartoon art", "callback_data": f"flaw:cartoon:{session_id}:{idx}"}
+                ],
+                [
+                    {"text": "⬅️ Zurück zum Hauptmenü", "callback_data": f"rate_bad:{session_id}:{idx}"}
+                ]
+            ]
+        }
+        edit_telegram_message_reply_markup(chat_id, msg_id, new_markup)
+        return
+
+    if data.startswith("flaw_cat:cancel:"):
+        parts = data.split(":")
+        session_id = parts[2] if len(parts) > 2 else "direct"
+        idx = parts[3] if len(parts) > 3 else "0"
+        orig_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "👍 Gefällt mir", "callback_data": f"rate_good:{session_id}:{idx}"},
+                    {"text": "👎 Mangel melden", "callback_data": f"rate_bad:{session_id}:{idx}"}
+                ]
+            ]
+        }
+        edit_telegram_message_reply_markup(chat_id, msg_id, orig_markup)
+        return
+
+    if data.startswith("flaw_cat:text:"):
+        AWAITING_FLAW_FEEDBACK[chat_id] = msg_id
+        send_telegram_message(chat_id, "✍️ *Freies Feedback:* Antworte bitte direkt auf das Bild (oder diese Nachricht) mit deiner kurzen Mängel-Beschreibung oder Korrektur:")
         return
 
     if data.startswith("flaw:"):
@@ -1010,28 +1118,29 @@ def handle_telegram_callback_query(cb: Dict[str, Any]):
         flaw_type = parts[1] if len(parts) > 1 else "gen"
 
         flaw_tags_map = {
-            # Kategorie Körper
-            "deformed": "deformed, distorted, disfigured",
-            "bad_anatomy": "bad anatomy, gross proportions",
-            "extra_fingers": "extra fingers, missing fingers, fused fingers, mutated hands",
-            "deformed_face": "deformed face, bad eyes, mutated face",
-            "low_quality": "low quality, worst quality, lowres, blurry",
-            "bad_limbs": "bad limbs, mutated limbs, missing limbs",
+            # Hauptpunkt: [ 🦴 Körper ]
+            "bad_anatomy": "deformed, bad anatomy, gross proportions, malformed limbs",
+            "deformed": "deformed, bad anatomy, gross proportions, malformed limbs",
+            "extra_fingers": "extra fingers, missing fingers, fused fingers, mutated hands, bad hands",
+            "deformed_face": "deformed face, bad eyes, poorly drawn eyes, mutated face, bad teeth",
+            "low_quality": "low quality, worst quality, lowres, blurry, artifacts",
+            "bad_limbs": "bad limbs, mutated limbs, missing limbs, disconnected limbs",
             "tattoos": "tattoos, tattoo markings, unwanted tattoos",
-            # Kategorie Charakter
-            "zu_alt": "older, mature, elderly, wrinkles",
+            # Hauptpunkt: [ 👤 Charakter ] (Alter)
+            "zu_alt": "older, mature, elderly, wrinkles, aged skin",
             "zu_jung": "child, loli, infantile, teen, underage",
-            "realistisch": "cartoon, anime, 3d, render, illustration, drawing",
-            "cartoon": "photorealistic, raw photo, realistic art, dslr"
+            # Hauptpunkt: [ 👤 Charakter ] (Darstellung)
+            "realistisch": "cartoon, anime, 3d, render, illustration, drawing, doll",
+            "cartoon": "photorealistic, raw photo, realistic art, dslr, ultra realistic 8k"
         }
         flaw_labels = {
-            "deformed": "deformiert",
-            "bad_anatomy": "bad anatomy",
-            "extra_fingers": "extra fingers...",
+            "bad_anatomy": "deformiert / bad anatomy",
+            "deformed": "deformiert / bad anatomy",
+            "extra_fingers": "extra fingers",
             "deformed_face": "deformed face",
             "low_quality": "low quality",
             "bad_limbs": "bad limbs",
-            "tattoos": "Tattoos",
+            "tattoos": "tattoos",
             "zu_alt": "zu alt",
             "zu_jung": "zu jung",
             "realistisch": "realistischer art",
@@ -1039,7 +1148,6 @@ def handle_telegram_callback_query(cb: Dict[str, Any]):
         }
         flaw_str = flaw_tags_map.get(flaw_type, "bad anatomy")
         flaw_label = flaw_labels.get(flaw_type, flaw_type)
-        answer_callback_query(cb_id, f"Korrektur ({flaw_label}) vermerkt! ✍️")
 
         pending_file = Path("/mnt/storage-beta/projekte/projekt-sexchat/pending_flaws.json")
         flaws_list = []
@@ -1052,7 +1160,15 @@ def handle_telegram_callback_query(cb: Dict[str, Any]):
             flaws_list.append(flaw_str)
         try:
             pending_file.parent.mkdir(parents=True, exist_ok=True)
-            pending_file.write_text(json.dumps(flaws_list, indent=2, ensure_ascii=False), encoding="utf-8")
+            tmp_f = pending_file.with_suffix(".tmp")
+            tmp_f.write_text(json.dumps(flaws_list, indent=2, ensure_ascii=False), encoding="utf-8")
+            tmp_f.replace(pending_file)
+            print(f"[✔] Mangel '{flaw_label}' in {pending_file.name} gespeichert.")
+        except Exception as e:
+            print(f"[Warnung] Fehler beim Schreiben in pending_flaws.json: {e}")
+
+        try:
+            append_to_long_term_memory(f"Korrektur-Wunsch vom Nutzer: {flaw_label} (als negativer Prompt vermerkt)")
         except Exception:
             pass
 
@@ -1642,6 +1758,10 @@ def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situatio
 
             # 3. SCHRITT 2: DANACH DAS FOTO (Mit Bewertungs-Tastatur)
             delivered = send_photo_with_feedback(chat_id, img_path, caption=caption, session_id="direct", idx="0")
+            RECENT_IMAGE_GENERATIONS["latest"] = result
+            if delivered and delivered is not True:
+                RECENT_IMAGE_GENERATIONS[delivered] = result
+                RECENT_IMAGE_GENERATIONS[str(delivered)] = result
 
             # 4. SCHRITT 3: OPTIONAL / FALLS AKTIVIERT: BEGLEITTEXT NACHREICHEN
             send_accompanying = SESSION_STATE.get("send_text_accompanying", True)
@@ -1949,8 +2069,8 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str, syst
     raw_history = memory_mgr.load_history(chat_id=chat_id)
     clean_history = pipeline_stage1_history_sanitizer(raw_history, max_turns=memory_mgr.max_length)
 
-    # Letzte 10-20 Dialog-Einträge aus der Historie (Standard: 16 Turns)
-    history_slice = clean_history[-16:] if len(clean_history) > 16 else clean_history
+    # Letzte 20 Dialog-Einträge aus der persistenten Historie übergeben (strikt nach Vorgabe)
+    history_slice = clean_history[-20:] if len(clean_history) > 20 else clean_history
     history_messages = [
         {"role": str(entry.get("role", "user")), "content": str(entry.get("content", ""))}
         for entry in history_slice
@@ -2460,6 +2580,37 @@ def main():
                         PROACTIVE_STATE["last_user_activity"] = time.time()
                         PROACTIVE_STATE["last_chat_id"] = chat_id
                         save_proactive_state(PROACTIVE_STATE)
+
+                        # Freie Texteingabe für Mängel-System via Telegram Reply (Handschriftliche Vorgabe)
+                        reply_to = message.get("reply_to_message")
+                        is_flaw_reply = (chat_id in AWAITING_FLAW_FEEDBACK) or (reply_to and reply_to.get("photo"))
+                        if is_flaw_reply and text and len(text) < 300 and not text.startswith("/") and not has_media:
+                            if chat_id in AWAITING_FLAW_FEEDBACK:
+                                del AWAITING_FLAW_FEEDBACK[chat_id]
+                            pending_file = Path("/mnt/storage-beta/projekte/projekt-sexchat/pending_flaws.json")
+                            flaws_list = []
+                            if pending_file.is_file():
+                                try:
+                                    flaws_list = json.loads(pending_file.read_text(encoding="utf-8"))
+                                except Exception:
+                                    flaws_list = []
+                            if text not in flaws_list:
+                                flaws_list.append(text)
+                            try:
+                                pending_file.parent.mkdir(parents=True, exist_ok=True)
+                                tmp_f = pending_file.with_suffix(".tmp")
+                                tmp_f.write_text(json.dumps(flaws_list, indent=2, ensure_ascii=False), encoding="utf-8")
+                                tmp_f.replace(pending_file)
+                                print(f"[✔] Freies Mängel-Feedback erfasst: '{text}'")
+                            except Exception as e:
+                                print(f"[Warnung] Fehler beim Speichern von freiem Feedback: {e}")
+
+                            try:
+                                append_to_long_term_memory(f"Korrektur-Wunsch vom Nutzer: {text}")
+                            except Exception:
+                                pass
+                            send_telegram_message(chat_id, f"Danke Boss! Dein Feedback („{text}“) wurde als Korrektur für das nächste Rendering gespeichert. ✍️")
+                            continue
 
                         # Inbound Voice Message Handler (Speech-to-Text)
                         if voice_obj:

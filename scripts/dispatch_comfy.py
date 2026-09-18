@@ -222,8 +222,10 @@ def assemble_prompt(
             flaws_data = json.loads(pending_flaws_path.read_text(encoding="utf-8"))
             if isinstance(flaws_data, list):
                 for fl in flaws_data:
-                    if fl and isinstance(fl, str) and not fl.startswith("User feedback:"):
-                        neg_parts.append(fl.strip())
+                    if fl and isinstance(fl, str):
+                        clean_fl = fl.replace("User feedback:", "").strip()
+                        if clean_fl:
+                            neg_parts.append(clean_fl)
         except Exception as e:
             logger.warning(f"Error loading pending_flaws.json: {e}")
 
@@ -542,6 +544,8 @@ def dispatch_render_sync(
         "filename": remote_filename,
         "local_path": str(local_target_path),
         "environment": environment_key,
+        "positive_prompt": pos_prompt,
+        "render_params": render_params,
         "elapsed_seconds": round(time.time() - start_time, 2)
     }
 

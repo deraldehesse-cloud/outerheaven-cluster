@@ -2242,42 +2242,53 @@
         </div>
 
         <button type="button" onclick="initNewAppearancePreset()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded text-xs font-mono transition flex items-center space-x-1.5">
-          <span>➕</span> <span>Neues Profil</span>
+          <span>➕</span> <span>Neues Profil erstellen</span>
         </button>
       </div>
 
       <!-- Scrollable Form Body -->
       <div class="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3.5 scrollbar-thin">
         
-        <!-- Profile Identity Basics -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <!-- Profile Identity Basics (KOPFBEREICH: Profil-ID, Anzeigename, Körpergröße, Kurzbeschreibung) -->
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
           <div>
             <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Profil-ID</label>
-            <input type="text" id="appPresetId" placeholder="z.B. megan_athletic_sleeve" class="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-pink-500 focus:outline-none">
+            <input type="text" id="appPresetId" placeholder="z.B. SuSi" class="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-pink-500 focus:outline-none">
           </div>
           <div>
             <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Anzeigename</label>
-            <input type="text" id="appPresetName" placeholder="z.B. Megan Athletic Sleeve" class="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+            <input type="text" id="appPresetName" placeholder="z.B. SuSi petite" class="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Körpergröße</label>
+            <input type="text" id="appPresetHeight" placeholder="z.B. 163cm tall" list="appRpgHeightSuggestions" class="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-pink-500 focus:outline-none">
+            <datalist id="appRpgHeightSuggestions">
+              <option value="158cm tall"></option>
+              <option value="163cm tall"></option>
+              <option value="168cm tall"></option>
+              <option value="173cm tall"></option>
+              <option value="178cm tall"></option>
+            </datalist>
           </div>
           <div>
             <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Kurzbeschreibung</label>
-            <input type="text" id="appPresetDesc" placeholder="z.B. 1,78m, schlank & sportlich..." class="w-full bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+            <input type="text" id="appPresetDesc" placeholder="z.B. 1,63m, zierlich, athletisch..." class="w-full bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
           </div>
         </div>
 
-        <!-- SCHRITT 2: RPG-Kopfleiste (Strukturierte Leiste mit festen Attributen) -->
-        <div class="bg-gradient-to-r from-pink-950/40 via-purple-950/30 to-slate-900/60 border border-pink-500/40 rounded-lg p-3 space-y-2 shadow-inner">
+        <!-- RPG-Kopfleiste (Zusätzliche feste Kerndaten) -->
+        <div class="bg-gradient-to-r from-pink-950/40 via-purple-950/30 to-slate-900/60 border border-pink-500/40 rounded-lg p-2.5 space-y-2 shadow-inner">
           <div class="flex items-center justify-between">
-            <span class="text-[11px] font-bold text-pink-300 flex items-center space-x-1.5 uppercase tracking-wider">
-              <span>⚔️</span> <span>RPG-CHARAKTER-ATTRIBUTE (KERNDATEN)</span>
+            <span class="text-[10px] font-bold text-pink-300 flex items-center space-x-1.5 uppercase tracking-wider">
+              <span>⚔️</span> <span>RPG-CHARAKTER-ATTRIBUTE</span>
             </span>
-            <span class="text-[10px] text-pink-400/80 font-mono">Feste Attribute für Render-Tags & Lore-Generator</span>
+            <span class="text-[9px] text-pink-400/80 font-mono">Feste Attribute für Render-Tags & Lore-Generator</span>
           </div>
-          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 font-mono">
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono">
             <!-- 1. Geschlecht -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Geschlecht</label>
-              <select id="appRpgGender" class="w-full bg-black/80 border border-pink-900/70 text-pink-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              <label class="block text-[9px] uppercase font-bold text-pink-300 mb-0.5">Geschlecht</label>
+              <select id="appRpgGender" class="w-full bg-black/80 border border-pink-900/70 text-pink-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
                 <option value="Weiblich">Weiblich</option>
                 <option value="Männlich">Männlich</option>
                 <option value="Androgyn">Androgyn</option>
@@ -2285,8 +2296,8 @@
             </div>
             <!-- 2. Alter / Altersspanne -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Alter / Spanne</label>
-              <input type="text" id="appRpgAge" placeholder="z. B. 20, 24, 28" list="appRpgAgeSuggestions" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              <label class="block text-[9px] uppercase font-bold text-pink-300 mb-0.5">Alter / Spanne</label>
+              <input type="text" id="appRpgAge" placeholder="z. B. 20, 24, 28" list="appRpgAgeSuggestions" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
               <datalist id="appRpgAgeSuggestions">
                 <option value="20"></option>
                 <option value="22"></option>
@@ -2295,22 +2306,10 @@
                 <option value="28"></option>
               </datalist>
             </div>
-            <!-- 3. Körpergröße (Tag) -->
+            <!-- 3. Haarfarbe -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Körpergröße (Tag)</label>
-              <input type="text" id="appPresetHeight" placeholder="z. B. 163cm tall" list="appRpgHeightSuggestions" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
-              <datalist id="appRpgHeightSuggestions">
-                <option value="158cm tall"></option>
-                <option value="163cm tall"></option>
-                <option value="168cm tall"></option>
-                <option value="173cm tall"></option>
-                <option value="178cm tall"></option>
-              </datalist>
-            </div>
-            <!-- 4. Haarfarbe -->
-            <div>
-              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Haarfarbe</label>
-              <input type="text" id="appPresetHairColor" placeholder="z. B. Orange/Ginger, Schwarz..." list="appRpgHairColors" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              <label class="block text-[9px] uppercase font-bold text-pink-300 mb-0.5">Haarfarbe</label>
+              <input type="text" id="appPresetHairColor" placeholder="z. B. Orange/Ginger, Schwarz..." list="appRpgHairColors" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
               <datalist id="appRpgHairColors">
                 <option value="Orange/Ginger"></option>
                 <option value="Schwarz"></option>
@@ -2319,10 +2318,10 @@
                 <option value="Dunkelbraun"></option>
               </datalist>
             </div>
-            <!-- 5. Augenfarbe -->
+            <!-- 4. Augenfarbe -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Augenfarbe</label>
-              <input type="text" id="appPresetEyeColor" placeholder="z. B. Grün, Blau, Bernstein..." list="appRpgEyeColors" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              <label class="block text-[9px] uppercase font-bold text-pink-300 mb-0.5">Augenfarbe</label>
+              <input type="text" id="appPresetEyeColor" placeholder="z. B. Grün, Blau, Bernstein..." list="appRpgEyeColors" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
               <datalist id="appRpgEyeColors">
                 <option value="Grün"></option>
                 <option value="Blau"></option>
@@ -2334,56 +2333,56 @@
           </div>
         </div>
 
-        <!-- SCHRITT 3: 2-Spalten-Struktur geschärft -->
+        <!-- 2-SPALTEN-STRUKTUR: LINKS COMFYUI-TAGS, RECHTS NARRATIVE LORE -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 relative">
           
-          <!-- LINKS: Visuelle ComfyUI-Tags -->
+          <!-- LINKE SPALTE: Visuelle Tags für ComfyUI -->
           <div class="bg-slate-900/40 border border-cyan-500/30 rounded-xl p-3.5 space-y-3">
             <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
               <span class="text-xs font-bold text-cyan-300 flex items-center space-x-1.5">
-                <span>🎨</span> <span>LINKS: VISUELLE COMFYUI-TAGS</span>
+                <span>🎨</span> <span>LINKE SPALTE: VISUELLE TAGS (COMFYUI)</span>
               </span>
               <span class="text-[10px] text-slate-500">Physische Merkmale</span>
             </div>
             
-            <!-- 1. Statur / Silhouette -->
+            <!-- 1. Körperbau & Silhouette (Body) -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">1. Statur & Silhouette</label>
-              <textarea id="appPresetBody" rows="3" placeholder="1girl, solo, 178cm tall, slender athletic build, voluptuous hourglass figure, very large full natural heavy breasts..." class="w-full bg-black/80 border border-slate-800 text-emerald-300 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none leading-relaxed"></textarea>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Körperbau & Silhouette (Body)</label>
+              <textarea id="appPresetBody" rows="3" placeholder="1girl, solo, 163cm tall, slender athletic build, voluptuous hourglass figure, full natural breasts..." class="w-full bg-black/80 border border-slate-800 text-emerald-300 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none leading-relaxed"></textarea>
             </div>
 
-            <!-- 2. Schnitt & Styling (Haare) -->
+            <!-- 2. Gesicht & Augen (Face) -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">2. Schnitt & Styling (Haare)</label>
-              <input type="text" id="appPresetHairCut" placeholder="z. B. long layered hair, soft natural waves, messy chic bob cut" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Gesicht & Augen (Face)</label>
+              <input type="text" id="appPresetFace" placeholder="cute and mischievous stunning face, sharp jawline, bright emerald eyes, smirk" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
             </div>
 
-            <!-- 3. Form & Ausdruck (Augen) -->
+            <!-- 3. Haare & Frisur (Hair) -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">3. Form & Ausdruck (Augen)</label>
-              <input type="text" id="appPresetEyeShape" placeholder="z. B. alluring captivating gaze, seductive smile, mischievous smirk" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Haare & Frisur (Hair)</label>
+              <input type="text" id="appPresetHair" placeholder="shoulder-length layered orange hair, messy chic bob cut" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
             </div>
 
-            <!-- 4. Tattoos & Piercings -->
+            <!-- 4. Tattoos, Piercings & Merkmale (Features) -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">4. Tattoos & Piercings</label>
-              <input type="text" id="appPresetFeatures" placeholder="z. B. massive intricate sleeve tattoo left arm, subtle navel piercing" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Tattoos, Piercings & Merkmale (Features)</label>
+              <input type="text" id="appPresetFeatures" placeholder="subtle silver belly button piercing, delicate small geometric tattoo on ribcage" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
             </div>
 
-            <!-- Live Combined Prompt Preview -->
+            <!-- 5. Kombinierte Basis-Tags (Live-Vorschau) -->
             <div class="pt-1">
-              <label class="block text-[9px] uppercase font-bold text-slate-500 mb-1">Kombinierte ComfyUI-Tags (Vorschau)</label>
+              <label class="block text-[9px] uppercase font-bold text-slate-500 mb-1">Kombinierte Basis-Tags (Live-Vorschau)</label>
               <div id="appPresetCombinedPreview" class="bg-black/60 border border-slate-800/80 rounded p-2 text-[10px] text-cyan-200/90 font-mono max-h-16 overflow-y-auto leading-relaxed">
                 1girl, solo, ...
               </div>
             </div>
           </div>
 
-          <!-- RECHTS: Narrative Chat-Lore (Wie der Bot spricht) -->
+          <!-- RECHTE SPALTE: Chat-Beschreibung / Megan Lore -->
           <div id="appearanceModalRightCol" class="bg-slate-900/40 border border-pink-500/30 rounded-xl p-3.5 space-y-3 transition">
             <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
               <span class="text-xs font-bold text-pink-300 flex items-center space-x-1.5">
-                <span>💬</span> <span>RECHTS: NARRATIVE CHAT-LORE</span>
+                <span>💬</span> <span>RECHTE SPALTE: CHAT-BESCHREIBUNG (MEGAN LORE)</span>
               </span>
               <!-- Central Action Button -->
               <button type="button" onclick="generateLoreFromVisualTags()" class="px-2.5 py-1 bg-gradient-to-r from-amber-600 to-pink-600 hover:from-amber-500 hover:to-pink-500 text-slate-950 font-extrabold rounded text-[11px] shadow transition flex items-center space-x-1 cursor-pointer" title="Generiert aus RPG-Kopfdaten und visuellen Tags flüssige deutsche Chat-Lore">
@@ -2391,28 +2390,28 @@
               </button>
             </div>
 
-            <!-- 1. Selbstbild & Physis -->
+            <!-- 1. Statur & Silhouette -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">1. Selbstbild & Physis</label>
-              <textarea id="appLoreSelbstbild" rows="2" placeholder="1,78 m groß, 24 Jahre alt. Schlank und athletisch mit femininer Sanduhr-Figur..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none"></textarea>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Statur & Silhouette</label>
+              <textarea id="appLoreStatur" rows="2" placeholder="1,63 m groß, 45 kg schwer. Schlank und athletisch..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none"></textarea>
             </div>
 
-            <!-- 2. Intime/Physische Details (Dekolleté/Vorlieben) -->
+            <!-- 2. Oberweite & Dekolleté -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">2. Intime/Physische Details (Dekolleté/Vorlieben)</label>
-              <textarea id="appLoreIntim" rows="2" placeholder="Sehr große, pralle natürliche Brüste, tiefes Dekolleté und samtige Haut..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none"></textarea>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Oberweite & Dekolleté</label>
+              <textarea id="appLoreOberweite" rows="2" placeholder="Straffe, feste und perfekt geformte Brüste mit wohlgeformten Rundungen..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none"></textarea>
             </div>
 
-            <!-- 3. Gestik / Haltung -->
+            <!-- 3. Markantes Merkmal -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">3. Gestik / Haltung</label>
-              <input type="text" id="appLoreGestik" placeholder="Selbstbewusste und offene Körpersprache; betörender Blick mit verspieltem Lächeln..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Markantes Merkmal</label>
+              <input type="text" id="appLoreMarkant" placeholder="Ein dezentes silbernes Bauchnabel-Piercing und ein kleines feines Tattoo..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
             </div>
 
-            <!-- 4. Signatur-Merkmale -->
+            <!-- 4. Körperliche Merkmale -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">4. Signatur-Merkmale</label>
-              <input type="text" id="appLoreMarkant" placeholder="Massives Sleeve-Tattoo linker Arm, silbernes Bauchnabel-Piercing..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Körperliche Merkmale</label>
+              <input type="text" id="appLoreKoerper" placeholder="Deutlich sichtbare Bauchmuskeln, straffer trainierter Po, samtige Haut..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
             </div>
 
             <!-- Lore System Prompt Preview -->
