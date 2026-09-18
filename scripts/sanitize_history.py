@@ -70,11 +70,17 @@ def is_corrupted_text(text: str) -> Tuple[bool, str]:
     # Abnormal unsegmented subwords (e.g. genfgKarseblevedfesapakigosfand)
     for w in t.split():
         clean_w = w.strip(".,!?:;\"'()[]{}")
-        if len(clean_w) > 22 and not (clean_w.startswith("http://") or clean_w.startswith("https://") or clean_w.startswith("/") or clean_w.startswith("hf.co")):
+        if len(clean_w) > 22 and not (
+            clean_w.startswith("http://") or
+            clean_w.startswith("https://") or
+            clean_w.startswith("/") or
+            clean_w.startswith("hf.co") or
+            clean_w.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".ogg", ".mp3", ".wav"))
+        ):
             return True, f"Abnormal langes Kunstwort / BPE-Verschmelzung ({clean_w[:20]}...)"
 
     # Schizophrenic / English hallucinations & out-of-character English chatter
-    if re.search(r"^##\.\s*\(t\)", t) or re.search(r"\b(?:the death in the Death|Queen'ship|nameless but he is not dead)\b", t, re.IGNORECASE):
+    if re.search(r"^##\.\s*\(t\)", t) or re.search(r"\b(?:the death in the Death|Queen'ship|nameless but he is not dead|Deathancedomic)\b", t, re.IGNORECASE):
         return True, "Schizophrene Englisch-Halluzination"
     if re.search(r"\b(?:The only thing more confusing|Please specify a new vibration|Are we discussing something in German again|and during while between)\b", t, re.IGNORECASE):
         return True, "Deplatzierte Englisch-Antwort / Wortsalat"

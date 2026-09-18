@@ -160,31 +160,10 @@
            title="Megan Studio (3-Spalten Lovense, Prompts & Lore)">
           <span>💋 Megan Studio</span>
         </button>
-        <button type="button" id="btnHeaderAppearance" onclick="window.openAppearanceModal ? window.openAppearanceModal() : (document.getElementById('appearancePresetModal').classList.remove('hidden'), document.getElementById('appearancePresetModal').style.display='flex')"
-           class="px-2.5 py-1 bg-purple-950/40 hover:bg-purple-900/60 border border-purple-800/60 hover:border-purple-400 text-purple-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-purple shrink-0 whitespace-nowrap"
-           title="RPG Charakter Creator / Aussehen-Presets">
-          <span>👤 Aussehen</span>
-        </button>
       </div>
 
-      <!-- Right: Quick Status Badges with IP Masking -->
+      <!-- Right: Action Buttons -->
       <div class="flex items-center space-x-2 sm:space-x-3 text-xs">
-        <div id="badgeOhIp" class="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded cursor-pointer group hover:border-cyan-500/50 transition select-none"
-             onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)"
-             title="Hover / Klick zum Aufdecken der IP">
-          <span id="headerOhDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
-          <span class="text-slate-400 text-[11px]">OH:</span>
-          <span class="font-bold text-cyan-300 font-mono ip-text" data-full="{{ outerheaven_ip }}" data-masked="100.***.***.29">100.***.***.29</span>
-          <span class="text-[10px] text-slate-500 group-hover:text-cyan-400 transition">👁️</span>
-        </div>
-        <div id="badgeFoxIp" class="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded cursor-pointer group hover:border-amber-500/50 transition select-none"
-             onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)"
-             title="Hover / Klick zum Aufdecken der IP">
-          <span id="headerFoxDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
-          <span class="text-slate-400 text-[11px]">FOX:</span>
-          <span class="font-bold text-amber-300 font-mono ip-text" data-full="{{ fox_ip }}" data-masked="100.***.155.70">100.***.155.70</span>
-          <span class="text-[10px] text-slate-500 group-hover:text-amber-400 transition">👁️</span>
-        </div>
         <button type="button" id="btnGlobalRefresh" onclick="refreshAllDashboardData()"
                 class="px-2.5 py-1 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-700/60 hover:border-cyan-400 text-cyan-300 text-xs rounded transition flex items-center space-x-1.5 font-mono font-bold glow-cyan"
                 title="Live Health-Checks, Telemetrie und Büro-Daten sofort aktualisieren">
@@ -1060,14 +1039,15 @@
             </div>
           </div>
           <div class="flex items-center space-x-2">
-            <button type="button" id="btnMeganStudioAppearance" onclick="window.openAppearanceModal()"
+            <button type="button" id="btnMeganStudioAppearance" onclick="openAppearanceModal()"
                     class="px-3 py-1.5 bg-gradient-to-r from-purple-900/80 to-pink-900/80 hover:from-purple-800 hover:to-pink-800 border border-pink-500/60 text-pink-200 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5 shadow"
                     title="RPG Charakter Creator / Aussehen-Presets öffnen">
-              <span>👤</span> <span>RPG-AUSSEHEN MODAL</span>
+              <span>👤</span> <span>RPG-Aussehen</span>
             </button>
-            <button type="button" onclick="selectWorkspace('catlord')"
-                    class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-cyan-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5">
-              <span>🐱</span> <span>Catlord Studio</span>
+            <button type="button" id="btnMeganBackToMain" onclick="selectWorkspace('catlord')"
+                    class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-cyan-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5"
+                    title="Zurück zur Hauptübersicht (Dashboard)">
+              <span>⬅️</span> <span>Zurück Hauptübersicht</span>
             </button>
           </div>
         </div>
@@ -2639,6 +2619,35 @@
     let currentMeganAssistantBubble = null;
     let currentActiveOllamaModel = "{{ local_model }}";
 
+    // --- Appearance Modal Handlers ---
+    function loadActiveAppearanceProfile() {
+      if (typeof window.loadActiveAppearanceProfile === 'function') {
+        return window.loadActiveAppearanceProfile();
+      }
+    }
+    function openAppearanceModal() {
+      const modal = document.getElementById('appearancePresetModal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+      }
+      if (typeof window.loadActiveAppearanceProfile === 'function') {
+        window.loadActiveAppearanceProfile();
+      } else if (typeof window.loadAppearancePresets === 'function') {
+        window.loadAppearancePresets();
+      }
+    }
+    function closeAppearanceModal() {
+      const modal = document.getElementById('appearancePresetModal');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+      }
+    }
+    window.loadActiveAppearanceProfile = loadActiveAppearanceProfile;
+    window.openAppearanceModal = openAppearanceModal;
+    window.closeAppearanceModal = closeAppearanceModal;
+
     // --- 3-Zone Cockpit Workspace Navigation ---
     let currentActiveWorkspace = 'catlord';
 
@@ -3266,7 +3275,8 @@
           } else if (data.active_model) {
             updateTacticalAgentModelUI(data.active_model);
           }
-          document.getElementById('headerOhDot').className = "w-2 h-2 rounded-full bg-emerald-400";
+          const headerOhDot = document.getElementById('headerOhDot');
+          if (headerOhDot) headerOhDot.className = "w-2 h-2 rounded-full bg-emerald-400";
           
           // GPU
           if (oh.gpu) {
@@ -3318,11 +3328,11 @@
           const foxDot = document.getElementById('foxStatusDot');
           const headerFoxDot = document.getElementById('headerFoxDot');
           if (fox.online) {
-            foxDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse";
-            headerFoxDot.className = "w-2 h-2 rounded-full bg-emerald-400";
+            if (foxDot) foxDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse";
+            if (headerFoxDot) headerFoxDot.className = "w-2 h-2 rounded-full bg-emerald-400";
           } else {
-            foxDot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
-            headerFoxDot.className = "w-2 h-2 rounded-full bg-rose-500";
+            if (foxDot) foxDot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
+            if (headerFoxDot) headerFoxDot.className = "w-2 h-2 rounded-full bg-rose-500";
           }
 
           if (fox.load) {

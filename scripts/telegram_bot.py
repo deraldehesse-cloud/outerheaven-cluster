@@ -848,6 +848,19 @@ def send_telegram_photo(chat_id: int, photo_path: str, caption: str = "", reply_
         return False
 
 
+def send_photo_with_feedback(chat_id: int, photo_path: str, caption: str = "", session_id: str = "direct", idx: str = "0") -> bool:
+    """Sends a real image file with thumbs up / down feedback inline keyboard."""
+    feedback_markup = {
+        "inline_keyboard": [
+            [
+                {"text": "👍 Gefällt mir", "callback_data": f"rate_good:{session_id}:{idx}"},
+                {"text": "👎 Mangel melden", "callback_data": f"rate_bad:{session_id}:{idx}"}
+            ]
+        ]
+    }
+    return send_telegram_photo(chat_id, photo_path, caption=caption, reply_markup=feedback_markup)
+
+
 def answer_callback_query(callback_id: str, text: str = "", show_alert: bool = False):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
     try:
@@ -861,17 +874,33 @@ def answer_callback_query(callback_id: str, text: str = "", show_alert: bool = F
         print(f"[Warnung] answerCallbackQuery fehlgeschlagen: {e}")
 
 
-def edit_telegram_message_reply_markup(chat_id: int, message_id: int, reply_markup: Dict[str, Any]):
+def edit_telegram_message_reply_markup(chat_id: int, message_id: int, reply_markup: Dict[str, Any]) -> bool:
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup"
     try:
         payload = {
             "chat_id": chat_id,
             "message_id": message_id,
+            "reply_markup": reply_markup
+        }
+        res = requests.post(url, json=payload, timeout=10)
+        if res.status_code == 200:
+            return True
+
+        # Fallback with form-encoded data
+        data_payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
             "reply_markup": json.dumps(reply_markup)
         }
-        requests.post(url, json=payload, timeout=10)
+        res_fb = requests.post(url, data=data_payload, timeout=10)
+        if res_fb.status_code == 200:
+            return True
+
+        print(f"[!] editMessageReplyMarkup fehlgeschlagen: status={res.status_code} text={res.text}")
+        return False
     except Exception as e:
         print(f"[Warnung] editMessageReplyMarkup fehlgeschlagen: {e}")
+        return False
 
 
 def handle_telegram_callback_query(cb: Dict[str, Any]):
@@ -882,20 +911,23 @@ def handle_telegram_callback_query(cb: Dict[str, Any]):
     msg = cb.get("message", {})
     chat_id = msg.get("chat", {}).get("id")
     msg_id = msg.get("message_id")
-    data = cb.get("data", "")
+    data = str(cb.get("data", ""))
+
+    # JEDEM eingehenden Callback query.data mit print/logging loggen
+    print(f"[*] [TELEGRAM-CALLBACK] query.data='{data}' von User={user_id} (chat_id={chat_id}, msg_id={msg_id})")
+    logger.info(f"[TELEGRAM-CALLBACK] data='{data}' user_id='{user_id}' msg_id='{msg_id}' chat_id='{chat_id}'")
 
     auth_ok, _ = check_user_authentication(user_id, chat_id)
     if not auth_ok:
         answer_callback_query(cb_id, "Zugriff verweigert.")
         return
 
-    print(f"[*] Telegram Callback Query: {data} von User {user_id}")
-
     if data == "evo_dismiss" or data == "noop":
         answer_callback_query(cb_id, "Alles klar!")
         return
 
-    if data.startswith("rate_good:"):
+    if data == "rate_good" or data.startswith("rate_good:"):
+        print(f"[✔] [TELEGRAM-RATING] Positives Feedback registriert für Msg {msg_id}: '{data}'")
         answer_callback_query(cb_id, text="Feedback erfasst! 👍", show_alert=False)
         try:
             display_name = get_user_display_name()
@@ -904,12 +936,40 @@ def handle_telegram_callback_query(cb: Dict[str, Any]):
             memory_mgr.add_message("user", f"[{display_name} bewertet das generierte Bild mit: Gefällt mir 👍]", chat_id=chat_id)
         except Exception as e:
             print(f"[Warnung] Fehler beim Sichern des positiven Feedbacks: {e}")
+
+        # In persistente Feedback-Datei (image_ratings.json) schreiben
+        try:
+            ratings_file = PROJECT_ROOT / "image_ratings.json"
+            ratings_list = []
+            if ratings_file.is_file():
+                try:
+                    ratings_list = json.loads(ratings_file.read_text(encoding="utf-8"))
+                except Exception:
+                    ratings_list = []
+            ratings_list.append({
+                "timestamp": datetime.datetime.now().isoformat(),
+                "type": "rate_good",
+                "rating": "positive",
+                "data": data,
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "message_id": msg_id
+            })
+            ratings_file.parent.mkdir(parents=True, exist_ok=True)
+            ratings_file.write_text(json.dumps(ratings_list, indent=2, ensure_ascii=False), encoding="utf-8")
+            print(f"[✔] Positives Rating in {ratings_file.name} persistiert.")
+        except Exception as rf_err:
+            print(f"[Warnung] Fehler beim Speichern in image_ratings.json: {rf_err}")
+
+        # Button-Markup visuell ändern (zu ✅ Gefällt mir)
         new_markup = {
             "inline_keyboard": [
                 [{"text": "✅ Gefällt mir", "callback_data": "noop"}]
             ]
         }
-        edit_telegram_message_reply_markup(chat_id, msg_id, new_markup)
+        updated = edit_telegram_message_reply_markup(chat_id, msg_id, new_markup)
+        if updated:
+            print(f"[✔] Button-Markup für Nachricht {msg_id} erfolgreich auf '✅ Gefällt mir' geändert.")
         return
 
     if data.startswith("rate_bad:"):
@@ -1580,16 +1640,8 @@ def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situatio
             except Exception as tts_err:
                 print(f"[Fehler] Voice Note vor Foto fehlgeschlagen: {tts_err}")
 
-            # 3. SCHRITT 2: DANACH DAS FOTO (Mit Mangel-Melden Tastatur)
-            feedback_markup = {
-                "inline_keyboard": [
-                    [
-                        {"text": "👍 Gefällt mir", "callback_data": "rate_good:direct:0"},
-                        {"text": "👎 Mangel melden", "callback_data": "rate_bad:direct:0"}
-                    ]
-                ]
-            }
-            delivered = send_telegram_photo(chat_id, img_path, caption=caption, reply_markup=feedback_markup)
+            # 3. SCHRITT 2: DANACH DAS FOTO (Mit Bewertungs-Tastatur)
+            delivered = send_photo_with_feedback(chat_id, img_path, caption=caption, session_id="direct", idx="0")
 
             # 4. SCHRITT 3: OPTIONAL / FALLS AKTIVIERT: BEGLEITTEXT NACHREICHEN
             send_accompanying = SESSION_STATE.get("send_text_accompanying", True)
@@ -1811,6 +1863,8 @@ def pipeline_stage3_ollama_call(
     [Stage 3: Ollama API Call]
     Sendet den formatierten Chat an das Modell via model_router.
     """
+    print(f"[*] [Stage 3 - Ollama Inferenz]: Sende {len(messages)} messages an Modell '{model_name}'...")
+    logger.info(f"[Stage 3 - Ollama Inferenz] model={model_name} messages_count={len(messages)}")
     return query_uncensored_persona(
         messages=messages,
         custom_options=options,
@@ -1889,18 +1943,33 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str, syst
             )
 
     # -------------------------------------------------------------
-    # [1. History-Sanitizer]
+    # [1. History-Sanitizer & Full Dialog Context Assembly]
     # Schneidet korrupte Zeichen & uralten Ballast vorab weg
     # -------------------------------------------------------------
-    raw_history = memory_mgr.load_history()
+    raw_history = memory_mgr.load_history(chat_id=chat_id)
     clean_history = pipeline_stage1_history_sanitizer(raw_history, max_turns=memory_mgr.max_length)
-    chat_messages = [{"role": "system", "content": system_prompt}]
-    for entry in clean_history:
-        chat_messages.append({"role": entry["role"], "content": entry["content"]})
-    chat_messages.append({"role": "user", "content": user_message})
+
+    # Letzte 10-20 Dialog-Einträge aus der Historie (Standard: 16 Turns)
+    history_slice = clean_history[-16:] if len(clean_history) > 16 else clean_history
+    history_messages = [
+        {"role": str(entry.get("role", "user")), "content": str(entry.get("content", ""))}
+        for entry in history_slice
+        if entry.get("content") and entry.get("role") in ["user", "assistant"]
+    ]
+
+    current_text = user_message
+    messages = [{"role": "system", "content": system_prompt}] + history_messages + [{"role": "user", "content": current_text}]
 
     check_and_reload_bot_config()
     model_to_use = OLLAMA_MODEL if OLLAMA_MODEL else "darkidol-8b:latest"
+
+    # Verifikation im Debug-Log: dass messages vor dem Ollama-Request mehr als 2 Einträge enthält
+    print(f"[*] [Ollama-Payload-Verifikation]: messages enthält {len(messages)} Einträge (1 System + {len(history_messages)} Dialog-Historie + 1 User) vor Request an {model_to_use}")
+    logger.info(f"[Ollama-Payload] message_count={len(messages)} history_count={len(history_messages)} model={model_to_use}")
+    if len(messages) > 2:
+        print(f"[✔] [Ollama-Payload]: Historie aktiv übergeben ({len(messages)} > 2 Einträge). Letzter Turn: [{history_messages[-1]['role']}] '{history_messages[-1]['content'][:60]}...'")
+    else:
+        print(f"[!] [Ollama-Payload]: Warnung: messages enthält nur {len(messages)} Einträge (Historie leer oder neu gestartet).")
 
     # -------------------------------------------------------------
     # Pipeline mit [2. Dynamic Guardrail], [3. Ollama API Call]
@@ -1922,7 +1991,7 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str, syst
 
             # [3. Ollama API Call]
             router_res = pipeline_stage3_ollama_call(
-                messages=chat_messages,
+                messages=messages,
                 options=guardrail_options,
                 model_name=model_to_use,
                 timeout=90

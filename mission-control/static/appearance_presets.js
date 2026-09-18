@@ -19,8 +19,15 @@
     if (modal) {
       modal.classList.remove('hidden');
       modal.style.display = 'flex';
-      loadAppearancePresets();
     }
+    // If presets are already in memory, immediately populate form
+    if (loadedPresets && loadedPresets.length > 0) {
+      const p = (currentPresetId && loadedPresets.find(item => item.id === currentPresetId)) ||
+                loadedPresets.find(item => item.is_active) ||
+                loadedPresets[0];
+      if (p) populatePresetForm(p);
+    }
+    window.loadActiveAppearanceProfile();
   };
 
   window.closeAppearanceModal = function() {
@@ -31,20 +38,23 @@
     }
   };
 
-  window.loadAppearancePresets = async function() {
+  window.loadActiveAppearanceProfile = async function() {
+    console.log('[*] loadActiveAppearanceProfile(): Lade Profil-Daten...');
     const sel = document.getElementById('appearancePresetSelect');
-    const badge = document.getElementById('appearanceActiveBadge');
-    if (sel) sel.innerHTML = '<option value="">Lade Profile...</option>';
+    if (sel && sel.options.length <= 1) sel.innerHTML = '<option value="">Lade Profile...</option>';
 
     try {
       const res = await fetch('/api/bot/appearance/presets');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (!data.success) return;
+      if (!data.success) {
+        console.warn('loadActiveAppearanceProfile: API success=false');
+        return;
+      }
 
       loadedPresets = data.presets || [];
       const activeId = data.active_id || '';
-      currentPresetId = activeId;
+      currentPresetId = currentPresetId || activeId;
 
       if (sel) {
         sel.innerHTML = '';
@@ -52,20 +62,27 @@
           const opt = document.createElement('option');
           opt.value = p.id;
           opt.textContent = `${p.name || p.id}${p.is_active ? ' (Aktiv)' : ''}`;
-          if (p.id === activeId || p.is_active) opt.selected = true;
+          if (p.id === currentPresetId || (!currentPresetId && (p.id === activeId || p.is_active))) opt.selected = true;
           sel.appendChild(opt);
         });
       }
 
-      const activePreset = loadedPresets.find(p => p.id === activeId) || loadedPresets[0];
-      if (activePreset) {
-        populatePresetForm(activePreset);
+      const targetPreset = (currentPresetId && loadedPresets.find(p => p.id === currentPresetId)) ||
+                           loadedPresets.find(p => p.id === activeId) ||
+                           loadedPresets.find(p => p.is_active) ||
+                           loadedPresets[0];
+      if (targetPreset) {
+        currentPresetId = targetPreset.id;
+        populatePresetForm(targetPreset);
+        console.log(`[✔] Profil '${targetPreset.name || targetPreset.id}' erfolgreich geladen und in DOM gemappt.`);
       }
     } catch (e) {
-      console.warn('Fehler beim Laden der Aussehen-Presets:', e);
+      console.warn('Fehler beim Laden des aktiven Aussehen-Profils:', e);
       if (sel) sel.innerHTML = '<option value="">Fehler beim Laden</option>';
     }
   };
+
+  window.loadAppearancePresets = window.loadActiveAppearanceProfile;
 
   window.onAppearancePresetSelectChange = function(presetId) {
     const p = loadedPresets.find(item => item.id === presetId);
@@ -76,6 +93,7 @@
   };
 
   function populatePresetForm(p) {
+    if (!p) return;
     currentPresetId = p.id;
 
     // 1. Profile Basics
@@ -97,7 +115,7 @@
     const vis = p.visual || {};
     const bodyStr = (vis.body || '').toLowerCase();
 
-    // Gender fallback
+    // Gender fallback & normalization
     let genderVal = rpg.gender || '';
     if (!genderVal) {
       if (bodyStr.includes('1boy') || bodyStr.includes('male') || bodyStr.includes('man')) {
@@ -107,6 +125,14 @@
       } else {
         genderVal = 'Weiblich';
       }
+    }
+    const gLower = genderVal.toLowerCase();
+    if (gLower.includes('männ') || gLower.includes('male') || gLower.includes('boy')) {
+      genderVal = 'Männlich';
+    } else if (gLower.includes('andro')) {
+      genderVal = 'Androgyn';
+    } else {
+      genderVal = 'Weiblich';
     }
     setVal('appRpgGender', genderVal);
 
@@ -120,12 +146,12 @@
     setVal('appPresetHairColor', rpg.hair_color || vis.hair_color || extractColorFromText(vis.hair || '', 'hair') || 'Dark brown');
 
     // Eye Color
-    setVal('appPresetEyeColor', rpg.eye_color || vis.eye_color || extractColorFromText(vis.eyes || '', 'eyes') || 'Green-blue');
+    setVal('appPresetEyeColor', rpg.eye_color || vis.eye_color || extractColorFromText(vis.eyes || vis.face || '', 'eyes') || 'Green-blue');
 
     // 3. SCHRITT 3: Linke Spalte (Visuelle ComfyUI-Tags)
     setVal('appPresetBody', vis.body || '');
     setVal('appPresetHairCut', vis.hair_style || vis.hair || '');
-    setVal('appPresetEyeShape', vis.eye_shape || vis.eyes || '');
+    setVal('appPresetEyeShape', vis.eye_shape || vis.eyes || vis.face || '');
     setVal('appPresetFeatures', vis.features || '');
 
     // 4. SCHRITT 3: Rechte Spalte (Narrative Chat-Lore)
@@ -138,6 +164,7 @@
     updateCombinedVisualPreview();
     updateLorePreview();
   }
+  window.populatePresetForm = populatePresetForm;
 
   function setVal(id, val) {
     const el = document.getElementById(id);
@@ -537,8 +564,8 @@
     }
   };
 
-  // Bind live preview listeners
-  document.addEventListener('DOMContentLoaded', () => {
+  // Bind live preview listeners & load active profile
+  function initAppearanceEvents() {
     // Header RPG fields
     ['appRpgGender', 'appRpgAge', 'appPresetHeight', 'appPresetHairColor', 'appPresetEyeColor'].forEach(id => {
       const el = document.getElementById(id);
@@ -570,5 +597,14 @@
         });
       }
     });
-  });
+
+    // Pre-cache active appearance profile
+    window.loadActiveAppearanceProfile();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAppearanceEvents);
+  } else {
+    initAppearanceEvents();
+  }
 })();
