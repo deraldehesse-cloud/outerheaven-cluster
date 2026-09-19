@@ -112,7 +112,9 @@ TELEGRAM_BOT_TOKEN = (
 ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID", "7934555424").strip().strip('"').strip("'")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/api/chat")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "lexi-llama-3-8b-uncensored_q4_k_m:latest")
-CHARACTER_JSON_PATH = PROJECT_ROOT / "character.json"
+CHARACTER_JSON_PATH = Path("/mnt/storage-beta/projekte/projekt-sexchat/character.json")
+if not CHARACTER_JSON_PATH.is_file() and (PROJECT_ROOT / "character.json").is_file():
+    CHARACTER_JSON_PATH = PROJECT_ROOT / "character.json"
 SYSTEM_PROMPT_PATH = PROJECT_ROOT / "docs" / "haven_system_prompt.txt"
 if not SYSTEM_PROMPT_PATH.is_file():
     SYSTEM_PROMPT_PATH = PROJECT_ROOT / "docs" / "megan_system_prompt.txt"
@@ -852,12 +854,93 @@ def analyze_image(
 # 4. Asynchronous Photo Rendering & Real Delivery
 # ==============================================================================
 
+# Evolution Lock detection & Existing Photo Fallback
+EVOLUTION_LOCK_FILES = [
+    Path("/mnt/storage-beta/projekte/comfyui-evolution/evolution_lock.json"),
+    Path("/tmp/outerheaven_evolution_lock.json")
+]
+
+
+def is_evolution_loop_active() -> bool:
+    """Checks if the ComfyUI evolution loop is currently running on the GPU."""
+    for lp in EVOLUTION_LOCK_FILES:
+        if lp.is_file():
+            try:
+                data = json.loads(lp.read_text(encoding="utf-8"))
+                if data.get("active"):
+                    exp = data.get("expires_at", 0)
+                    if exp and time.time() > exp:
+                        continue
+                    ts = data.get("timestamp", 0)
+                    if ts and time.time() - ts > 7200:
+                        continue
+                    return True
+            except Exception:
+                pass
+    return False
+
+
+def get_latest_rendered_photo() -> Optional[Path]:
+    """Finds the newest available rendered image across all output directories."""
+    search_dirs = [
+        PROJECT_ROOT / "output",
+        Path("/mnt/storage-beta/projekte/projekt-sexchat/output"),
+        Path("/home/outerheaven/ComfyUI/output"),
+        Path("/mnt/storage-beta/projekte/comfyui-evolution")
+    ]
+    all_imgs = []
+    valid_exts = {".png", ".jpg", ".jpeg", ".webp"}
+
+    for s_dir in search_dirs:
+        if not s_dir.is_dir():
+            continue
+        try:
+            for p in s_dir.rglob("*"):
+                if p.is_file() and p.suffix.lower() in valid_exts:
+                    try:
+                        sz = p.stat().st_size
+                        if sz > 10240:
+                            all_imgs.append((p.stat().st_mtime, p))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    if not all_imgs:
+        return None
+
+    all_imgs.sort(key=lambda x: x[0], reverse=True)
+    return all_imgs[0][1]
+
+
 def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situation: str = ""):
     """
     Dispatches asynchronous background rendering on Outer Heaven (Arc A770)
     and sends the actual image file to Telegram when completed.
+    If the Evolution Loop is running, falls back to sending the newest existing image.
     """
     display_name = get_user_display_name()
+
+    # Evolution Lock Check: If active, fall back to existing photo to prevent Arc A770 contention
+    if is_evolution_loop_active():
+        print(f"[*] ComfyUI Evolution Loop aktiv: Sperre GPU-Rendering und sende bestehendes Foto.")
+        latest_img = get_latest_rendered_photo()
+        if latest_img and latest_img.is_file():
+            caption = f"Ich bin gerade in einer intensiven Fotosession (Evolution-Loop), aber hier ist ein ganz frisches Bild für dich... ✨📸"
+            delivered = send_telegram_photo(chat_id, str(latest_img), caption=caption)
+            if delivered:
+                memory_mgr.add_message("assistant", f"[Sends existing photo from active session: {latest_img.name}]", media_path=str(latest_img))
+                return
+            else:
+                send_telegram_message(chat_id, "⚠️ *Konnte das Bild leider nicht an Telegram übertragen.*")
+                return
+        else:
+            send_telegram_message(
+                chat_id,
+                "Ich bin gerade mitten in einer intensiven KI-Fotosession (Evolution-Loop) auf der Arc A770. Sobald die Runde beendet ist, kann ich wieder live neue Fotos machen! 😘"
+            )
+            return
+
     send_telegram_message(
         chat_id,
         f"*Let me snap a quick photo for you at the {env_preset}...* 📸"

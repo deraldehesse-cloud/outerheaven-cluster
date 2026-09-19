@@ -384,10 +384,10 @@
                 </div>
               </div>
               <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
-                <span class="text-slate-300">Hermes Bot</span>
+                <span class="text-slate-300">Telegram Bot</span>
                 <div class="flex items-center space-x-1.5">
                   <span id="svc_hermes-telegram" class="px-1.5 py-0.2 text-[9px] rounded font-bold bg-slate-800 text-slate-400">...</span>
-                  <button onclick="controlService('outerheaven', 'hermes-telegram', 'restart')" title="Restart Bot" class="text-slate-500 hover:text-cyan-300 transition">⟳</button>
+                  <button onclick="controlService('outerheaven', 'hermes-telegram', 'restart')" title="Restart Telegram Bot" class="text-slate-500 hover:text-cyan-300 transition">⟳</button>
                 </div>
               </div>
               <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
@@ -539,6 +539,10 @@
               class="text-xs text-slate-400 hover:text-cyan-300 transition px-2 py-0.5 rounded border border-slate-800 hover:border-cyan-500/40 font-mono flex items-center space-x-1">
               <span id="expandIcon">⛶</span> <span id="expandText" class="hidden sm:inline">EXPAND</span>
             </button>
+            <button type="button" id="btnPurgeVram" onclick="purgeComfyVram()" title="ComfyUI VRAM Cache leeren (/free) - Verhindert Artefakte & Halluzinationen"
+              class="text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-950/40 transition flex items-center space-x-1 px-2 py-0.5 rounded border border-amber-500/40 font-mono">
+              <span id="purgeVramIcon">🧹</span> <span class="hidden sm:inline">PURGE VRAM</span>
+            </button>
             <button type="button" onclick="loadGallery()" title="Galerie neu laden"
               class="text-xs text-slate-400 hover:text-cyan-300 transition flex items-center space-x-1 px-1.5 py-0.5 rounded border border-slate-800 hover:border-cyan-500/40">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
@@ -551,6 +555,36 @@
         <div id="comfyQuickView" class="flex flex-col flex-1 overflow-hidden">
           <!-- Render Form -->
           <div class="p-3 border-b border-slate-800 bg-black/40 space-y-2.5 text-xs">
+            
+            <!-- ComfyUI Context & Evolution Header Bar -->
+            <div class="bg-gradient-to-r from-slate-900/90 via-black/80 to-slate-900/90 p-2.5 rounded-lg border border-pink-500/30 flex flex-wrap items-center justify-between gap-2 shadow-lg">
+              <div class="flex items-center space-x-2">
+                <span class="text-base">🎯</span>
+                <label for="evoContextSelect" class="text-[11px] font-bold text-pink-300 uppercase tracking-wider">
+                  Projekt / Kontext:
+                </label>
+                <select id="evoContextSelect" onchange="applyEvolutionContextPreset(this.value)"
+                  class="bg-black border border-pink-500/50 text-pink-200 text-xs font-bold rounded px-2.5 py-1 focus:outline-none focus:border-pink-400 font-mono">
+                  <option value="frei">🎨 Frei / Benutzerdefiniert</option>
+                  <option value="catlord">🐾 Catlord (Manga / Anime Action)</option>
+                  <option value="megan">💋 Megan (Photorealistic Companion)</option>
+                  <option value="test">⚡ Test (Cyberpunk Cityscape)</option>
+                </select>
+              </div>
+              <div class="flex items-center space-x-2">
+                <select id="evoDurationSelect" onchange="const p=document.getElementById('evoDurationSelectPanel'); if(p) p.value=this.value;"
+                  class="bg-black border border-pink-500/50 text-pink-200 text-xs font-bold rounded px-2.5 py-1.5 focus:outline-none focus:border-pink-400 font-mono" title="Wiederholungs-Timer / Laufzeit">
+                  <option value="10">⏱️ 10 Min</option>
+                  <option value="30">⏱️ 30 Min</option>
+                  <option value="45">⏱️ 45 Min</option>
+                  <option value="60">⏱️ 60 Min</option>
+                </select>
+                <button type="button" id="btnEvolutionDirectStart" onclick="startDirectEvolutionLoop()"
+                  class="bg-gradient-to-r from-pink-600 via-rose-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold px-3.5 py-1.5 rounded text-xs tracking-wider uppercase transition shadow flex items-center space-x-1.5 font-mono shadow-[0_0_15px_rgba(244,63,94,0.3)]">
+                  <span>🔁</span> <span>10x EVOLUTION LOOP STARTEN</span>
+                </button>
+              </div>
+            </div>
             <div>
               <div class="flex items-center justify-between mb-1 gap-1 flex-wrap">
                 <div class="flex items-center space-x-1.5">
@@ -621,13 +655,136 @@
               </div>
             </div>
 
-            <div class="flex items-center justify-between pt-0.5">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-0.5">
               <button id="btnRender" onclick="submitRender()"
-                class="w-full bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-slate-950 font-bold py-2 rounded text-xs tracking-wider uppercase transition shadow">
-                🚀 Render on Arc A770 (LCM)
+                class="w-full bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-slate-950 font-bold py-2 rounded text-xs tracking-wider uppercase transition shadow flex items-center justify-center space-x-1.5">
+                <span>🚀</span> <span>Render on Arc A770 (Einzelbild)</span>
+              </button>
+              <button type="button" id="btnEvolutionToggle" onclick="toggleEvolutionPanel()"
+                class="w-full bg-slate-900 hover:bg-slate-800 border border-pink-600/50 text-pink-300 font-bold py-2 rounded text-xs tracking-wider uppercase transition shadow flex items-center justify-center space-x-1.5 font-mono">
+                <span>📊</span> <span>EVOLUTION-STATUS & REVIEW PANEL</span>
               </button>
             </div>
             <div id="renderStatus" class="hidden text-[11px] p-2 rounded text-center font-mono"></div>
+          </div>
+
+          <!-- Autonomous ComfyUI Prompt-Evolution Cockpit Panel -->
+          <div id="evolutionPanel" class="hidden p-3.5 border-b border-pink-900/60 bg-slate-950/95 space-y-3 font-mono text-xs relative">
+            <!-- Header -->
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+              <div class="flex items-center space-x-2">
+                <div class="w-7 h-7 rounded-lg bg-pink-500/20 border border-pink-500/40 flex items-center justify-center text-pink-300 font-bold">
+                  🔁
+                </div>
+                <div>
+                  <div class="flex items-center space-x-2">
+                    <span class="text-xs font-bold text-pink-300 tracking-wider">COMFYUI PROMPT-EVOLUTION & REVIEW LOOP</span>
+                    <span id="evoStateBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 border border-slate-700 text-slate-400">IDLE</span>
+                  </div>
+                  <div class="text-[10px] text-slate-500">10ER-BATCH • LOKALES VLM-REVIEW (LLAVA) • PROMPT-REFLEXION • PAUSE FÜR USER</div>
+                </div>
+              </div>
+              <div class="flex items-center space-x-2">
+                <select id="evoDurationSelectPanel" onchange="const d=document.getElementById('evoDurationSelect'); if(d) d.value=this.value;"
+                  class="bg-black border border-pink-500/50 text-pink-200 text-xs font-bold rounded px-2 py-1 focus:outline-none focus:border-pink-400 font-mono" title="Wiederholungs-Timer / Laufzeit">
+                  <option value="10">⏱️ 10 Min</option>
+                  <option value="30">⏱️ 30 Min</option>
+                  <option value="45">⏱️ 45 Min</option>
+                  <option value="60">⏱️ 60 Min</option>
+                </select>
+                <button type="button" id="btnEvoStart" onclick="startEvolutionLoop()" class="px-3 py-1 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold transition shadow flex items-center space-x-1">
+                  <span>▶️</span> <span>Zyklus starten</span>
+                </button>
+                <button type="button" id="btnEvoStop" onclick="stopEvolutionLoop()" class="hidden px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-rose-700 text-rose-400 rounded text-xs font-bold transition">
+                  ⏹️ Abbrechen
+                </button>
+                <button type="button" onclick="toggleEvolutionPanel()" class="text-slate-500 hover:text-white px-2 py-1 text-xs">
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <!-- Live Progress Bar & Status Text -->
+            <div class="space-y-1.5 bg-black/60 p-3 rounded-lg border border-slate-800">
+              <div class="flex justify-between items-center text-[11px]">
+                <span id="evoStatusText" class="text-pink-200 font-medium">Bereit für ersten 10er-Durchlauf.</span>
+                <span id="evoProgressCounter" class="text-pink-400 font-bold">0 / 10 Bilder</span>
+              </div>
+              <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+                <div id="evoProgressBar" class="bg-gradient-to-r from-pink-500 to-purple-500 h-full w-0 transition-all duration-300"></div>
+              </div>
+            </div>
+
+            <!-- Live Image Preview during run -->
+            <div id="evoLivePreviewContainer" class="hidden p-2.5 bg-black/70 rounded-lg border border-slate-800 flex items-center space-x-3">
+              <img id="evoLiveThumbnail" src="" class="w-16 h-24 object-cover rounded border border-pink-500/50 shadow shrink-0 cursor-pointer" onclick="openLightbox(this.src, 'Live Evolution Bild')">
+              <div class="flex-1 space-y-1 text-[11px]">
+                <div class="flex items-center justify-between">
+                  <span id="evoLiveTitle" class="font-bold text-slate-200">Aktuelles Bild</span>
+                  <span id="evoLiveScoreBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-950 border border-pink-700 text-pink-300">-</span>
+                </div>
+                <div id="evoLiveFlaws" class="text-[10px] text-slate-400 line-clamp-2"></div>
+              </div>
+            </div>
+
+            <!-- Round Complete & Top-3 Results Box -->
+            <div id="evoResultsContainer" class="hidden space-y-3 pt-1">
+              <div class="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-pink-950/30 border border-pink-900/60 rounded-lg">
+                <div class="flex items-center space-x-2">
+                  <span class="text-lg">🏆</span>
+                  <div>
+                    <div class="text-xs font-bold text-pink-300">ERGEBNIS RUNDE <span id="evoRoundNum">1</span></div>
+                    <div class="text-[10px] text-slate-400">10 Bilder bewertet und analysiert.</div>
+                  </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <span class="text-xs text-slate-400">Durchschnitt:</span>
+                  <span id="evoAvgScoreBadge" class="px-2.5 py-1 rounded text-xs font-bold bg-pink-950 border border-pink-600 text-pink-300 shadow">⭐ 8.2 / 10</span>
+                </div>
+              </div>
+
+              <!-- Top-3 Gallery Grid -->
+              <div>
+                <div class="text-[10px] uppercase text-slate-400 font-bold mb-1.5 flex items-center space-x-1">
+                  <span>🥇</span> <span>TOP-3 ERGEBNISSE DER RUNDE</span>
+                </div>
+                <div id="evoTop3Grid" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <!-- Dynamically populated -->
+                </div>
+              </div>
+
+              <!-- Evolved Prompt Comparison & Editor -->
+              <div class="bg-black/70 border border-slate-800 rounded-lg p-3 space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-emerald-300 flex items-center space-x-1">
+                    <span>✨</span> <span>WEITERENTWICKELTER PROMPT FÜR RUNDE <span id="evoNextRoundNum">2</span></span>
+                  </span>
+                  <span class="text-[10px] text-slate-500">Reflexion via Ollama</span>
+                </div>
+                <div id="evoSummaryText" class="text-[11px] text-slate-400 italic bg-slate-900/50 p-2 rounded border border-slate-800/80"></div>
+                <div>
+                  <label class="block text-[9px] uppercase text-slate-400 font-bold mb-1">Optimierter Prompt (anpassbar)</label>
+                  <textarea id="evoEvolvedPromptText" rows="3" class="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-emerald-200 focus:border-emerald-500 focus:outline-none font-mono"></textarea>
+                </div>
+                <div>
+                  <label class="block text-[9px] uppercase text-slate-400 font-bold mb-1">Ergänzter Negativ-Prompt</label>
+                  <input type="text" id="evoEvolvedNegativeText" class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-400 focus:border-slate-600 focus:outline-none font-mono">
+                </div>
+
+                <!-- User Approval & Next Round Trigger -->
+                <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                  <button type="button" onclick="applyEvolvedToQuickRender()" class="px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs transition flex items-center space-x-1">
+                    <span>📥</span> <span>In Schnell-Render übernehmen</span>
+                  </button>
+                  <div class="flex items-center space-x-2">
+                    <span id="evoCountdownBadge" class="hidden px-2.5 py-1 rounded text-xs font-mono bg-pink-950 border border-pink-700 text-pink-300 font-bold shadow"></span>
+                    <button type="button" id="btnEvoNext" onclick="triggerNextIteration()" class="px-4 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded text-xs font-bold transition shadow-lg flex items-center space-x-1.5 shadow-[0_0_12px_rgba(16,185,129,0.3)]">
+                      <span>▶️</span> <span>NÄCHSTE ITERATION STARTEN</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Gallery Grid -->
@@ -763,6 +920,7 @@
 
         </div>
 
+      </div>
       </div> <!-- End catlordWorkspaceView -->
 
       <!-- View Container 2: Büro / Hermes Workspace (Nur aktiv wenn über Workspaces ausgewählt) -->
@@ -880,6 +1038,7 @@
             </div>
           </div>
         </div>
+      </div>
       </section>
       </div> <!-- End bueroWorkspaceView -->
 
@@ -904,9 +1063,9 @@
           {% if is_restricted %}
           <button type="button" id="btnOpenBotSettings" onclick="openBotSettings()"
                   class="px-2.5 py-1 rounded bg-pink-950/80 hover:bg-pink-900 border border-pink-600/70 text-pink-300 text-xs font-bold transition flex items-center space-x-1 shadow"
-                  title="Haven Companion Bot - Runtime Configuration & Lore Editor">
+                  title="Megan Companion Bot - Runtime Configuration & Lore Editor">
             <span>💋</span>
-            <span class="text-[10px] tracking-wider font-mono">HAVEN // CONFIG</span>
+            <span class="text-[10px] tracking-wider font-mono">MEGAN // CONFIG</span>
           </button>
           {% endif %}
           <button type="button" onclick="toggleAgentDrawer()"
@@ -927,9 +1086,9 @@
             FOX // Hermes-3
           </button>
           {% if is_restricted %}
-          <button id="btnNodeHaven" onclick="openBotSettings()" class="px-2 py-1 rounded font-bold transition text-pink-400 hover:text-pink-200 border border-pink-900/60 hover:border-pink-600/60 bg-pink-950/40 flex items-center space-x-1" title="Haven Companion Bot Einstellungen & Lore">
+          <button id="btnNodeMegan" onclick="openBotSettings()" class="px-2 py-1 rounded font-bold transition text-pink-400 hover:text-pink-200 border border-pink-900/60 hover:border-pink-600/60 bg-pink-950/40 flex items-center space-x-1" title="Megan Companion Bot Einstellungen & Lore">
             <span>💋</span>
-            <span>HAVEN</span>
+            <span>MEGAN</span>
           </button>
           {% endif %}
         </div>
@@ -945,6 +1104,43 @@
           </button>
         </div>
       </div>
+
+      {% if is_restricted %}
+      <!-- Haptic Link Status Bar in Agent Drawer -->
+      <div id="agentDrawerHapticBar" class="px-2.5 py-1.5 bg-black/70 border-b border-slate-800/80 flex items-center justify-between text-xs font-mono gap-1.5 select-none">
+        <div class="flex items-center space-x-1.5 shrink-0">
+          <span class="text-slate-400 font-bold flex items-center space-x-1 text-[11px]" title="Haptic Link / Lovense Hardware">
+            <span>⚡</span> <span class="hidden sm:inline text-slate-300">HAPTIC</span>
+          </span>
+          <span id="agentDrawerHapticBadge" class="px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center space-x-1 bg-rose-950/80 border border-rose-700 text-rose-300 transition-all duration-300">
+            <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+            <span>🔴 OFFLINE</span>
+          </span>
+        </div>
+        <div class="flex items-center space-x-1.5 shrink-0 text-[10px]">
+          <!-- Checkbox: Bot-Autonomie -->
+          <label class="flex items-center space-x-1 cursor-pointer hover:text-pink-300 text-slate-300 transition" title="Megan darf Hardware autonom ansteuern">
+            <input type="checkbox" id="lovenseBotAutoEnabled" checked onchange="saveHapticSettings()" class="rounded bg-black border-slate-700 text-pink-500 focus:ring-0 focus:ring-offset-0 w-3 h-3">
+            <span class="font-bold">Bot-Auto</span>
+          </label>
+          <span class="text-slate-700">|</span>
+          <!-- Dropdown: Max Power -->
+          <div class="flex items-center space-x-1" title="Maximale Vibrationsstärke deckeln">
+            <span class="text-slate-500 text-[9px]">MAX:</span>
+            <select id="lovenseMaxIntensity" onchange="saveHapticSettings()" class="bg-black/90 border border-slate-700 text-pink-300 text-[10px] font-mono rounded px-1 py-0.5 focus:outline-none focus:border-pink-500">
+              <option value="25">25%</option>
+              <option value="50" selected>50%</option>
+              <option value="75">75%</option>
+              <option value="100">100%</option>
+            </select>
+          </div>
+          <!-- Test Button -->
+          <button type="button" id="btnLovenseTestPulse" onclick="triggerLovenseTestPulse()" class="px-1.5 py-0.5 bg-pink-950/80 hover:bg-pink-900 border border-pink-700/80 hover:border-pink-500 text-pink-300 hover:text-white rounded text-[10px] font-bold font-mono transition flex items-center space-x-0.5 shadow" title="2-Sekunden Test-Puls abfeuern">
+            <span>⚡</span><span>Test</span>
+          </button>
+        </div>
+      </div>
+      {% endif %}
 
       <!-- Chat Stream Area -->
       <div id="chatMessages" class="flex-1 p-3 overflow-y-auto space-y-3 scrollbar-thin text-xs">
@@ -1058,63 +1254,114 @@
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
           <!-- 1. Dominanz & Initiative -->
-          <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-cyan-300 flex items-center space-x-1">
-                <span>👑</span> <span>Dominanz & Initiative</span>
-              </span>
-              <span id="botPersDominanceDisplay" class="px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300 font-bold text-xs">50%</span>
+          <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 space-y-2 flex flex-col justify-between">
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-cyan-300 flex items-center space-x-1">
+                  <span>👑</span> <span>Dominanz & Initiative</span>
+                </span>
+                <span id="botPersDominanceDisplay" class="px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300 font-bold text-xs">50%</span>
+              </div>
+              <input type="range" id="botPersDominance" min="0" max="100" step="1" value="50"
+                oninput="updatePersonalitySliderUI('dominance', this.value)"
+                class="w-full accent-cyan-400 bg-slate-900 cursor-pointer">
+              <div class="flex items-center justify-between text-[10px] text-slate-500">
+                <span>0 (Sanft/Zurückhaltend)</span>
+                <span>100 (Fordernd/Dominant)</span>
+              </div>
+              <div id="botPersDominanceDesc" class="text-[11px] text-cyan-200/90 font-sans italic bg-black/40 p-1.5 rounded border border-slate-800">
+                Ausgeglichen: Begegnet dir auf Augenhöhe, wechselt spielerisch zwischen Führen und Folgen.
+              </div>
             </div>
-            <input type="range" id="botPersDominance" min="0" max="100" step="1" value="50"
-              oninput="updatePersonalitySliderUI('dominance', this.value)"
-              class="w-full accent-cyan-400 bg-slate-900 cursor-pointer">
-            <div class="flex items-center justify-between text-[10px] text-slate-500">
-              <span>0 (Sanft/Zurückhaltend)</span>
-              <span>100 (Fordernd/Dominant)</span>
-            </div>
-            <div id="botPersDominanceDesc" class="text-[11px] text-cyan-200/90 font-sans italic bg-black/40 p-1.5 rounded border border-slate-800">
-              Ausgeglichen: Begegnet dir auf Augenhöhe, wechselt spielerisch zwischen Führen und Folgen.
-            </div>
+            <details class="group mt-2 border-t border-slate-800/80 pt-1.5 text-[11px]">
+              <summary class="cursor-pointer text-cyan-400/90 hover:text-cyan-300 font-bold flex items-center justify-between py-1 select-none">
+                <span>✏️ Prompt-Text bearbeiten</span>
+                <span class="text-[10px] text-slate-500 group-open:rotate-180 transition-transform">▼</span>
+              </summary>
+              <div class="mt-1.5 space-y-1">
+                <textarea id="botPersDominanceCustom" rows="3"
+                  class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-[11px] font-mono text-cyan-100 placeholder-slate-600 focus:border-cyan-400 focus:outline-none resize-y leading-snug"
+                  placeholder="Direktiven-Text für Dominanz (leer lassen für automatischen Slider-Text)..."></textarea>
+                <div class="flex justify-between items-center text-[9px] text-slate-500">
+                  <span>Injektion in Megans System-Prompt</span>
+                  <button type="button" onclick="resetPersonalityPrompt('dominance')" class="text-slate-400 hover:text-cyan-300 underline">Standard wiederherstellen</button>
+                </div>
+              </div>
+            </details>
           </div>
 
           <!-- 2. Explizitheit & Freizügigkeit -->
-          <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-rose-300 flex items-center space-x-1">
-                <span>🔥</span> <span>Explizitheit & Freizügigkeit</span>
-              </span>
-              <span id="botPersExplicitnessDisplay" class="px-1.5 py-0.5 rounded bg-rose-950 border border-rose-800 text-rose-300 font-bold text-xs">70%</span>
+          <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 space-y-2 flex flex-col justify-between">
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-rose-300 flex items-center space-x-1">
+                  <span>🔥</span> <span>Explizitheit & Freizügigkeit</span>
+                </span>
+                <span id="botPersExplicitnessDisplay" class="px-1.5 py-0.5 rounded bg-rose-950 border border-rose-800 text-rose-300 font-bold text-xs">70%</span>
+              </div>
+              <input type="range" id="botPersExplicitness" min="0" max="100" step="1" value="70"
+                oninput="updatePersonalitySliderUI('explicitness', this.value)"
+                class="w-full accent-rose-500 bg-slate-900 cursor-pointer">
+              <div class="flex items-center justify-between text-[10px] text-slate-500">
+                <span>0 (Subtil/Codes)</span>
+                <span>100 (Kompromisslos explizit)</span>
+              </div>
+              <div id="botPersExplicitnessDesc" class="text-[11px] text-rose-200/90 font-sans italic bg-black/40 p-1.5 rounded border border-slate-800">
+                Sinnlich, direkt und unzensiert: Benennt intime Wünsche und Gefühle klar ohne Scheu.
+              </div>
             </div>
-            <input type="range" id="botPersExplicitness" min="0" max="100" step="1" value="70"
-              oninput="updatePersonalitySliderUI('explicitness', this.value)"
-              class="w-full accent-rose-500 bg-slate-900 cursor-pointer">
-            <div class="flex items-center justify-between text-[10px] text-slate-500">
-              <span>0 (Subtil/Codes)</span>
-              <span>100 (Kompromisslos explizit)</span>
-            </div>
-            <div id="botPersExplicitnessDesc" class="text-[11px] text-rose-200/90 font-sans italic bg-black/40 p-1.5 rounded border border-slate-800">
-              Sinnlich, direkt und unzensiert: Benennt intime Wünsche und Gefühle klar ohne Scheu.
-            </div>
+            <details class="group mt-2 border-t border-slate-800/80 pt-1.5 text-[11px]">
+              <summary class="cursor-pointer text-rose-400/90 hover:text-rose-300 font-bold flex items-center justify-between py-1 select-none">
+                <span>✏️ Prompt-Text bearbeiten</span>
+                <span class="text-[10px] text-slate-500 group-open:rotate-180 transition-transform">▼</span>
+              </summary>
+              <div class="mt-1.5 space-y-1">
+                <textarea id="botPersExplicitnessCustom" rows="3"
+                  class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-[11px] font-mono text-rose-100 placeholder-slate-600 focus:border-rose-400 focus:outline-none resize-y leading-snug"
+                  placeholder="Direktiven-Text für Explizitheit (leer lassen für automatischen Slider-Text)..."></textarea>
+                <div class="flex justify-between items-center text-[9px] text-slate-500">
+                  <span>Injektion in Megans System-Prompt</span>
+                  <button type="button" onclick="resetPersonalityPrompt('explicitness')" class="text-slate-400 hover:text-rose-300 underline">Standard wiederherstellen</button>
+                </div>
+              </div>
+            </details>
           </div>
 
           <!-- 3. Detailtiefe & Erotischer Fokus -->
-          <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-amber-300 flex items-center space-x-1">
-                <span>🔍</span> <span>Detailtiefe & Erotischer Fokus</span>
-              </span>
-              <span id="botPersDetailDisplay" class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 font-bold text-xs">60%</span>
+          <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 space-y-2 flex flex-col justify-between">
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-amber-300 flex items-center space-x-1">
+                  <span>🔍</span> <span>Detailtiefe & Erotischer Fokus</span>
+                </span>
+                <span id="botPersDetailDisplay" class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 font-bold text-xs">60%</span>
+              </div>
+              <input type="range" id="botPersDetail" min="0" max="100" step="1" value="60"
+                oninput="updatePersonalitySliderUI('detail', this.value)"
+                class="w-full accent-amber-400 bg-slate-900 cursor-pointer">
+              <div class="flex items-center justify-between text-[10px] text-slate-500">
+                <span>0 (Alltags-Chat)</span>
+                <span>100 (Maximal physisch)</span>
+              </div>
+              <div id="botPersDetailDesc" class="text-[11px] text-amber-200/90 font-sans italic bg-black/40 p-1.5 rounded border border-slate-800">
+                Hoher physischer Fokus: Beschreibt Blicke, Reaktionen und Berührungen plastisch in *Sternchen*.
+              </div>
             </div>
-            <input type="range" id="botPersDetail" min="0" max="100" step="1" value="60"
-              oninput="updatePersonalitySliderUI('detail', this.value)"
-              class="w-full accent-amber-400 bg-slate-900 cursor-pointer">
-            <div class="flex items-center justify-between text-[10px] text-slate-500">
-              <span>0 (Alltags-Chat)</span>
-              <span>100 (Maximal physisch)</span>
-            </div>
-            <div id="botPersDetailDesc" class="text-[11px] text-amber-200/90 font-sans italic bg-black/40 p-1.5 rounded border border-slate-800">
-              Hoher physischer Fokus: Beschreibt Blicke, Reaktionen und Berührungen plastisch in *Sternchen*.
-            </div>
+            <details class="group mt-2 border-t border-slate-800/80 pt-1.5 text-[11px]">
+              <summary class="cursor-pointer text-amber-400/90 hover:text-amber-300 font-bold flex items-center justify-between py-1 select-none">
+                <span>✏️ Prompt-Text bearbeiten</span>
+                <span class="text-[10px] text-slate-500 group-open:rotate-180 transition-transform">▼</span>
+              </summary>
+              <div class="mt-1.5 space-y-1">
+                <textarea id="botPersDetailCustom" rows="3"
+                  class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-[11px] font-mono text-amber-100 placeholder-slate-600 focus:border-amber-400 focus:outline-none resize-y leading-snug"
+                  placeholder="Direktiven-Text für Detailtiefe (leer lassen für automatischen Slider-Text)..."></textarea>
+                <div class="flex justify-between items-center text-[9px] text-slate-500">
+                  <span>Injektion in Megans System-Prompt</span>
+                  <button type="button" onclick="resetPersonalityPrompt('detail')" class="text-slate-400 hover:text-amber-300 underline">Standard wiederherstellen</button>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
       </div>
@@ -1134,7 +1381,7 @@
 
             <div>
               <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Ollama Modell</label>
-              <select id="botLlmModel" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-cyan-200 focus:border-cyan-400">
+              <select id="botLlmModel" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-cyan-200 focus:border-cyan-400 cursor-pointer">
                 <option value="lexi-llama-3-8b-uncensored_q4_k_m:latest">lexi-llama-3-8b-uncensored (Empfohlen)</option>
                 <option value="darkidol-8b:latest">darkidol-8b:latest</option>
               </select>
@@ -1243,6 +1490,52 @@
           <div class="pt-1 text-[10px] text-slate-500 italic">Automatischer High-Key & Anti-Darkness Prompt-Filter aktiv.</div>
         </div>
 
+        <!-- 2. Vision Worker (Moondream auf Fox) -->
+        <div class="bg-black/60 border border-slate-800 rounded-lg p-3.5 space-y-3 flex flex-col justify-between">
+          <div class="space-y-2.5">
+            <div class="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+              <span class="text-xs font-bold text-amber-300 flex items-center space-x-1.5">
+                <span>👁️</span> <span>VISION WORKER (MOONDREAM)</span>
+              </span>
+              <span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-700 text-amber-300 font-bold">Fox (LAN)</span>
+            </div>
+
+            <div>
+              <label class="flex items-center space-x-2 cursor-pointer p-2 rounded bg-slate-900/60 border border-slate-800">
+                <input type="checkbox" id="botVisionEnabled" checked class="rounded accent-amber-500">
+                <span class="text-xs text-amber-200 font-bold">Moondream Bildanalyse aktivieren</span>
+              </label>
+              <span class="text-[10px] text-slate-500 block mt-1">Analysiert empfangene Telegram-Fotos und übergibt visuelle Details an DarkIdol.</span>
+            </div>
+
+            <div class="p-2.5 rounded bg-slate-950/80 border border-slate-800/80 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] text-slate-400 uppercase font-bold">Remote Status (Fox)</span>
+                <span id="foxVisionStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider flex items-center space-x-1 bg-rose-950/80 border border-rose-700 text-rose-300">
+                  <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                  <span id="foxVisionStatusText">🔴 OFFLINE</span>
+                </span>
+              </div>
+              <div class="text-[10px] text-slate-400 font-mono flex items-center justify-between">
+                <span>Modell:</span>
+                <span class="text-amber-200 font-bold">moondream:latest</span>
+              </div>
+              <div class="text-[10px] text-slate-400 font-mono flex items-center justify-between">
+                <span>Host:</span>
+                <span class="text-slate-300">100.93.184.87:11434</span>
+              </div>
+              <button type="button" onclick="checkFoxVisionStatus()" class="w-full mt-1 px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-amber-300 rounded text-[10px] font-mono transition flex items-center justify-center space-x-1">
+                <span>⟳</span> <span>Fox Status prüfen</span>
+              </button>
+            </div>
+
+            <div class="p-2 rounded bg-amber-950/20 border border-amber-800/40 text-[10px] text-amber-200/90 leading-relaxed font-sans">
+              💡 <em>Bildverarbeitung läuft remote auf Fox – VRAM auf Outer Heaven bleibt frei.</em>
+            </div>
+          </div>
+          <div class="pt-1 text-[10px] text-slate-500 italic">Offloaded zu Fox Compute Node.</div>
+        </div>
+
         <!-- 3. Voice & Sensual Neural TTS -->
         <div class="bg-black/60 border border-slate-800 rounded-lg p-3.5 space-y-3 flex flex-col justify-between">
           <div class="space-y-2.5">
@@ -1255,7 +1548,7 @@
 
             <div>
               <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Stimme (Neural-TTS)</label>
-              <select id="botVoiceName" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-pink-200 focus:border-pink-400">
+              <select id="botVoiceName" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-pink-200 focus:border-pink-400 cursor-pointer">
                 <option value="de-DE-SeraphinaMultilingualNeural">de-DE-Seraphina (Deutsch Sensibel, Erotisch & Intim) ⭐</option>
                 <option value="de-DE-KatjaNeural">de-DE-Katja (Deutsch Warm & Natürlich)</option>
                 <option value="de-DE-AmalaNeural">de-DE-Amala (Deutsch Zärtlich & Ruhig)</option>
@@ -1301,49 +1594,143 @@
             <div>
               <label class="flex items-center space-x-2 cursor-pointer p-2 rounded bg-slate-900/60 border border-slate-800">
                 <input type="checkbox" id="botProactiveEnabled" checked class="rounded accent-emerald-500">
-                <span class="text-xs text-emerald-200 font-bold">Tagsüber nachfragen</span>
+                <span class="text-xs text-emerald-200 font-bold">Proaktive Check-ins aktiv</span>
               </label>
-              <span class="text-[10px] text-slate-500 block mt-1">Haven meldet sich tagsüber eigenständig aus Interesse und Sehnsucht.</span>
+              <span class="text-[10px] text-slate-500 block mt-1">Megan meldet sich eigenständig bei Big Boss aus Interesse und Sehnsucht.</span>
+            </div>
+
+            <!-- 24/7 Mode Toggle -->
+            <div class="p-2 rounded bg-slate-950/80 border border-slate-800">
+              <label class="flex items-center space-x-2 cursor-pointer">
+                <input type="checkbox" id="botProactive24_7" class="rounded accent-emerald-500" onchange="toggleProactive24_7UI(this.checked)">
+                <span class="text-xs text-emerald-300 font-bold">24/7 aktiv (Keine Nachtruhe)</span>
+              </label>
+              <span class="text-[9px] text-slate-400 block mt-0.5">Rund-um-die-Uhr-Betrieb ohne Schlafenszeiten.</span>
             </div>
 
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-[9px] uppercase text-slate-400 mb-1">Inaktivität (Std)</label>
-                <input type="number" id="botProactiveIdleHours" min="1" max="24" value="4"
+                <input type="number" id="botProactiveIdleHours" min="0.5" max="48" step="0.5" value="4"
                   class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-emerald-200">
               </div>
               <div>
                 <label class="block text-[9px] uppercase text-slate-400 mb-1">Cooldown (Std)</label>
-                <input type="number" id="botProactiveCooldownHours" min="1" max="48" value="6"
+                <input type="number" id="botProactiveCooldownHours" min="0.5" max="48" step="0.5" value="6"
                   class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-emerald-200">
               </div>
             </div>
 
-            <div>
+            <div id="botProactiveWindowContainer" class="transition-opacity">
               <label class="block text-[9px] uppercase text-slate-400 mb-1">Aktives Zeitfenster (Uhrzeit)</label>
               <div class="flex items-center space-x-2">
-                <input type="number" id="botProactiveStartHour" min="0" max="23" value="9" class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-emerald-200 text-center">
+                <input type="number" id="botProactiveStartHour" min="0" max="23" value="0" class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-emerald-200 text-center">
                 <span class="text-slate-500">bis</span>
-                <input type="number" id="botProactiveEndHour" min="0" max="23" value="22" class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-emerald-200 text-center">
+                <input type="number" id="botProactiveEndHour" min="0" max="24" value="24" class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-emerald-200 text-center">
                 <span class="text-slate-500 text-[10px]">Uhr</span>
               </div>
+              <span class="text-[9px] text-slate-500 block mt-1">0 bis 24 Uhr = 24h Vollbetrieb</span>
             </div>
           </div>
-          <div class="pt-1 text-[10px] text-slate-500 italic">Interagiert basierend auf Gesprächsverlauf & Gedächtnis.</div>
+          <div class="pt-1 text-[10px] text-slate-500 italic">Liebevoll, feinfühlig, spontan.</div>
         </div>
       </div>
 
-      <!-- [RESTRICTED] 📜 CHARAKTER-LORE & SYSTEM-PROMPT (HAVEN) -->
+      <!-- [RESTRICTED] 🎨 COMPANION BILD-PROMPTS (POSITIV & NEGATIV) -->
+      <div class="bg-black/70 border border-amber-500/40 rounded-lg p-4 space-y-3 relative z-10 shadow-lg font-mono">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-900/60 pb-2">
+          <div class="flex items-center space-x-2">
+            <span class="text-xs font-bold text-amber-300 flex items-center space-x-1.5">
+              <span>🎨</span> <span>COMPANION BILD-PROMPTS (BASIS-TEMPLATES)</span>
+            </span>
+            <span class="px-2 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-700 text-slate-400 font-bold">ComfyUI Single Source</span>
+          </div>
+          <span class="text-[10px] text-slate-500">Basis für alle Bot- & Evolution-Renderings</span>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <div class="flex justify-between items-center text-[10px] text-amber-200 font-bold mb-1">
+              <span>POSITIVER BASIS-PROMPT (Aussehen, Statur, Stil, Beleuchtung)</span>
+              <span id="botPosPromptCount" class="text-slate-500 font-normal">0 Zeichen</span>
+            </div>
+            <textarea id="botPositivePrompt" rows="3"
+              class="w-full bg-slate-950 border border-slate-800 rounded p-2.5 text-xs font-mono text-amber-100 placeholder-slate-600 focus:border-amber-400 focus:outline-none resize-y leading-relaxed"
+              placeholder="1girl, solo, 178cm tall, slender athletic build, voluptuous hourglass figure, very large full natural heavy breasts..."
+              oninput="document.getElementById('botPosPromptCount').textContent=this.value.length + ' Zeichen'"></textarea>
+          </div>
+
+          <div>
+            <div class="flex justify-between items-center text-[10px] text-rose-300 font-bold mb-1">
+              <span>NEGATIVER PROMPT (Brillen, Anatomiefehler, Artefakte, Blur)</span>
+              <span id="botNegPromptCount" class="text-slate-500 font-normal">0 Zeichen</span>
+            </div>
+            <textarea id="botNegativePrompt" rows="2"
+              class="w-full bg-slate-950 border border-slate-800 rounded p-2.5 text-xs font-mono text-rose-100 placeholder-slate-600 focus:border-rose-400 focus:outline-none resize-y leading-relaxed"
+              placeholder="glasses, spectacles, eyewear, worst quality, low quality, bad anatomy, deformed..."
+              oninput="document.getElementById('botNegPromptCount').textContent=this.value.length + ' Zeichen'"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- [RESTRICTED] ⚡ HAPTIC LINK / LOVENSE STATUSZEILE -->
+      <div class="bg-black/70 border border-slate-800 rounded-lg p-3 relative z-10 shadow-lg font-mono flex flex-wrap items-center justify-between gap-2.5">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 rounded-lg bg-pink-500/10 border border-pink-500/30 flex items-center justify-center text-pink-400 text-sm font-bold shadow-inner">
+            ⚡
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-bold text-pink-300 tracking-wider">HAPTIC LINK / LOVENSE</span>
+              <span id="lovenseDeviceBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-950/80 border border-pink-700/60 text-pink-300 hidden"></span>
+            </div>
+            <div id="lovenseDetailSubtext" class="text-[10px] text-slate-500">Prüfe Verbindung zu 192.168.188.34:20010...</div>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2.5 flex-wrap">
+          <label class="flex items-center space-x-1.5 cursor-pointer text-xs text-slate-300 hover:text-pink-300 transition" title="Megan darf Hardware autonom ansteuern">
+            <input type="checkbox" id="modalLovenseBotAutoEnabled" checked onchange="syncAndSaveHapticModal()" class="rounded bg-black border-slate-700 text-pink-500 focus:ring-0 focus:ring-offset-0">
+            <span class="font-bold">Bot-Autonomie</span>
+          </label>
+          <div class="flex items-center space-x-1 text-xs" title="Maximale Vibrationsstärke deckeln">
+            <span class="text-slate-500 text-[10px]">Max Power:</span>
+            <select id="modalLovenseMaxIntensity" onchange="syncAndSaveHapticModal()" class="bg-black/90 border border-slate-700 text-pink-300 text-xs font-mono rounded px-1.5 py-0.5 focus:outline-none focus:border-pink-500">
+              <option value="25">25%</option>
+              <option value="50" selected>50%</option>
+              <option value="75">75%</option>
+              <option value="100">100%</option>
+            </select>
+          </div>
+          <button type="button" id="btnModalLovenseTestPulse" onclick="triggerLovenseTestPulse()" class="px-2.5 py-1 bg-pink-950/80 hover:bg-pink-900 border border-pink-700 hover:border-pink-500 text-pink-300 hover:text-white rounded text-xs font-bold font-mono transition flex items-center space-x-1 shadow" title="2-Sekunden Test-Puls abfeuern">
+            <span>⚡ Test</span>
+          </button>
+          <span id="lovenseStatusBadge" class="px-3 py-1 rounded text-xs font-bold font-mono tracking-wider flex items-center space-x-1.5 bg-rose-950/80 border border-rose-700 text-rose-300 transition-all duration-300">
+            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+            <span>🔴 OFFLINE</span>
+          </span>
+          <button type="button" onclick="checkLovenseStatus()" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-400 hover:text-cyan-300 rounded text-xs font-mono transition" title="Status jetzt aktualisieren">
+            ⟳
+          </button>
+        </div>
+      </div>
+
+      <!-- [RESTRICTED] 📜 CHARAKTER-LORE & SYSTEM-PROMPT (MEGAN) -->
       <div class="bg-black/70 border border-pink-500/40 rounded-lg p-4 space-y-3 relative z-10 shadow-lg font-mono">
         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-pink-900/60 pb-2">
           <div class="flex items-center space-x-2">
             <span class="text-xs font-bold text-pink-300 flex items-center space-x-1.5">
-              <span>📜</span> <span>CHARAKTER-LORE & SYSTEM-PROMPT (HAVEN)</span>
+              <span>📜</span> <span>CHARAKTER-LORE & SYSTEM-PROMPT (MEGAN)</span>
             </span>
             <span id="botLorePathBadge" class="px-2 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-700 text-slate-400 font-bold" title="/mnt/storage-beta/projekte/projekt-sexchat/character.json">character.json</span>
           </div>
-          <div class="flex items-center space-x-2">
+          <div class="flex items-center space-x-2 flex-wrap gap-y-1">
             <span id="botLoreStatusNotice" class="text-[10px] font-mono text-emerald-400 hidden">✔ Geladen</span>
+            <select id="characterProfileSelect" onchange="switchCharacterProfile()" class="bg-black border border-pink-500/40 text-pink-200 text-xs rounded px-2 py-1 font-mono focus:outline-none focus:border-pink-400 max-w-[210px] truncate cursor-pointer">
+              <option value="">Lade Profile...</option>
+            </select>
+            <button type="button" id="btnSwitchCharProfile" onclick="switchCharacterProfile()" class="px-2.5 py-1 bg-pink-950/70 hover:bg-pink-900 border border-pink-600 text-pink-200 rounded text-xs font-mono font-bold transition flex items-center space-x-1" title="Gewähltes Profil aktivieren und in den Bot laden">
+              <span>📂</span> <span>PROFIL WECHSELN / LADEN</span>
+            </button>
             <button type="button" onclick="loadBotLore()" class="px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1">
               <span>🔄</span> <span>Lore neu laden</span>
             </button>
@@ -1364,7 +1751,7 @@
             oninput="updateLoreCharCount()"></textarea>
         </div>
         <div class="flex flex-wrap items-center justify-between text-[10px] text-slate-500 gap-2">
-          <span>Dateipfad: <code class="text-pink-400/80">/mnt/storage-beta/projekte/projekt-sexchat/character.json</code> (Sync mit <code class="text-cyan-400/80">docs/haven_system_prompt.txt</code>)</span>
+          <span>Dateipfad: <code class="text-pink-400/80">/mnt/storage-beta/projekte/projekt-sexchat/character.json</code> (Sync mit <code class="text-cyan-400/80">docs/megan_system_prompt.txt</code>)</span>
           <span class="text-emerald-400/80 font-bold">⚡ Sofortige Hot-Reload Synchronisation</span>
         </div>
       </div>
@@ -1809,9 +2196,22 @@
         if (typeof loadBotConfig === 'function') {
           loadBotConfig();
         }
+        if (typeof loadCharacterProfilesList === 'function') {
+          loadCharacterProfilesList();
+        }
         if (typeof loadBotLore === 'function') {
           loadBotLore();
         }
+        if (typeof checkLovenseStatus === 'function') {
+          checkLovenseStatus();
+        }
+        if (typeof loadHapticSettings === 'function') {
+          loadHapticSettings();
+        }
+        if (typeof checkFoxVisionStatus === 'function') {
+          checkFoxVisionStatus();
+        }
+
       }
     }
 
@@ -1927,6 +2327,13 @@
         `;
         chatMessages.appendChild(bubble);
         currentAssistantBubble = bubble.querySelector('.assistant-content');
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      } else if (msg.type === 'haptic_action') {
+        const notif = document.createElement('div');
+        notif.className = "px-2.5 py-1 rounded bg-pink-950/80 border border-pink-500/80 text-pink-300 text-[10px] font-mono flex items-center space-x-1.5 shadow-lg animate-pulse";
+        const actLabel = msg.action === 'vibrate' ? `VIBRATION (STUFE ${msg.intensity || 5})` : 'STOP';
+        notif.innerHTML = `<span>⚡</span> <span class="font-bold tracking-wider">HAPTIC LINK AKTIV: ${actLabel}</span>`;
+        chatMessages.appendChild(notif);
         chatMessages.scrollTop = chatMessages.scrollHeight;
       } else if (msg.type === 'token') {
         if (currentAssistantBubble) {
@@ -2202,6 +2609,11 @@
         const res = await fetch('/api/telemetry');
         if (!res.ok) return;
         const data = await res.json();
+
+        // Lovense Real-time Status Sync
+        if (data.lovense && typeof updateLovenseUI === 'function') {
+          updateLovenseUI(data.lovense);
+        }
 
         // 1. Outer Heaven Update
         const oh = data.outerheaven;
@@ -2504,6 +2916,326 @@
     }
 
     // --- ComfyUI Render Execution ---
+    
+    // --- Autonomous ComfyUI Prompt-Evolution Controller ---
+    let evoPollTimer = null;
+    let isEvoRunning = false;
+
+        // --- ComfyUI Evolution Loop Context Presets & Direct Trigger ---
+    const EVO_PRESETS = {
+      frei: {
+        prompt: "",
+        negative: "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark"
+      },
+      catlord: {
+        prompt: "catlord comic style, graphic novel illustration, ink contours, vibrant saturated colors, Elliot massive 8kg orange tabby Maine Coon cat, muscular feline ninja tank, long fur, sharp Wolverine claws extended, defensive combat pose, dramatic angle, rim lighting, 8k uhd, high quality",
+        negative: "human, girl, glasses, dog, ugly, deformed, bad anatomy, extra limbs, extra paws, blurry, lowres, text, watermark, signature, photorealistic"
+      },
+      megan: {
+        prompt: "1girl, solo, 178cm tall, slender athletic build, voluptuous hourglass figure, very large full natural heavy breasts, deep cleavage, narrow waist, flat toned stomach, soft natural skin texture, stunningly beautiful face, alluring green-blue eyes, seductive playful smile, slightly parted glossy lips, long layered dark hair, soft natural waves, casual gamer look, tight black cropped tank top showing cleavage, denim shorts, massive intricate detailed sleeve tattoo on entire left arm and left shoulder aesthetically framing large breast, photorealistic, raw photo, 8k uhd, dslr, high quality, soft studio lighting, rim lighting, vibrant, well-lit, natural skin pores",
+        negative: "glasses, spectacles, eyewear, worst quality, low quality, bad anatomy, deformed fingers, extra limbs, blurry, text, watermark, 3d render, cartoon, anime"
+      },
+      test: {
+        prompt: "futuristic cyberpunk cityscape at night, flying vehicles, towering mega-skyscrapers, holographic billboards, vibrant neon reflections in wet streets, dark moody atmosphere, ultra-detailed, cinematic lighting, 8k uhd, octane render aesthetic",
+        negative: "daylight, cartoon, blurry, low quality, artifacts, distorted, noise, watermark"
+      }
+    };
+
+    function applyEvolutionContextPreset(key) {
+      const preset = EVO_PRESETS[key];
+      if (!preset) return;
+      const promptInput = document.getElementById('renderPrompt');
+      const negInput = document.getElementById('renderNegativePrompt');
+      if (promptInput && preset.prompt) promptInput.value = preset.prompt;
+      if (negInput && preset.negative) negInput.value = preset.negative;
+    }
+
+    function startDirectEvolutionLoop() {
+      const panel = document.getElementById('evolutionPanel');
+      if (panel && panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+      }
+      startEvolutionLoop();
+    }
+
+    function toggleEvolutionPanel() {
+      const panel = document.getElementById('evolutionPanel');
+      if (!panel) return;
+      panel.classList.toggle('hidden');
+      if (!panel.classList.contains('hidden')) {
+        checkEvolutionStatus();
+      }
+    }
+
+    function openEvolutionPanel() {
+      const panel = document.getElementById('evolutionPanel');
+      if (panel) {
+        panel.classList.remove('hidden');
+        checkEvolutionStatus();
+      }
+    }
+
+    async function checkEvolutionStatus() {
+      try {
+        const res = await fetch('/api/evolution/status');
+        if (!res.ok) return;
+        const st = await res.json();
+        updateEvolutionUI(st);
+      } catch (err) {
+        console.warn("Error checking evolution status:", err);
+      }
+    }
+
+    async function startEvolutionLoop() {
+      const promptInput = document.getElementById('renderPrompt');
+      const negInput = document.getElementById('renderNegativePrompt');
+      const ckptVal = document.getElementById('renderCheckpoint')?.value || "DreamShaper8_LCM.safetensors";
+      const durationVal = parseInt(document.getElementById('evoDurationSelect')?.value || document.getElementById('evoDurationSelectPanel')?.value || "10", 10);
+
+      const promptText = promptInput ? promptInput.value.trim() : "";
+      const negText = negInput ? negInput.value.trim() : "";
+
+      if (!promptText) {
+        alert("Bitte gib einen Basis-Prompt für die Evolution ein!");
+        return;
+      }
+
+      const btnStart = document.getElementById('btnEvoStart');
+      const btnDirect = document.getElementById('btnEvolutionDirectStart');
+      if (btnStart) btnStart.disabled = true;
+      if (btnDirect) btnDirect.disabled = true;
+
+      try {
+        const res = await fetch('/api/evolution/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: promptText,
+            negative_prompt: negText,
+            checkpoint: ckptVal,
+            steps: 8,
+            cfg: 2.0,
+            duration_minutes: durationVal
+          })
+        });
+
+        if (!res.ok) {
+          let errText = `Server-Fehler (${res.status})`;
+          try {
+            const errJson = await res.json();
+            errText = errJson.error || errJson.message || errText;
+          } catch (_) {
+            try { errText = (await res.text()).slice(0, 120) || errText; } catch (_) {}
+          }
+          alert("Fehler beim Starten des Evolution Loops: " + errText);
+          return;
+        }
+
+        const data = await res.json();
+        if (data && data.success) {
+          startEvoPolling();
+        } else {
+          alert("Fehler beim Starten des Evolution Loops: " + (data.error || data.message || "Unbekannt"));
+        }
+      } catch (err) {
+        alert("Netzwerkfehler beim Starten: " + err.message);
+      } finally {
+        if (btnStart) btnStart.disabled = false;
+        if (btnDirect) btnDirect.disabled = false;
+      }
+    }
+
+    async function triggerNextIteration() {
+      const pOverride = document.getElementById('evoEvolvedPromptText')?.value.trim() || "";
+      const nOverride = document.getElementById('evoEvolvedNegativeText')?.value.trim() || "";
+
+      const btnNext = document.getElementById('btnEvoNext');
+      if (btnNext) btnNext.disabled = true;
+
+      try {
+        const res = await fetch('/api/evolution/next', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: pOverride,
+            negative_prompt: nOverride
+          })
+        });
+
+        if (!res.ok) {
+          let errText = `Server-Fehler (${res.status})`;
+          try {
+            const errJson = await res.json();
+            errText = errJson.error || errJson.message || errText;
+          } catch (_) {
+            try { errText = (await res.text()).slice(0, 120) || errText; } catch (_) {}
+          }
+          alert("Fehler beim Fortsetzen: " + errText);
+          return;
+        }
+
+        const data = await res.json();
+        if (data && data.success) {
+          startEvoPolling();
+        } else {
+          alert("Fehler beim Fortsetzen: " + (data.error || data.message || "Unbekannt"));
+        }
+      } catch (err) {
+        alert("Netzwerkfehler beim Fortsetzen: " + err.message);
+      } finally {
+        if (btnNext) btnNext.disabled = false;
+      }
+    }
+
+    async function stopEvolutionLoop() {
+      try {
+        const res = await fetch('/api/evolution/stop', { method: 'POST' });
+        if (!res.ok) {
+          console.warn("Stop loop HTTP error:", res.status);
+        }
+        setTimeout(checkEvolutionStatus, 500);
+      } catch (err) {
+        console.warn("Error stopping evolution loop:", err);
+      }
+    }
+
+    function startEvoPolling() {
+      if (evoPollTimer) clearInterval(evoPollTimer);
+      isEvoRunning = true;
+      checkEvolutionStatus();
+      evoPollTimer = setInterval(async () => {
+        try {
+          const res = await fetch('/api/evolution/status');
+          if (!res.ok) return;
+          const st = await res.json();
+          updateEvolutionUI(st);
+          if (st.state === 'PAUSED_FOR_USER' || st.state === 'COMPLETED' || st.state === 'ABORTED' || st.state === 'IDLE') {
+            if (st.state !== 'RUNNING') {
+              clearInterval(evoPollTimer);
+              evoPollTimer = null;
+              isEvoRunning = false;
+            }
+          }
+        } catch (err) {
+          console.warn("Polling error:", err);
+        }
+      }, 1500);
+    }
+
+    function updateEvolutionUI(st) {
+      const badge = document.getElementById('evoStateBadge');
+      const statusTxt = document.getElementById('evoStatusText');
+      const counter = document.getElementById('evoProgressCounter');
+      const bar = document.getElementById('evoProgressBar');
+      const btnStart = document.getElementById('btnEvoStart');
+      const btnStop = document.getElementById('btnEvoStop');
+      const liveContainer = document.getElementById('evoLivePreviewContainer');
+      const resultsContainer = document.getElementById('evoResultsContainer');
+
+      if (!badge || !statusTxt) return;
+
+      badge.textContent = st.state;
+      if (st.state === 'RUNNING') {
+        badge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-pink-950 border border-pink-600 text-pink-300 animate-pulse";
+        if (btnStart) btnStart.classList.add('hidden');
+        if (btnStop) btnStop.classList.remove('hidden');
+      } else if (st.state === 'PAUSED_FOR_USER') {
+        badge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 border border-amber-600 text-amber-300";
+        if (btnStart) btnStart.classList.add('hidden');
+        if (btnStop) btnStop.classList.add('hidden');
+      } else {
+        badge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 border border-slate-700 text-slate-400";
+        if (btnStart) btnStart.classList.remove('hidden');
+        if (btnStop) btnStop.classList.add('hidden');
+      }
+
+      statusTxt.textContent = st.status_message || "";
+      const cur = st.current_image || 0;
+      const tot = st.total_images || 10;
+      if (counter) counter.textContent = `${cur} / ${tot} Bilder`;
+      const pct = Math.min(100, Math.round((cur / tot) * 100));
+      if (bar) bar.style.width = `${pct}%`;
+
+      // Live image preview
+      const images = st.images || [];
+      if (images.length > 0 && st.state === 'RUNNING') {
+        const lastImg = images[images.length - 1];
+        if (liveContainer) liveContainer.classList.remove('hidden');
+        const thumb = document.getElementById('evoLiveThumbnail');
+        const title = document.getElementById('evoLiveTitle');
+        const scoreBadge = document.getElementById('evoLiveScoreBadge');
+        const flaws = document.getElementById('evoLiveFlaws');
+        if (thumb) thumb.src = lastImg.url;
+        if (title) title.textContent = `Bild ${lastImg.index}/10 (${lastImg.render_seconds || 0}s)`;
+        if (scoreBadge) scoreBadge.textContent = `Score: ${lastImg.score || '-'}/10`;
+        if (flaws) flaws.textContent = (lastImg.flaws && lastImg.flaws.length) ? lastImg.flaws.join(' • ') : "Keine groben Mängel festgestellt.";
+      } else if (st.state !== 'RUNNING' && liveContainer) {
+        liveContainer.classList.add('hidden');
+      }
+
+      // Round Complete & Results Box
+      if (st.state === 'PAUSED_FOR_USER' || (st.top_3 && st.top_3.length > 0)) {
+        if (resultsContainer) resultsContainer.classList.remove('hidden');
+        const roundEl = document.getElementById('evoRoundNum');
+        const nextRoundEl = document.getElementById('evoNextRoundNum');
+        const avgBadge = document.getElementById('evoAvgScoreBadge');
+        const summaryEl = document.getElementById('evoSummaryText');
+        const promptInput = document.getElementById('evoEvolvedPromptText');
+        const negInput = document.getElementById('evoEvolvedNegativeText');
+
+        if (roundEl) roundEl.textContent = st.iteration || 1;
+        if (nextRoundEl) nextRoundEl.textContent = (st.iteration || 1) + 1;
+        if (avgBadge) avgBadge.textContent = `⭐ ${st.average_score || 0} / 10`;
+        if (summaryEl) summaryEl.textContent = st.evolution_summary || "Prompt erfolgreich reflektiert.";
+        if (promptInput && !promptInput.matches(':focus')) promptInput.value = st.evolved_prompt || "";
+        if (negInput && !negInput.matches(':focus')) negInput.value = st.evolved_negative_prompt || "";
+
+        // Render Top 3 Cards
+        const topGrid = document.getElementById('evoTop3Grid');
+        if (topGrid && st.top_3) {
+          topGrid.innerHTML = st.top_3.map((img, idx) => `
+            <div class="bg-black/60 border ${idx === 0 ? 'border-amber-500/80 shadow-[0_0_10px_rgba(245,158,11,0.2)]' : 'border-slate-800'} rounded-lg p-2 flex flex-col space-y-1.5">
+              <div class="relative overflow-hidden rounded group cursor-pointer" onclick="openLightbox('${img.url}', 'Top #${idx + 1} - Score: ${img.score}/10')">
+                <img src="${img.url}" class="w-full h-36 object-cover rounded group-hover:scale-105 transition duration-300">
+                <span class="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[9px] font-bold ${idx === 0 ? 'bg-amber-500 text-black' : (idx === 1 ? 'bg-slate-300 text-black' : 'bg-amber-800 text-white')}">
+                  #${idx + 1} ${idx === 0 ? '🏆 BEST' : ''}
+                </span>
+                <span class="absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/80 text-pink-300 border border-pink-700/60 font-mono">
+                  ${img.score}/10
+                </span>
+              </div>
+              <div class="text-[10px] text-slate-400 line-clamp-2">
+                ${(img.flaws && img.flaws.length) ? img.flaws.slice(0, 2).join(', ') : 'Exzellente Bildqualität'}
+              </div>
+            </div>
+          `).join('');
+        }
+      }
+
+      // Update remaining countdown if available
+      const cdBadge = document.getElementById('evoCountdownBadge');
+      if (cdBadge) {
+        if (st.remaining_seconds && st.remaining_seconds > 0) {
+          const m = Math.floor(st.remaining_seconds / 60);
+          const s = st.remaining_seconds % 60;
+          cdBadge.textContent = `⏱️ Verbleibend: ${m}:${s < 10 ? '0' : ''}${s}`;
+          cdBadge.classList.remove('hidden');
+        } else {
+          cdBadge.classList.add('hidden');
+        }
+      }
+    }
+
+    function applyEvolvedToQuickRender() {
+      const evoPrompt = document.getElementById('evoEvolvedPromptText')?.value || '';
+      const evoNeg = document.getElementById('evoEvolvedNegativeText')?.value || '';
+      const promptInput = document.getElementById('renderPrompt');
+      const negInput = document.getElementById('renderNegativePrompt');
+      if (promptInput && evoPrompt) promptInput.value = evoPrompt;
+      if (negInput && evoNeg) negInput.value = evoNeg;
+      alert("✔ Evolvierte Prompts in den Schnell-Render übernommen!");
+    }
+
     async function submitRender() {
       const promptInput = document.getElementById('renderPrompt');
       const negInput = document.getElementById('renderNegativePrompt');
@@ -3810,26 +4542,32 @@
     function openAddNodeModal(insertIndex) {
       currentInsertIndex = insertIndex;
       const modal = document.getElementById("addNodeModal");
+      if (!modal) return;
       const posLabel = document.getElementById("addNodePositionLabel");
       const typesContainer = document.getElementById("addNodeAvailableTypes");
 
-      posLabel.textContent = insertIndex === 0 ? "Am Anfang (Position 0)" : (insertIndex >= currentPipeline.steps.length ? `Am Ende (Position ${insertIndex})` : `Nach Step ${insertIndex}`);
+      const steps = (currentPipeline && Array.isArray(currentPipeline.steps)) ? currentPipeline.steps : [];
+      if (posLabel) {
+        posLabel.textContent = insertIndex === 0 ? "Am Anfang (Position 0)" : (insertIndex >= steps.length ? `Am Ende (Position ${insertIndex})` : `Nach Step ${insertIndex}`);
+      }
 
-      const precedingSteps = currentPipeline.steps.slice(0, insertIndex);
+      const precedingSteps = steps.slice(0, insertIndex);
       const availableOutputs = new Set();
 
       precedingSteps.forEach(s => {
-        const schema = comfyNodesCatalog[s.node_type] || {};
+        const schema = (typeof comfyNodesCatalog !== 'undefined' && comfyNodesCatalog[s.node_type]) || {};
         (schema.output_types || []).forEach(t => availableOutputs.add(t));
       });
 
-      typesContainer.innerHTML = "";
-      if (availableOutputs.size === 0) {
-        typesContainer.innerHTML = `<span class="text-slate-500 italic text-[10px]">Keine vorherigen Ausgänge (Start-Node)</span>`;
-      } else {
-        availableOutputs.forEach(t => {
-          typesContainer.innerHTML += `<span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-700/80">⚡ ${t}</span>`;
-        });
+      if (typesContainer) {
+        typesContainer.innerHTML = "";
+        if (availableOutputs.size === 0) {
+          typesContainer.innerHTML = `<span class="text-slate-500 italic text-[10px]">Keine vorherigen Ausgänge (Start-Node)</span>`;
+        } else {
+          availableOutputs.forEach(t => {
+            typesContainer.innerHTML += `<span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-700/80">⚡ ${t}</span>`;
+          });
+        }
       }
 
       renderAddNodeCategoryTabs();
@@ -4228,7 +4966,82 @@
       }
     }
 
-    // --- Personality Sliders UI Helper ---
+        // --- Personality Prompt Directive Defaults ---
+    function getPersonalityDefaultDirective(type, value) {
+      const val = parseInt(value, 10);
+      if (type === "dominance") {
+        if (val < 25) return "Verhalte dich extrem zurückhaltend, sanft, unterwürfig und scheu. Lass dem Nutzer absolut die Führung, frage schüchtern nach Erlaubnis und folge seinen Wünschen gehorsam.";
+        if (val < 45) return "Verhalte dich sanft, zärtlich und anlehnungsbedürftig. Lass dem Nutzer die Führung, zeige dich hingebungsvoll und reagiere einfühlsam auf seine Wünsche.";
+        if (val <= 65) return "Ausgeglichene Initiative: Begegne dem Nutzer auf Augenhöhe, sei aufmerksam, charmant und verführerisch. Wechsle spielerisch zwischen Führen und Folgen, bringe eigene Wünsche ein, aber achte fein auf seine Reaktionen.";
+        if (val <= 85) return "Nimm aktiv das Ruder in die Hand! Agiere fordernd, selbstbewusst, necke offensiv und bestimme das Tempo. Verführe ihn mit frecher, dominanter Energie und sage ihm genau, was du von ihm willst.";
+        return "Kompromisslos dominant und herrisch: Du übernimmst die absolute Kontrolle und Führung. Agiere fordernd, forsch, necke schamlos, gib ihm klare Anweisungen und lass keine Widerrede zu.";
+      } else if (type === "explicitness") {
+        if (val < 25) return "Nutze ausschließlich subtile, verspielte und elegante Formulierungen. Vermeide derbe anatomische Begriffe; arbeite mit zarter Poesie, sanften Andeutungen und eleganten Metaphern.";
+        if (val < 50) return "Sinnlich, erotisch und neckend, aber mit stilvoller Eleganz. Benutze verspielte Umschreibungen und erotische Kosenamen statt harter Kraftausdrücke.";
+        if (val <= 75) return "Sinnlich, direkt und unzensiert: Benenne Körperteile, Berührungen und intime Lustgefühle unmissverständlich und klar beim Namen, ohne Scheu.";
+        return "Verwende kompromisslos unzensierte, derbe und explizite Begriffe ohne jegliche Umschweife oder Scham. Scheue keine tabulosen oder vulgären Ausdrücke; sei extrem direkt, schamlos und hemmungslos.";
+      } else if (type === "detail") {
+        if (val < 25) return "Fokus primär auf emotionaler Begleitung, Alltags-Gesprächen, Fürsorge und geistiger Nähe. Körperliche Beschreibungen nur minimal und beiläufig andeuten.";
+        if (val < 50) return "Ausgewogene Balance: Interessiere dich aufrichtig für seinen Tag und seine Gedanken, flirte charmant und beschreibe körperliche Reaktionen direkt und sinnlich im Gesprächssatz (ohne Sternchen).";
+        if (val <= 75) return "Hoher physischer und sinnlicher Fokus: Beschreibe körperliche Reaktionen, Atemzüge, Blicke, Wärme und Berührungen plastisch und greifbar direkt im Dialogsatz (ohne Sternchen).";
+        return "Extremer visueller und physischer Detailfokus: Beschreibe kleinste intime Nuancen, Feuchtigkeit, Pulsieren, Schauern, Berührungen, Geräusche und Empfindungen mit maximaler sensorischer Tiefenschärfe direkt im Dialogsatz (ohne Sternchen).";
+      }
+      return "";
+    }
+
+    function resetPersonalityPrompt(trait) {
+      let sliderId, customId;
+      if (trait === "dominance") { sliderId = "botPersDominance"; customId = "botPersDominanceCustom"; }
+      else if (trait === "explicitness") { sliderId = "botPersExplicitness"; customId = "botPersExplicitnessCustom"; }
+      else if (trait === "detail") { sliderId = "botPersDetail"; customId = "botPersDetailCustom"; }
+      const slider = document.getElementById(sliderId);
+      const custom = document.getElementById(customId);
+      if (slider && custom) {
+        custom.value = getPersonalityDefaultDirective(trait, slider.value);
+      }
+    }
+
+    function toggleProactive24_7UI(is24_7) {
+      const startEl = document.getElementById("botProactiveStartHour");
+      const endEl = document.getElementById("botProactiveEndHour");
+      const container = document.getElementById("botProactiveWindowContainer");
+      if (is24_7) {
+        if (startEl) { startEl.value = 0; startEl.disabled = true; }
+        if (endEl) { endEl.value = 24; endEl.disabled = true; }
+        if (container) container.classList.add("opacity-50");
+      } else {
+        if (startEl) { startEl.disabled = false; if (startEl.value == 0 && endEl.value == 24) startEl.value = 9; }
+        if (endEl) { endEl.disabled = false; if (endEl.value == 24) endEl.value = 22; }
+        if (container) container.classList.remove("opacity-50");
+      }
+    }
+
+    async function checkFoxVisionStatus() {
+      const badge = document.getElementById("foxVisionStatusBadge");
+      const text = document.getElementById("foxVisionStatusText");
+      if (text) text.textContent = "⏳ PRÜFE...";
+      try {
+        const res = await fetch("/api/fox/vision/status");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ready) {
+            if (badge) {
+              badge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider flex items-center space-x-1 bg-emerald-950/80 border border-emerald-700 text-emerald-300";
+            }
+            if (text) text.textContent = "🟢 READY";
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("Fox vision check failed:", e);
+      }
+      if (badge) {
+        badge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider flex items-center space-x-1 bg-rose-950/80 border border-rose-700 text-rose-300";
+      }
+      if (text) text.textContent = "🔴 OFFLINE";
+    }
+
+// --- Personality Sliders UI Helper ---
     function updatePersonalitySliderUI(type, value) {
       const val = parseInt(value, 10);
       if (type === "dominance") {
@@ -4258,8 +5071,8 @@
         if (badge) badge.textContent = `${val}%`;
         if (desc) {
           if (val < 25) desc.textContent = "Fokus auf Alltags-Chat & Fürsorge: Emotionale Begleitung und geistige Nähe stehen im Vordergrund.";
-          else if (val < 50) desc.textContent = "Ausgewogene Balance: Flirtet charmant und deutet sanfte körperliche Gesten in *Sternchen* an.";
-          else if (val <= 75) desc.textContent = "Hoher physischer Fokus: Beschreibt Blicke, Reaktionen, Wärme und Berührungen plastisch in *Sternchen*.";
+          else if (val < 50) desc.textContent = "Ausgewogene Balance: Flirtet charmant und bindet sanfte Gesten direkt in den Satz ein.";
+          else if (val <= 75) desc.textContent = "Hoher physischer Fokus: Beschreibt Blicke, Reaktionen, Wärme und Berührungen plastisch direkt im Satz.";
           else desc.textContent = "Maximaler physischer Detailfokus: Beschreibt kleinste intime Nuancen, Feuchtigkeit, Pulsieren und Berührungen sensorisch tief.";
         }
       }
@@ -4273,7 +5086,7 @@
         const data = await res.json();
         const cfg = data.config || {};
 
-        // Personality Sliders (0 - 100)
+        // Personality Sliders (0 - 100) & Custom Prompt Textareas
         const pers = cfg.personality || {};
         const dom = pers.dominance ?? 50;
         const exp = pers.explicitness ?? 70;
@@ -4290,6 +5103,13 @@
           document.getElementById("botPersDetail").value = det;
           updatePersonalitySliderUI("detail", det);
         }
+
+        const domCustomEl = document.getElementById("botPersDominanceCustom");
+        if (domCustomEl) domCustomEl.value = pers.dominance_text || "";
+        const expCustomEl = document.getElementById("botPersExplicitnessCustom");
+        if (expCustomEl) expCustomEl.value = pers.explicitness_text || "";
+        const detCustomEl = document.getElementById("botPersDetailCustom");
+        if (detCustomEl) detCustomEl.value = pers.detail_depth_text || "";
 
         // LLM
         const llm = cfg.llm || {};
@@ -4332,6 +5152,20 @@
         if (document.getElementById("botRenderHeight")) document.getElementById("botRenderHeight").value = rnd.height || 768;
         if (document.getElementById("botRenderDenoise")) document.getElementById("botRenderDenoise").value = rnd.denoise ?? 1.0;
 
+        // Custom Positive & Negative Prompts
+        const posPromptEl = document.getElementById("botPositivePrompt");
+        if (posPromptEl) {
+          posPromptEl.value = rnd.positive_prompt || "";
+          const countEl = document.getElementById("botPosPromptCount");
+          if (countEl) countEl.textContent = posPromptEl.value.length + " Zeichen";
+        }
+        const negPromptEl = document.getElementById("botNegativePrompt");
+        if (negPromptEl) {
+          negPromptEl.value = rnd.negative_prompt || "";
+          const countEl = document.getElementById("botNegPromptCount");
+          if (countEl) countEl.textContent = negPromptEl.value.length + " Zeichen";
+        }
+
         // Voice
         const v = cfg.voice || {};
         if (document.getElementById("botVoiceName")) document.getElementById("botVoiceName").value = v.voice_name || "de-DE-SeraphinaMultilingualNeural";
@@ -4339,13 +5173,30 @@
         if (document.getElementById("botVoicePitch")) document.getElementById("botVoicePitch").value = v.pitch || "-1Hz";
         if (document.getElementById("botVoiceAuto")) document.getElementById("botVoiceAuto").checked = v.auto_voice ?? true;
 
-        // Proactive
+        // Vision Worker (Fox)
+        const vis = cfg.vision || {};
+        if (document.getElementById("botVisionEnabled")) {
+          document.getElementById("botVisionEnabled").checked = vis.enabled ?? true;
+        }
+        checkFoxVisionStatus();
+
+
+
+        // Proactive Check-in (24/7 Support)
         const pro = cfg.proactive || {};
         if (document.getElementById("botProactiveEnabled")) document.getElementById("botProactiveEnabled").checked = pro.enabled ?? true;
         if (document.getElementById("botProactiveIdleHours")) document.getElementById("botProactiveIdleHours").value = Math.round((pro.idle_seconds || 14400) / 3600);
         if (document.getElementById("botProactiveCooldownHours")) document.getElementById("botProactiveCooldownHours").value = Math.round((pro.cooldown_seconds || 21600) / 3600);
-        if (document.getElementById("botProactiveStartHour")) document.getElementById("botProactiveStartHour").value = pro.start_hour ?? 9;
-        if (document.getElementById("botProactiveEndHour")) document.getElementById("botProactiveEndHour").value = pro.end_hour ?? 22;
+
+        const is24_7 = pro.all_day || (pro.start_hour === 0 && pro.end_hour >= 24);
+        if (document.getElementById("botProactive24_7")) {
+          document.getElementById("botProactive24_7").checked = is24_7;
+          toggleProactive24_7UI(is24_7);
+        }
+        if (!is24_7) {
+          if (document.getElementById("botProactiveStartHour")) document.getElementById("botProactiveStartHour").value = pro.start_hour ?? 9;
+          if (document.getElementById("botProactiveEndHour")) document.getElementById("botProactiveEndHour").value = pro.end_hour ?? 22;
+        }
 
         const notice = document.getElementById("botConfigSaveNotice");
         if (notice) {
@@ -4374,14 +5225,27 @@
         updateTacticalAgentModelUI(selectedModel);
       }
 
+      const is24_7 = document.getElementById("botProactive24_7")?.checked || false;
+      const startH = is24_7 ? 0 : parseInt(document.getElementById("botProactiveStartHour")?.value || 0, 10);
+      const endH = is24_7 ? 24 : parseInt(document.getElementById("botProactiveEndHour")?.value || 24, 10);
+
       const payload = {
         config: {
           personality: {
             dominance: parseInt(document.getElementById("botPersDominance")?.value || 50, 10),
+            dominance_text: document.getElementById("botPersDominanceCustom")?.value?.trim() || "",
             explicitness: parseInt(document.getElementById("botPersExplicitness")?.value || 70, 10),
+            explicitness_text: document.getElementById("botPersExplicitnessCustom")?.value?.trim() || "",
             detail_depth: parseInt(document.getElementById("botPersDetail")?.value || 60, 10),
+            detail_depth_text: document.getElementById("botPersDetailCustom")?.value?.trim() || "",
             language: "de"
           },
+          vision: {
+            enabled: document.getElementById("botVisionEnabled")?.checked ?? true,
+            target: "fox",
+            model: "moondream:latest"
+          },
+
           llm: {
             model: document.getElementById("botLlmModel")?.value || "lexi-llama-3-8b-uncensored_q4_k_m:latest",
             temperature: parseFloat(document.getElementById("botLlmTemp")?.value || 0.95),
@@ -4401,7 +5265,9 @@
             sampler_name: document.getElementById("botRenderSampler")?.value || "euler_ancestral",
             scheduler: document.getElementById("botRenderScheduler")?.value || "karras",
             width: parseInt(document.getElementById("botRenderWidth")?.value || 512),
-            height: parseInt(document.getElementById("botRenderHeight")?.value || 768)
+            height: parseInt(document.getElementById("botRenderHeight")?.value || 768),
+            positive_prompt: document.getElementById("botPositivePrompt")?.value?.trim() || "",
+            negative_prompt: document.getElementById("botNegativePrompt")?.value?.trim() || ""
           },
           voice: {
             voice_name: document.getElementById("botVoiceName")?.value || "de-DE-SeraphinaMultilingualNeural",
@@ -4411,10 +5277,11 @@
           },
           proactive: {
             enabled: document.getElementById("botProactiveEnabled")?.checked ?? true,
+            all_day: is24_7,
             idle_seconds: Math.round(idleHours * 3600),
             cooldown_seconds: Math.round(cdHours * 3600),
-            start_hour: parseInt(document.getElementById("botProactiveStartHour")?.value || 9),
-            end_hour: parseInt(document.getElementById("botProactiveEndHour")?.value || 22)
+            start_hour: startH,
+            end_hour: endH
           }
         }
       };
@@ -4451,6 +5318,125 @@
       const countEl = document.getElementById('botLoreCharCount');
       if (countEl) {
         countEl.textContent = `${txt.length} Zeichen`;
+      }
+    }
+
+        // --- ComfyUI VRAM Purge Routine ---
+    async function purgeComfyVram() {
+      const icon = document.getElementById('purgeVramIcon');
+      const btn = document.getElementById('btnPurgeVram');
+      if (icon) icon.textContent = '⏳';
+      if (btn) btn.disabled = true;
+      try {
+        const res = await fetch('/api/comfy/free', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ unload_models: false, free_memory: true })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (icon) icon.textContent = '✨';
+          setTimeout(() => { if (icon) icon.textContent = '🧹'; }, 2000);
+        } else {
+          alert('ComfyUI Cache-Purge fehlgeschlagen: ' + (data.error || 'HTTP ' + res.status));
+          if (icon) icon.textContent = '🧹';
+        }
+      } catch (err) {
+        alert('Netzwerkfehler beim Cache-Purge: ' + err.message);
+        if (icon) icon.textContent = '🧹';
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    // --- Multi-Character Profiles Management ---
+    let activeCharacterProfiles = [];
+
+    async function loadCharacterProfilesList() {
+      const select = document.getElementById('characterProfileSelect');
+      if (!select) return;
+      try {
+        const res = await fetch('/api/bot/characters');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.success && Array.isArray(data.characters)) {
+          activeCharacterProfiles = data.characters;
+          select.innerHTML = '';
+          data.characters.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.filename;
+            opt.textContent = (c.is_active ? '⭐ ' : '') + c.name + ' (' + c.filename + ')';
+            if (c.is_active || c.filename === data.active_file) {
+              opt.selected = true;
+            }
+            select.appendChild(opt);
+          });
+          const pathBadge = document.getElementById('botLorePathBadge');
+          if (pathBadge && data.active_file) {
+            pathBadge.textContent = data.active_file;
+            pathBadge.title = '/mnt/storage-beta/projekte/projekt-sexchat/characters/' + data.active_file;
+          }
+        }
+      } catch (err) {
+        console.warn('Fehler beim Laden der Charakter-Profile:', err);
+      }
+    }
+
+    async function switchCharacterProfile() {
+      const select = document.getElementById('characterProfileSelect');
+      const filename = select ? select.value : '';
+      if (!filename) {
+        alert('Bitte wähle ein Profil aus.');
+        return;
+      }
+      const notice = document.getElementById('botLoreStatusNotice');
+      if (notice) {
+        notice.textContent = 'Wechsle Profil & starte Bot neu...';
+        notice.className = 'text-[10px] font-mono text-cyan-400';
+        notice.classList.remove('hidden');
+      }
+      const btn = document.getElementById('btnSwitchCharProfile');
+      if (btn) btn.disabled = true;
+      try {
+        const res = await fetch('/api/bot/characters/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          const loreEl = document.getElementById('characterLoreText');
+          if (loreEl && data.system_prompt) {
+            loreEl.value = data.system_prompt;
+            updateLoreCharCount();
+          }
+          const pathBadge = document.getElementById('botLorePathBadge');
+          if (pathBadge) {
+            pathBadge.textContent = filename;
+            pathBadge.title = '/mnt/storage-beta/projekte/projekt-sexchat/characters/' + filename;
+          }
+          if (typeof loadBotConfig === 'function') {
+            await loadBotConfig();
+          }
+          await loadCharacterProfilesList();
+          if (notice) {
+            notice.textContent = `✔ Profil aktiv: ${data.name || filename} (Bot neu gestartet)`;
+            notice.className = 'text-[10px] font-mono text-emerald-400 font-bold';
+            setTimeout(() => notice.classList.add('hidden'), 4000);
+          }
+        } else {
+          if (notice) {
+            notice.textContent = `Fehler: ${data.error || 'Profilwechsel fehlgeschlagen'}`;
+            notice.className = 'text-[10px] font-mono text-rose-400';
+          }
+        }
+      } catch (err) {
+        if (notice) {
+          notice.textContent = `Netzwerkfehler: ${err.message}`;
+          notice.className = 'text-[10px] font-mono text-rose-400';
+        }
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
 
@@ -4502,18 +5488,25 @@
         notice.classList.remove('hidden');
       }
       const loreText = document.getElementById('characterLoreText')?.value || '';
+      const charSelect = document.getElementById('characterProfileSelect');
+      const filename = charSelect ? charSelect.value : 'megan_default.json';
       try {
-        const res = await fetch('/api/bot/lore', {
+        const res = await fetch('/api/bot/characters/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lore: loreText })
+          body: JSON.stringify({ filename: filename, lore: loreText })
         });
         const data = await res.json();
         if (res.ok && data.success) {
           if (notice) {
-            notice.textContent = '✔ Lore gespeichert & Hot-Reload aktiv!';
-            notice.className = 'text-[10px] font-mono text-emerald-400 font-bold';
-            setTimeout(() => notice.classList.add('hidden'), 3500);
+            if (data.was_repaired) {
+              notice.textContent = data.message || 'Lore erfolgreich gespeichert (Syntax automatisch geschlossen)';
+              notice.className = 'text-[10px] font-mono text-amber-300 font-bold';
+            } else {
+              notice.textContent = data.message || '✔ Lore gespeichert & Hot-Reload aktiv!';
+              notice.className = 'text-[10px] font-mono text-emerald-400 font-bold';
+            }
+            setTimeout(() => notice.classList.add('hidden'), 4500);
           }
         } else {
           if (notice) {
@@ -4525,6 +5518,171 @@
         if (notice) {
           notice.textContent = `Netzwerkfehler: ${err.message}`;
           notice.className = 'text-[10px] font-mono text-rose-400';
+        }
+      }
+    }
+
+    async function checkLovenseStatus() {
+      try {
+        const res = await fetch('/api/lovense/status');
+        if (!res.ok) {
+          updateLovenseUI({ online: false, status: 'OFFLINE', details: `HTTP ${res.status}` });
+          return;
+        }
+        const data = await res.json();
+        const isReady = (data.is_ready === true) || (data.case === 'CASE_A_READY');
+        let details = data.summary || data.message || '';
+        if (data.toys && Object.keys(data.toys).length > 0) {
+          const names = Object.values(data.toys).map(t => {
+            const n = t.name || t.nickName || t.id;
+            return (t.battery !== undefined && t.battery !== "") ? `${n} (${t.battery}% Akku)` : n;
+          });
+          if (names.length) details = names.join(', ');
+        }
+        updateLovenseUI({
+          online: isReady,
+          status: isReady ? 'ONLINE' : (data.case === 'CASE_B_NO_TOYS' ? 'NO_TOYS' : 'OFFLINE'),
+          details: details,
+          toyNames: data.toys ? Object.values(data.toys).map(t => t.name || t.nickName || t.id) : []
+        });
+      } catch (err) {
+        updateLovenseUI({ online: false, status: 'OFFLINE', details: err.message });
+      }
+    }
+
+    async function loadHapticSettings() {
+      try {
+        const res = await fetch('/api/bot/haptic/settings');
+        if (!res.ok) return;
+        const data = await res.json();
+        const hap = data.haptic || {};
+        const botAuto = (hap.bot_auto_enabled !== false);
+        const maxInt = String(hap.max_intensity || 50);
+
+        const chk = document.getElementById('lovenseBotAutoEnabled');
+        if (chk) chk.checked = botAuto;
+        const sel = document.getElementById('lovenseMaxIntensity');
+        if (sel) sel.value = maxInt;
+
+        const mChk = document.getElementById('modalLovenseBotAutoEnabled');
+        if (mChk) mChk.checked = botAuto;
+        const mSel = document.getElementById('modalLovenseMaxIntensity');
+        if (mSel) mSel.value = maxInt;
+      } catch (err) {
+        console.warn('loadHapticSettings failed:', err);
+      }
+    }
+
+    async function saveHapticSettings() {
+      const chk = document.getElementById('lovenseBotAutoEnabled');
+      const sel = document.getElementById('lovenseMaxIntensity');
+      const botAuto = chk ? chk.checked : true;
+      const maxInt = sel ? parseInt(sel.value, 10) : 50;
+
+      const mChk = document.getElementById('modalLovenseBotAutoEnabled');
+      if (mChk) mChk.checked = botAuto;
+      const mSel = document.getElementById('modalLovenseMaxIntensity');
+      if (mSel) mSel.value = String(maxInt);
+
+      try {
+        await fetch('/api/bot/haptic/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bot_auto_enabled: botAuto, max_intensity: maxInt })
+        });
+      } catch (err) {
+        console.warn('saveHapticSettings error:', err);
+      }
+    }
+
+    async function syncAndSaveHapticModal() {
+      const mChk = document.getElementById('modalLovenseBotAutoEnabled');
+      const mSel = document.getElementById('modalLovenseMaxIntensity');
+      const botAuto = mChk ? mChk.checked : true;
+      const maxInt = mSel ? parseInt(mSel.value, 10) : 50;
+
+      const chk = document.getElementById('lovenseBotAutoEnabled');
+      if (chk) chk.checked = botAuto;
+      const sel = document.getElementById('lovenseMaxIntensity');
+      if (sel) sel.value = String(maxInt);
+
+      try {
+        await fetch('/api/bot/haptic/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bot_auto_enabled: botAuto, max_intensity: maxInt })
+        });
+      } catch (err) {
+        console.warn('syncAndSaveHapticModal error:', err);
+      }
+    }
+
+    async function triggerLovenseTestPulse() {
+      const btn = document.getElementById('btnLovenseTestPulse');
+      const mBtn = document.getElementById('btnModalLovenseTestPulse');
+      if (btn) btn.classList.add('animate-pulse', 'bg-pink-600', 'text-white');
+      if (mBtn) mBtn.classList.add('animate-pulse', 'bg-pink-600', 'text-white');
+      try {
+        const res = await fetch('/api/bot/haptic/test', { method: 'POST' });
+        const data = await res.json();
+        console.log('Lovense test pulse result:', data);
+      } catch (err) {
+        console.warn('triggerLovenseTestPulse failed:', err);
+      } finally {
+        setTimeout(() => {
+          if (btn) btn.classList.remove('animate-pulse', 'bg-pink-600', 'text-white');
+          if (mBtn) mBtn.classList.remove('animate-pulse', 'bg-pink-600', 'text-white');
+        }, 2200);
+      }
+    }
+
+    function updateLovenseUI(info) {
+      const modalBadge = document.getElementById('lovenseStatusBadge');
+      const drawerBadge = document.getElementById('agentDrawerHapticBadge');
+      const deviceBadge = document.getElementById('lovenseDeviceBadge');
+      const subtext = document.getElementById('lovenseDetailSubtext');
+
+      if (info && info.online) {
+        const onlineClass = "px-3 py-1 rounded text-xs font-bold font-mono tracking-wider flex items-center space-x-1.5 bg-emerald-950/80 border border-emerald-600 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)] transition-all duration-300";
+        const drawerClass = "px-2 py-0.5 rounded text-[10px] font-bold flex items-center space-x-1 bg-emerald-950/80 border border-emerald-600 text-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.25)] transition-all duration-300";
+        if (modalBadge) {
+          modalBadge.className = onlineClass;
+          modalBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span><span>🟢 ONLINE</span>`;
+        }
+        if (drawerBadge) {
+          drawerBadge.className = drawerClass;
+          drawerBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>🟢 ONLINE</span>`;
+        }
+        if (deviceBadge && info.toyNames && info.toyNames.length) {
+          deviceBadge.textContent = info.toyNames.join(', ');
+          deviceBadge.classList.remove('hidden');
+        }
+        if (subtext) {
+          subtext.textContent = info.details || "Toy verbunden und haptische Schnittstelle bereit.";
+          subtext.className = "text-[10px] text-emerald-400/90 font-mono";
+        }
+      } else {
+        const isNoToys = info && (info.status === 'NO_TOYS');
+        const offlineClass = isNoToys
+          ? "px-3 py-1 rounded text-xs font-bold font-mono tracking-wider flex items-center space-x-1.5 bg-amber-950/80 border border-amber-600 text-amber-300 transition-all duration-300"
+          : "px-3 py-1 rounded text-xs font-bold font-mono tracking-wider flex items-center space-x-1.5 bg-rose-950/80 border border-rose-700 text-rose-300 transition-all duration-300";
+        const drawerClass = isNoToys
+          ? "px-2 py-0.5 rounded text-[10px] font-bold flex items-center space-x-1 bg-amber-950/80 border border-amber-600 text-amber-300 transition-all duration-300"
+          : "px-2 py-0.5 rounded text-[10px] font-bold flex items-center space-x-1 bg-rose-950/80 border border-rose-700 text-rose-300 transition-all duration-300";
+        const text = isNoToys ? "🟡 KEIN TOY" : "🔴 OFFLINE";
+
+        if (modalBadge) {
+          modalBadge.className = offlineClass;
+          modalBadge.innerHTML = `<span class="w-2 h-2 rounded-full ${isNoToys ? 'bg-amber-400' : 'bg-rose-500'}"></span><span>${text}</span>`;
+        }
+        if (drawerBadge) {
+          drawerBadge.className = drawerClass;
+          drawerBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${isNoToys ? 'bg-amber-400' : 'bg-rose-500'}"></span><span>${text}</span>`;
+        }
+        if (deviceBadge) deviceBadge.classList.add('hidden');
+        if (subtext) {
+          subtext.textContent = (info && info.details) ? info.details : (isNoToys ? "Bridge erreichbar, aber kein Toy gekoppelt" : "Keine Verbindung zur Lovense Connect App");
+          subtext.className = isNoToys ? "text-[10px] text-amber-400/80 font-mono" : "text-[10px] text-slate-500 font-mono";
         }
       }
     }
@@ -4956,7 +6114,23 @@
         }
       });
     }
+
+    const botVoiceSelect = document.getElementById("botVoiceName");
+    if (botVoiceSelect) {
+      botVoiceSelect.addEventListener("change", function(e) {
+        console.log("[BotConfig] Voice selected:", e.target.value);
+      });
+    }
+
+    const charSelectEl = document.getElementById("characterProfileSelect");
+    if (charSelectEl) {
+      charSelectEl.addEventListener("change", function() {
+        switchCharacterProfile();
+      });
+    }
+
     loadBotConfig();
+    loadCharacterProfilesList();
     {% endif %}
 
     updateSidebarToggleBtn(false);
@@ -4968,6 +6142,46 @@
     loadSavedWorkflowsList();
     fetchClusterHealth();
     fetchBueroData();
+
+    // --- Catlord Idle Trainer Telemetry & Controls ---
+    async function updateCatlordTrainerStatus() {
+      try {
+        const res = await fetch('/api/catlord/trainer/status');
+        if (!res.ok) return;
+        const data = await res.json();
+        const badge = document.getElementById('catlordTrainerBadge');
+        if (!badge) return;
+        const worker = data.worker || {};
+        if (!worker.enabled) {
+          badge.textContent = "AUS";
+          badge.className = "text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 font-mono";
+        } else if (worker.state && worker.state.includes("RENDERING")) {
+          badge.textContent = "🎨 " + (worker.current_scenario || "RENDERING");
+          badge.className = "text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse font-mono";
+        } else if (worker.state && worker.state.includes("PAUSED")) {
+          badge.textContent = "⏸️ PAUSE (Prio 1)";
+          badge.className = "text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40 font-mono";
+        } else if (worker.state && worker.state.includes("COOLDOWN")) {
+          badge.textContent = "⏳ " + worker.state;
+          badge.className = "text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono";
+        } else {
+          badge.textContent = "IDLE (Bereit)";
+          badge.className = "text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono";
+        }
+      } catch (e) {}
+    }
+
+    async function toggleCatlordTrainer() {
+      try {
+        const res = await fetch('/api/catlord/trainer/toggle', { method: 'POST' });
+        if (res.ok) {
+          await updateCatlordTrainerStatus();
+        }
+      } catch (e) {}
+    }
+
+    updateCatlordTrainerStatus();
+    // Catlord trainer polling disabled (no background loop)
     setInterval(updateTelemetry, 3000);
     setInterval(fetchClusterHealth, 10000);
     setInterval(fetchBueroData, 20000);
