@@ -89,7 +89,9 @@ def list_files(
         q=q_string,
         pageSize=page_size,
         fields="nextPageToken, files(id, name, mimeType, size, modifiedTime, webViewLink)",
-        orderBy="modifiedTime desc"
+        orderBy="modifiedTime desc",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True
     ).execute()
     return results.get("files", [])
 
@@ -112,7 +114,7 @@ def download_file(
     service = get_drive_service(credentials_path)
     dest = Path(destination_path).expanduser().resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    request = service.files().get_media(fileId=file_id)
+    request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
     fh = io.FileIO(str(dest), "wb")
     downloader = MediaIoBaseDownload(fh, request)
     done = False
@@ -140,7 +142,8 @@ def upload_file(
     file_created = service.files().create(
         body=file_metadata,
         media_body=media,
-        fields="id, name, size, mimeType, webViewLink"
+        fields="id, name, size, mimeType, webViewLink",
+        supportsAllDrives=True
     ).execute()
     return file_created
 
@@ -150,7 +153,12 @@ def check_connection(credentials_path: Optional[str] = None) -> bool:
         key_file = resolve_credentials_path(credentials_path)
         print(f"🔑 Schlüsseldatei gefunden: {key_file}")
         service = get_drive_service(credentials_path)
-        res = service.files().list(pageSize=5, fields="files(id, name)").execute()
+        res = service.files().list(
+            pageSize=5,
+            fields="files(id, name)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
         files = res.get("files", [])
         print(f"✅ Verbindung ERFOLGREICH! Zugriff auf Google Drive funktioniert.")
         print(f"   Sichtbare Dateien gefunden: {len(files)}")
