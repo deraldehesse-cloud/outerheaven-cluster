@@ -155,6 +155,16 @@
            title="ComfyUI Studio auf Outer Heaven öffnen (:8188)">
           <span>🎨 ComfyUI Studio</span>
         </a>
+        <button type="button" id="btnHeaderMeganStudio" onclick="selectWorkspace('megan')"
+           class="px-2.5 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink"
+           title="Megan Studio (3-Spalten Lovense, Prompts & Lore)">
+          <span>💋 Megan Studio</span>
+        </button>
+        <button type="button" id="btnHeaderAppearance" onclick="window.openAppearanceModal ? window.openAppearanceModal() : (document.getElementById('appearancePresetModal').classList.remove('hidden'), document.getElementById('appearancePresetModal').style.display='flex')"
+           class="px-2.5 py-1 bg-purple-950/40 hover:bg-purple-900/60 border border-purple-800/60 hover:border-purple-400 text-purple-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-purple"
+           title="RPG Charakter Creator / Aussehen-Presets">
+          <span>👤 Aussehen</span>
+        </button>
       </div>
 
       <!-- Right: Quick Status Badges with IP Masking -->
@@ -360,9 +370,14 @@
           </div>
 
           <!-- Modell-Integration -->
-          <div class="mb-3 p-2 bg-slate-900/60 rounded border border-slate-800 flex items-center justify-between text-[11px] font-mono">
-            <span class="text-slate-400">OLLAMA MODELL:</span>
-            <span id="ohModelBadge" class="font-bold text-cyan-300 truncate max-w-[200px]">{{ local_model }}</span>
+          <div class="mb-3 p-2 bg-slate-900/60 rounded border border-slate-800 flex items-center justify-between text-[11px] font-mono gap-2">
+            <span class="text-slate-400 shrink-0">OLLAMA MODELL:</span>
+            <div class="flex items-center space-x-1.5 min-w-0">
+              <select id="ohModelSelect" onchange="switchNodeModel('outerheaven', this.value)" class="bg-slate-950 text-cyan-300 border border-cyan-500/40 rounded px-1.5 py-0.5 text-[11px] font-mono focus:outline-none focus:border-cyan-400 truncate max-w-[180px] cursor-pointer">
+                <option value="{{ local_model }}">{{ local_model }}</option>
+              </select>
+              <button onclick="loadNodeModels('outerheaven', true)" title="Outer Heaven Modelle neu laden" class="text-slate-500 hover:text-cyan-300 transition text-[11px] p-0.5">⟳</button>
+            </div>
           </div>
 
           <!-- Knoten-Dienste (2x2-Grid) -->
@@ -470,9 +485,14 @@
           </div>
 
           <!-- Modell-Integration -->
-          <div class="mb-3 p-2 bg-slate-900/60 rounded border border-slate-800 flex items-center justify-between text-[11px] font-mono">
-            <span class="text-slate-400">OLLAMA ENGINE (FOX):</span>
-            <span id="foxModelText" class="font-bold text-amber-300 truncate max-w-[200px]">{{ fox_model }}</span>
+          <div class="mb-3 p-2 bg-slate-900/60 rounded border border-slate-800 flex items-center justify-between text-[11px] font-mono gap-2">
+            <span class="text-slate-400 shrink-0">OLLAMA ENGINE (FOX):</span>
+            <div class="flex items-center space-x-1.5 min-w-0">
+              <select id="foxModelSelect" onchange="switchNodeModel('fox', this.value)" class="bg-slate-950 text-amber-300 border border-amber-500/40 rounded px-1.5 py-0.5 text-[11px] font-mono focus:outline-none focus:border-amber-400 truncate max-w-[180px] cursor-pointer">
+                <option value="{{ fox_model }}">{{ fox_model }}</option>
+              </select>
+              <button onclick="loadNodeModels('fox', true)" title="Fox Modelle neu laden" class="text-slate-500 hover:text-amber-300 transition text-[11px] p-0.5">⟳</button>
+            </div>
           </div>
 
           <!-- Knoten-Dienste (2x2-Grid, identische Höhe wie Outer Heaven) -->
@@ -571,19 +591,10 @@
                   <option value="test">⚡ Test (Cyberpunk Cityscape)</option>
                 </select>
               </div>
-              <div class="flex items-center space-x-2">
-                <select id="evoDurationSelect" onchange="const p=document.getElementById('evoDurationSelectPanel'); if(p) p.value=this.value;"
-                  class="bg-black border border-pink-500/50 text-pink-200 text-xs font-bold rounded px-2.5 py-1.5 focus:outline-none focus:border-pink-400 font-mono" title="Wiederholungs-Timer / Laufzeit">
-                  <option value="10">⏱️ 10 Min</option>
-                  <option value="30">⏱️ 30 Min</option>
-                  <option value="45">⏱️ 45 Min</option>
-                  <option value="60">⏱️ 60 Min</option>
-                </select>
-                <button type="button" id="btnEvolutionDirectStart" onclick="startDirectEvolutionLoop()"
-                  class="bg-gradient-to-r from-pink-600 via-rose-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold px-3.5 py-1.5 rounded text-xs tracking-wider uppercase transition shadow flex items-center space-x-1.5 font-mono shadow-[0_0_15px_rgba(244,63,94,0.3)]">
-                  <span>🔁</span> <span>10x EVOLUTION LOOP STARTEN</span>
-                </button>
-              </div>
+              <button type="button" id="btnEvolutionDirectStart" onclick="startDirectEvolutionLoop()"
+                class="bg-gradient-to-r from-pink-600 via-rose-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold px-3.5 py-1.5 rounded text-xs tracking-wider uppercase transition shadow flex items-center space-x-1.5 font-mono shadow-[0_0_15px_rgba(244,63,94,0.3)]">
+                <span>🔁</span> <span>10x EVOLUTION LOOP STARTEN</span>
+              </button>
             </div>
             <div>
               <div class="flex items-center justify-between mb-1 gap-1 flex-wrap">
@@ -685,13 +696,6 @@
                 </div>
               </div>
               <div class="flex items-center space-x-2">
-                <select id="evoDurationSelectPanel" onchange="const d=document.getElementById('evoDurationSelect'); if(d) d.value=this.value;"
-                  class="bg-black border border-pink-500/50 text-pink-200 text-xs font-bold rounded px-2 py-1 focus:outline-none focus:border-pink-400 font-mono" title="Wiederholungs-Timer / Laufzeit">
-                  <option value="10">⏱️ 10 Min</option>
-                  <option value="30">⏱️ 30 Min</option>
-                  <option value="45">⏱️ 45 Min</option>
-                  <option value="60">⏱️ 60 Min</option>
-                </select>
                 <button type="button" id="btnEvoStart" onclick="startEvolutionLoop()" class="px-3 py-1 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold transition shadow flex items-center space-x-1">
                   <span>▶️</span> <span>Zyklus starten</span>
                 </button>
@@ -777,7 +781,6 @@
                     <span>📥</span> <span>In Schnell-Render übernehmen</span>
                   </button>
                   <div class="flex items-center space-x-2">
-                    <span id="evoCountdownBadge" class="hidden px-2.5 py-1 rounded text-xs font-mono bg-pink-950 border border-pink-700 text-pink-300 font-bold shadow"></span>
                     <button type="button" id="btnEvoNext" onclick="triggerNextIteration()" class="px-4 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded text-xs font-bold transition shadow-lg flex items-center space-x-1.5 shadow-[0_0_12px_rgba(16,185,129,0.3)]">
                       <span>▶️</span> <span>NÄCHSTE ITERATION STARTEN</span>
                     </button>
@@ -1042,6 +1045,263 @@
       </section>
       </div> <!-- End bueroWorkspaceView -->
 
+      <!-- MEGAN STUDIO WORKSPACE (3-SPALTEN-LAYOUT) -->
+      <div id="meganWorkspaceView" class="w-full hidden space-y-4">
+        <!-- Megan Studio Top Bar -->
+        <div class="bg-slate-950/90 border border-pink-500/40 rounded-lg p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-lg glow-pink">
+          <div class="flex items-center space-x-3">
+            <span class="text-2xl">💋</span>
+            <div>
+              <div class="flex items-center space-x-2">
+                <h1 class="text-sm font-extrabold tracking-wider text-pink-300 font-mono">MEGAN STUDIO // UNRESTRICTED</h1>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-pink-950/80 border border-pink-700/60 text-pink-300">LIVE SYNC</span>
+              </div>
+              <p class="text-[11px] text-slate-400 font-mono">3-Spalten-Architektur: Lovense Haptic & Chat • ComfyUI Prompt-Studio • Canonical Vault (character.json)</p>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button type="button" id="btnMeganStudioAppearance" onclick="window.openAppearanceModal()"
+                    class="px-3 py-1.5 bg-gradient-to-r from-purple-900/80 to-pink-900/80 hover:from-purple-800 hover:to-pink-800 border border-pink-500/60 text-pink-200 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5 shadow"
+                    title="RPG Charakter Creator / Aussehen-Presets öffnen">
+              <span>👤</span> <span>RPG-AUSSEHEN MODAL</span>
+            </button>
+            <button type="button" onclick="selectWorkspace('catlord')"
+                    class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-cyan-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5">
+              <span>🐱</span> <span>Catlord Studio</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3-Spalten Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 font-mono">
+          
+          <!-- SPALTE LINKS: Lovense-Statusanzeige, Intensitätsregler (0-20), Quick-Buttons (5, 10, 15, MAX, STOP) und Chatfenster -->
+          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-4 shadow-lg">
+            
+            <!-- Lovense Controller Card -->
+            <div class="space-y-3 pb-3 border-b border-pink-950">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-pink-500 animate-pulse"></span>
+                  <h2 class="text-xs font-bold text-pink-300 uppercase tracking-wider">HAPTIC LINK / LOVENSE</h2>
+                </div>
+                <span id="meganLovenseStatusBadge" class="px-2.5 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-rose-950/80 border border-rose-700 text-rose-300">
+                  OFFLINE
+                </span>
+              </div>
+
+              <div id="meganLovenseSubtext" class="text-[10px] text-slate-500 truncate">
+                192.168.188.34:20010 • Lovense Connect
+              </div>
+
+              <!-- Intensitätsregler (0 - 20) -->
+              <div class="space-y-1.5 bg-slate-900/70 p-2.5 rounded border border-slate-800">
+                <div class="flex justify-between items-center text-xs">
+                  <span class="text-slate-400">Intensität:</span>
+                  <span id="meganLovenseIntensityLabel" class="text-pink-400 font-bold text-sm">Stufe 10 / 20 (50%)</span>
+                </div>
+                <input type="range" id="meganLovenseSlider" min="0" max="20" value="10" step="1"
+                       oninput="onMeganLovenseSliderChange(this.value)"
+                       class="w-full accent-pink-500 cursor-pointer h-2 bg-slate-800 rounded-lg">
+                <div class="flex justify-between text-[9px] text-slate-500">
+                  <span>0 (Aus)</span>
+                  <span>10 (Mittel)</span>
+                  <span>20 (MAX)</span>
+                </div>
+              </div>
+
+              <!-- Quick Buttons (5, 10, 15, MAX, STOP) -->
+              <div>
+                <div class="text-[10px] uppercase text-slate-500 font-bold mb-1.5">Quick Vibration Presets:</div>
+                <div class="grid grid-cols-5 gap-1.5 text-xs">
+                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 5)"
+                          class="py-1.5 px-1 rounded bg-pink-950/50 hover:bg-pink-900 border border-pink-800/60 text-pink-300 font-bold text-center transition hover:border-pink-500"
+                          title="Stufe 5 (Leicht)">
+                    5
+                  </button>
+                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 10)"
+                          class="py-1.5 px-1 rounded bg-pink-950/50 hover:bg-pink-900 border border-pink-800/60 text-pink-300 font-bold text-center transition hover:border-pink-500"
+                          title="Stufe 10 (Mittel)">
+                    10
+                  </button>
+                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 15)"
+                          class="py-1.5 px-1 rounded bg-pink-950/50 hover:bg-pink-900 border border-pink-800/60 text-pink-300 font-bold text-center transition hover:border-pink-500"
+                          title="Stufe 15 (Stark)">
+                    15
+                  </button>
+                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 20)"
+                          class="py-1.5 px-1 rounded bg-gradient-to-r from-pink-700 to-rose-700 hover:from-pink-600 hover:to-rose-600 text-white font-extrabold text-center transition shadow"
+                          title="Stufe 20 (MAXIMAL)">
+                    MAX
+                  </button>
+                  <button type="button" onclick="sendMeganLovenseCommand('stop', 0)"
+                          class="py-1.5 px-1 rounded bg-rose-950/80 hover:bg-rose-900 border border-rose-700 text-rose-200 font-extrabold text-center transition hover:border-rose-500"
+                          title="Sofort stoppen">
+                    STOP
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Chatfenster -->
+            <div class="flex-1 flex flex-col min-h-[360px] space-y-2">
+              <div class="flex items-center justify-between pb-1 border-b border-slate-800">
+                <div class="flex items-center space-x-1.5 text-xs text-pink-300 font-bold">
+                  <span>💬</span> <span>MEGAN COMPANION CHAT</span>
+                </div>
+                <button type="button" onclick="clearChat()" class="text-[10px] text-slate-500 hover:text-rose-400 transition" title="Chat leeren">
+                  Leeren
+                </button>
+              </div>
+
+              <!-- Stream Container -->
+              <div id="meganChatMessages" class="flex-1 p-2.5 bg-slate-900/60 border border-slate-800/80 rounded-lg space-y-2.5 overflow-y-auto max-h-[380px] text-xs scrollbar-thin">
+                <div class="p-2 bg-slate-950/70 rounded border border-pink-950 text-slate-400 text-[11px]">
+                  <span class="text-pink-400 font-bold">💋 MEGAN ACTIVE:</span> Bereit für Dialoge. Haptic Trigger werden autonom mit Lovense synchronisiert.
+                </div>
+              </div>
+
+              <!-- Chat Input -->
+              <form id="meganChatForm" onsubmit="handleMeganChatSubmit(event)" class="flex items-center space-x-1.5 pt-1">
+                <input type="text" id="meganChatInput" autocomplete="off"
+                       placeholder="Nachricht an Megan..."
+                       class="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2.5 py-1.5 focus:border-pink-500 focus:outline-none">
+                <button type="submit" id="btnMeganChatSend"
+                        class="px-3 py-1.5 bg-pink-600 hover:bg-pink-500 text-white rounded text-xs font-bold transition flex items-center space-x-1 shadow">
+                  <span>Senden</span>
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <!-- SPALTE MITTE: ComfyUI Prompt-Studio mit Positiv-Prompt, Negativ-Prompt, Preset Laden/Speichern & Render-Button -->
+          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-4 shadow-lg">
+            
+            <div class="space-y-3.5">
+              <div class="flex items-center justify-between pb-2 border-b border-pink-950">
+                <div class="flex items-center space-x-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-pink-400 animate-pulse"></span>
+                  <h2 class="text-xs font-bold text-pink-300 uppercase tracking-wider">COMFYUI PROMPT-STUDIO</h2>
+                </div>
+                <span class="text-[10px] text-slate-500 font-mono">ARC A770 (16GB VRAM)</span>
+              </div>
+
+              <!-- Positiv-Prompt Section -->
+              <div class="space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <label class="text-[11px] font-bold text-pink-300 flex items-center space-x-1">
+                    <span>✨</span> <span>POSITIV-PROMPT</span>
+                  </label>
+                  <span id="meganPosCharCount" class="text-[10px] text-slate-500">0 Zeichen</span>
+                </div>
+                <textarea id="meganPositivePrompt" rows="5"
+                          oninput="document.getElementById('meganPosCharCount').textContent=this.value.length + ' Zeichen'"
+                          placeholder="Positiver Bild-Prompt (z. B. masterwork, highly detailed portrait of megan...)"
+                          class="w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-xs text-slate-200 focus:border-pink-500 focus:outline-none resize-y leading-relaxed font-mono"></textarea>
+                
+                <!-- Positiv Preset Controls -->
+                <div class="flex items-center space-x-2 pt-1">
+                  <select id="meganPosPresetSelect" onchange="loadMeganPosPreset(this.value)"
+                          class="flex-1 bg-black border border-slate-700 text-pink-300 text-xs rounded px-2 py-1 focus:border-pink-500 focus:outline-none">
+                    <option value="">📂 Positiv-Preset laden...</option>
+                  </select>
+                  <button type="button" onclick="saveMeganPosPreset()"
+                          class="px-2.5 py-1 bg-pink-950/70 hover:bg-pink-900 border border-pink-700/80 text-pink-200 rounded text-xs font-bold transition flex items-center space-x-1 shrink-0"
+                          title="Aktuellen Positiv-Prompt als Preset speichern">
+                    <span>💾</span> <span>Als Preset speichern</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Negativ-Prompt Section -->
+              <div class="space-y-1.5 pt-2">
+                <div class="flex items-center justify-between">
+                  <label class="text-[11px] font-bold text-slate-400 flex items-center space-x-1">
+                    <span>🚫</span> <span>NEGATIV-PROMPT</span>
+                  </label>
+                  <span id="meganNegCharCount" class="text-[10px] text-slate-500">0 Zeichen</span>
+                </div>
+                <textarea id="meganNegativePrompt" rows="3"
+                          oninput="document.getElementById('meganNegCharCount').textContent=this.value.length + ' Zeichen'"
+                          placeholder="Negativer Bild-Prompt (z. B. deformed, blurry, bad anatomy, glasses...)"
+                          class="w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-xs text-slate-300 focus:border-pink-500 focus:outline-none resize-y leading-relaxed font-mono"></textarea>
+
+                <!-- Negativ Preset Controls -->
+                <div class="flex items-center space-x-2 pt-1">
+                  <select id="meganNegPresetSelect" onchange="loadMeganNegPreset(this.value)"
+                          class="flex-1 bg-black border border-slate-700 text-slate-300 text-xs rounded px-2 py-1 focus:border-pink-500 focus:outline-none">
+                    <option value="">📂 Negativ-Preset laden...</option>
+                  </select>
+                  <button type="button" onclick="saveMeganNegPreset()"
+                          class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1 shrink-0"
+                          title="Aktuellen Negativ-Prompt als Preset speichern">
+                    <span>💾</span> <span>Als Negativ-Preset speichern</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Execution / Render Section -->
+            <div class="pt-3 border-t border-slate-800 space-y-2">
+              <div id="meganRenderStatus" class="hidden text-xs p-2 rounded text-center font-mono bg-cyan-950/60 border border-cyan-800 text-cyan-300">
+                ⚙️ Übermittle Render-Job...
+              </div>
+
+              <button type="button" id="btnMeganExecuteRender" onclick="executeMeganRender()"
+                      class="w-full py-2.5 bg-gradient-to-r from-pink-600 via-rose-600 to-amber-600 hover:from-pink-500 hover:via-rose-500 hover:to-amber-500 text-slate-950 font-black text-xs uppercase tracking-wider rounded transition shadow-lg flex items-center justify-center space-x-2 glow-pink">
+                <span>🚀</span>
+                <span>RENDER ON ARC A770</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- SPALTE RECHTS: Canonical Vault Live-Binding (character.json Ansicht mit Speichern-Button) -->
+          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-3 shadow-lg">
+            
+            <div class="space-y-3 flex-1 flex flex-col">
+              <div class="flex items-center justify-between pb-2 border-b border-pink-950">
+                <div class="flex items-center space-x-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+                  <h2 class="text-xs font-bold text-amber-300 uppercase tracking-wider">CANONICAL VAULT // LIVE-BINDING</h2>
+                </div>
+                <span id="meganVaultStatusNotice" class="text-[10px] font-mono text-emerald-400 hidden">✔ Geladen</span>
+              </div>
+
+              <!-- Vault File Info -->
+              <div class="text-[10px] text-slate-400 flex items-center justify-between bg-slate-900/70 p-2 rounded border border-slate-800">
+                <span class="truncate">Datei: <code class="text-pink-400">character.json</code></span>
+                <span class="text-slate-500 shrink-0 ml-2">Sync: <code class="text-cyan-400">megan_system_prompt.txt</code></span>
+              </div>
+
+              <!-- Vault Editor Textarea -->
+              <div class="flex-1 flex flex-col space-y-1 min-h-[300px]">
+                <div class="flex justify-between items-center text-[10px] text-slate-500">
+                  <span>System-Prompt & Rollen-Definition (JSON/Text):</span>
+                  <span id="meganVaultCharCount">0 Zeichen</span>
+                </div>
+                <textarea id="meganVaultLoreText" rows="16"
+                          oninput="document.getElementById('meganVaultCharCount').textContent=this.value.length + ' Zeichen'"
+                          placeholder="Lade character.json..."
+                          class="flex-1 w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-xs text-pink-100 font-mono focus:border-pink-500 focus:outline-none resize-y leading-relaxed"></textarea>
+              </div>
+            </div>
+
+            <!-- Vault Actions -->
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between space-x-2">
+              <button type="button" onclick="loadMeganVaultLore()"
+                      class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1.5">
+                <span>🔄</span> <span>Neu laden</span>
+              </button>
+              <button type="button" onclick="saveMeganVaultLore()"
+                      class="flex-1 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold transition shadow-md flex items-center justify-center space-x-1.5">
+                <span>💾</span> <span>character.json speichern</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div> <!-- End meganWorkspaceView -->
+
     </main>
 
     <!-- Fixer Pfeil-Button Rechte Seitenleiste (Agent Console Toggle) -->
@@ -1089,6 +1349,10 @@
           <button id="btnNodeMegan" onclick="openBotSettings()" class="px-2 py-1 rounded font-bold transition text-pink-400 hover:text-pink-200 border border-pink-900/60 hover:border-pink-600/60 bg-pink-950/40 flex items-center space-x-1" title="Megan Companion Bot Einstellungen & Lore">
             <span>💋</span>
             <span>MEGAN</span>
+          </button>
+          <button type="button" id="btnAppearancePresets" onclick="openAppearanceModal()" class="px-2 py-1 rounded font-bold transition text-pink-300 hover:text-pink-100 border border-pink-900/60 hover:border-pink-500/80 bg-pink-950/40 flex items-center space-x-1 shadow" title="Megan's Aussehen-Presets & physische Lore öffnen">
+            <span>👤</span>
+            <span>AUSSEHEN</span>
           </button>
           {% endif %}
         </div>
@@ -1380,11 +1644,16 @@
             </div>
 
             <div>
-              <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Ollama Modell</label>
-              <select id="botLlmModel" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-cyan-200 focus:border-cyan-400 cursor-pointer">
-                <option value="lexi-llama-3-8b-uncensored_q4_k_m:latest">lexi-llama-3-8b-uncensored (Empfohlen)</option>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-[10px] uppercase text-slate-400 font-bold">Ollama Modell</label>
+                <span id="modelStatusBadge" class="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-700/60">Aktiv: Lädt...</span>
+              </div>
+              <select id="modelSelector" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-cyan-200 focus:border-cyan-400 cursor-pointer" onchange="onModelSelectorChanged(this.value)">
                 <option value="darkidol-8b:latest">darkidol-8b:latest</option>
+                <option value="lexi-llama-3-8b-uncensored_q4_k_m:latest">lexi-llama-3-8b-uncensored</option>
               </select>
+              <!-- Hidden compatibility alias for legacy scripts -->
+              <input type="hidden" id="botLlmModel" value="darkidol-8b:latest">
             </div>
 
             <div>
@@ -1410,10 +1679,27 @@
               </div>
             </div>
 
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Max Tokens</label>
+                <input type="number" id="botLlmMaxTokens" min="50" max="2000" step="50" value="400"
+                  class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200">
+              </div>
+              <div>
+                <label class="block text-[9px] uppercase text-slate-400 mb-1">Kontext (num_ctx)</label>
+                <select id="botLlmNumCtx" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200 focus:border-cyan-400 cursor-pointer">
+                  <option value="4096">4.096 (4k)</option>
+                  <option value="8192">8.192 (8k)</option>
+                  <option value="16384" selected>16.384 (16k - A770)</option>
+                  <option value="32768">32.768 (32k)</option>
+                </select>
+              </div>
+            </div>
+
             <div>
-              <label class="block text-[10px] uppercase text-slate-400 mb-1">Max Tokens (num_predict)</label>
-              <input type="number" id="botLlmMaxTokens" min="50" max="2000" step="50" value="300"
-                class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200">
+              <label class="block text-[10px] uppercase text-slate-400 mb-1">Historie Puffer (Nachrichten)</label>
+              <input type="number" id="botLlmMaxTurns" min="8" max="64" step="4" value="32"
+                class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200" title="Anzahl der letzten Nachrichten im aktiven LLM-Kontext (Standard: 32)">
             </div>
           </div>
           <div class="pt-1 text-[10px] text-slate-500 italic">Unzensierte Persona-Inferenz auf Outer Heaven Arc A770.</div>
@@ -1490,50 +1776,50 @@
           <div class="pt-1 text-[10px] text-slate-500 italic">Automatischer High-Key & Anti-Darkness Prompt-Filter aktiv.</div>
         </div>
 
-        <!-- 2. Vision Worker (Moondream auf Fox) -->
+        <!-- 2. Cluster Compute & Reasoning (Fox Node) -->
         <div class="bg-black/60 border border-slate-800 rounded-lg p-3.5 space-y-3 flex flex-col justify-between">
           <div class="space-y-2.5">
             <div class="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
               <span class="text-xs font-bold text-amber-300 flex items-center space-x-1.5">
-                <span>👁️</span> <span>VISION WORKER (MOONDREAM)</span>
+                <span>🦊</span> <span>CLUSTER COMPUTE (FOX)</span>
               </span>
-              <span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-700 text-amber-300 font-bold">Fox (LAN)</span>
+              <span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-700 text-amber-300 font-bold">Node 2</span>
             </div>
 
             <div>
               <label class="flex items-center space-x-2 cursor-pointer p-2 rounded bg-slate-900/60 border border-slate-800">
-                <input type="checkbox" id="botVisionEnabled" checked class="rounded accent-amber-500">
-                <span class="text-xs text-amber-200 font-bold">Moondream Bildanalyse aktivieren</span>
+                <input type="checkbox" id="clusterOffloadEnabled" checked class="rounded accent-amber-500">
+                <span class="text-xs text-amber-200 font-bold">Fox Remote Compute aktiv</span>
               </label>
-              <span class="text-[10px] text-slate-500 block mt-1">Analysiert empfangene Telegram-Fotos und übergibt visuelle Details an DarkIdol.</span>
+              <span class="text-[10px] text-slate-500 block mt-1">Auslagerung von LLM-Inferenz & Reasoning an den Fox-Knoten.</span>
             </div>
 
             <div class="p-2.5 rounded bg-slate-950/80 border border-slate-800/80 space-y-2">
               <div class="flex items-center justify-between">
                 <span class="text-[10px] text-slate-400 uppercase font-bold">Remote Status (Fox)</span>
-                <span id="foxVisionStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider flex items-center space-x-1 bg-rose-950/80 border border-rose-700 text-rose-300">
-                  <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                  <span id="foxVisionStatusText">🔴 OFFLINE</span>
+                <span id="foxStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider flex items-center space-x-1 bg-emerald-950/80 border border-emerald-700 text-emerald-300">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  <span id="foxStatusText">🟢 ONLINE</span>
                 </span>
               </div>
               <div class="text-[10px] text-slate-400 font-mono flex items-center justify-between">
-                <span>Modell:</span>
-                <span class="text-amber-200 font-bold">moondream:latest</span>
+                <span>Engine:</span>
+                <span id="foxCardModelText" class="text-amber-200 font-bold truncate max-w-[140px]">{{ fox_model }}</span>
               </div>
               <div class="text-[10px] text-slate-400 font-mono flex items-center justify-between">
                 <span>Host:</span>
                 <span class="text-slate-300">100.93.184.87:11434</span>
               </div>
-              <button type="button" onclick="checkFoxVisionStatus()" class="w-full mt-1 px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-amber-300 rounded text-[10px] font-mono transition flex items-center justify-center space-x-1">
+              <button type="button" onclick="checkFoxNodeStatus()" class="w-full mt-1 px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-amber-300 rounded text-[10px] font-mono transition flex items-center justify-center space-x-1">
                 <span>⟳</span> <span>Fox Status prüfen</span>
               </button>
             </div>
 
             <div class="p-2 rounded bg-amber-950/20 border border-amber-800/40 text-[10px] text-amber-200/90 leading-relaxed font-sans">
-              💡 <em>Bildverarbeitung läuft remote auf Fox – VRAM auf Outer Heaven bleibt frei.</em>
+              💡 <em>Fox übernimmt Hintergrund-Inferenz – Arc VRAM auf Outer Heaven bleibt frei für ComfyUI.</em>
             </div>
           </div>
-          <div class="pt-1 text-[10px] text-slate-500 italic">Offloaded zu Fox Compute Node.</div>
+          <div class="pt-1 text-[10px] text-slate-500 italic">Cluster-Verbund via Tailscale Mesh.</div>
         </div>
 
         <!-- 3. Voice & Sensual Neural TTS -->
@@ -1759,55 +2045,67 @@
   </div>
   {% endif %}
 
-  <!-- Lightbox Modal with PNG Metadata Inspector & Replay -->
-  <div id="lightbox" class="fixed inset-0 bg-black/95 backdrop-blur-md z-50 hidden flex items-center justify-center p-2 sm:p-4">
-    <div class="relative max-w-5xl w-full max-h-[92vh] bg-slate-950/90 border border-cyan-500/40 rounded-lg shadow-2xl flex flex-col md:flex-row overflow-hidden">
-      <!-- Left: Image Preview -->
-      <div class="flex-1 flex flex-col items-center justify-center p-3 bg-black/60 relative overflow-hidden">
-        <button onclick="closeLightbox()" class="md:hidden absolute top-2 right-2 text-slate-400 hover:text-white text-sm font-bold z-10 px-2 py-1">
+  <!-- Lightbox Modal with PNG Metadata Inspector, Actions & Flaw Feedback -->
+  <div id="lightbox" class="fixed inset-0 bg-black/95 backdrop-blur-md z-50 hidden flex items-center justify-center p-2 sm:p-4 select-none">
+    <div class="relative max-w-6xl w-full max-h-[94vh] bg-slate-950/90 border border-cyan-500/40 rounded-lg shadow-2xl flex flex-col md:flex-row overflow-hidden">
+      <!-- Left: Image Preview & Zoom/Pan Viewport -->
+      <div id="lightboxImgContainer" class="flex-1 flex flex-col items-center justify-center p-3 bg-black/70 relative overflow-hidden min-h-[350px]">
+        <!-- Zoom Level Badge -->
+        <span id="lightboxZoomLevel" onclick="resetZoom()" class="hidden absolute top-3 left-3 bg-black/80 border border-cyan-500/60 text-cyan-300 text-[10px] font-mono px-2 py-0.5 rounded cursor-pointer z-20 shadow" title="Klick zum Zurücksetzen">100%</span>
+
+        <!-- Mobile Close Button -->
+        <button onclick="closeLightbox()" class="md:hidden absolute top-2 right-2 text-slate-400 hover:text-white text-sm font-bold z-20 px-2 py-1 bg-slate-900/80 rounded">
           ✕ CLOSE
         </button>
-        <img id="lightboxImg" src="" alt="Render" class="max-h-[55vh] md:max-h-[78vh] max-w-full rounded border border-slate-800 shadow-2xl object-contain">
-        <div class="mt-2.5 flex flex-wrap items-center justify-center gap-2 shrink-0">
-          <a id="lightboxDownload" href="" download class="text-xs bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-1.5 rounded transition">
-            ⬇️ DOWNLOAD
+
+        <!-- Edge Navigation Arrows -->
+        <button type="button" id="lightboxPrevBtn" onclick="navigateLightbox(-1)" class="absolute left-3 top-1/2 -translate-y-1/2 bg-black/70 hover:bg-cyan-950/90 border border-slate-700 hover:border-cyan-400 text-cyan-300 rounded-full w-9 h-9 flex items-center justify-center text-sm font-bold shadow-xl transition z-20" title="Vorheriges Bild (Pfeiltaste Links)">
+          ◀
+        </button>
+        <button type="button" id="lightboxNextBtn" onclick="navigateLightbox(1)" class="absolute right-3 top-1/2 -translate-y-1/2 bg-black/70 hover:bg-cyan-950/90 border border-slate-700 hover:border-cyan-400 text-cyan-300 rounded-full w-9 h-9 flex items-center justify-center text-sm font-bold shadow-xl transition z-20" title="Nächstes Bild (Pfeiltaste Rechts)">
+          ▶
+        </button>
+
+        <!-- Main Image -->
+        <img id="lightboxImg" src="" alt="Render" class="max-h-[55vh] md:max-h-[75vh] max-w-full rounded border border-slate-800 shadow-2xl object-contain select-none pointer-events-auto">
+
+        <!-- Action Bar -->
+        <div class="mt-3 flex flex-wrap items-center justify-center gap-2 shrink-0 z-20">
+          <button type="button" id="lightboxDeleteBtn" onclick="deleteCurrentLightboxImage()" class="text-xs bg-red-950/80 hover:bg-red-700 border border-red-500/80 text-red-200 font-bold px-3 py-1.5 rounded transition font-mono flex items-center space-x-1 shadow" title="Bild dauerhaft löschen (mit Confirm-Dialog)">
+            <span>🗑️</span> <span>Löschen</span>
+          </button>
+          <a id="lightboxDownload" href="" download class="text-xs bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-1.5 rounded transition font-mono flex items-center space-x-1 shadow" title="Direktdownload auf Rechner">
+            <span>💾</span> <span>Speichern</span>
           </a>
-          <button id="lightboxDeleteBtn" onclick="deleteCurrentLightboxImage()" class="text-xs bg-red-950/80 hover:bg-red-700 border border-red-500/80 text-red-200 font-bold px-3 py-1.5 rounded transition font-mono">
-            🗑️ DELETE
+          <button type="button" id="lightboxMoveBtn" onclick="openMoveImageModal()" class="text-xs bg-indigo-950/80 hover:bg-indigo-800 border border-indigo-500/80 text-indigo-200 font-bold px-3 py-1.5 rounded transition font-mono flex items-center space-x-1 shadow" title="In Whitelist-Projekte verschieben (/api/gallery/move)">
+            <span>📁</span> <span>Verschieben</span>
           </button>
         </div>
       </div>
 
-      <!-- Right: Extracted PNG Metadata & Replay Controls -->
-      <div class="w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/90 flex flex-col text-xs font-mono">
+      <!-- Right: Extracted PNG Metadata & Flaws Feedback Panel -->
+      <div class="w-full md:w-84 lg:w-96 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/90 flex flex-col text-xs font-mono select-text">
         <div class="p-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between shrink-0">
           <span class="text-cyan-300 font-bold flex items-center space-x-1.5">
-            <span>🔬 PNG-METADATEN & WORKFLOW</span>
+            <span>🔬 METADATEN & FEEDBACK</span>
           </span>
           <button onclick="closeLightbox()" class="hidden md:inline-block text-slate-400 hover:text-white text-xs uppercase font-bold px-2 py-0.5">
             ✕
           </button>
         </div>
 
-        <div class="flex-1 p-3 overflow-y-auto space-y-2.5 scrollbar-thin text-[11px]" id="lightboxMetaBody">
+        <div class="flex-1 p-3 overflow-y-auto space-y-3 scrollbar-thin text-[11px]" id="lightboxMetaBody">
+          <!-- Prompts -->
           <div>
             <span class="text-slate-500 uppercase text-[10px] font-bold block mb-0.5">Positiver Prompt:</span>
-            <div id="metaPosPrompt" class="p-2 rounded bg-black/60 border border-slate-800/80 text-cyan-200 max-h-24 overflow-y-auto scrollbar-thin select-text whitespace-pre-wrap">--</div>
+            <div id="metaPosPrompt" class="p-2 rounded bg-black/60 border border-slate-800/80 text-cyan-200 max-h-20 overflow-y-auto scrollbar-thin select-text whitespace-pre-wrap">--</div>
           </div>
           <div>
             <span class="text-slate-500 uppercase text-[10px] font-bold block mb-0.5">Negativer Prompt:</span>
-            <div id="metaNegPrompt" class="p-2 rounded bg-black/60 border border-slate-800/80 text-rose-300/80 max-h-20 overflow-y-auto scrollbar-thin select-text whitespace-pre-wrap">--</div>
+            <div id="metaNegPrompt" class="p-2 rounded bg-black/60 border border-slate-800/80 text-rose-300/80 max-h-16 overflow-y-auto scrollbar-thin select-text whitespace-pre-wrap">--</div>
           </div>
-          <div class="grid grid-cols-2 gap-2">
-            <div class="p-2 rounded bg-slate-900/60 border border-slate-800/80">
-              <span class="text-slate-500 text-[10px] block">CHECKPOINT:</span>
-              <span id="metaCheckpoint" class="text-slate-200 font-bold truncate block">--</span>
-            </div>
-            <div class="p-2 rounded bg-slate-900/60 border border-slate-800/80">
-              <span class="text-slate-500 text-[10px] block">SAMPLER / SCHED:</span>
-              <span id="metaSampler" class="text-amber-400 font-bold truncate block">--</span>
-            </div>
-          </div>
+
+          <!-- Sampling Parameters -->
           <div class="grid grid-cols-3 gap-1.5 text-center">
             <div class="p-1.5 rounded bg-slate-900/60 border border-slate-800/80">
               <span class="text-slate-500 text-[9px] block">STEPS</span>
@@ -1822,9 +2120,51 @@
               <span id="metaSeed" class="text-slate-400 truncate block">--</span>
             </div>
           </div>
-          <div id="metaLorasRow" class="hidden">
-            <span class="text-slate-500 uppercase text-[10px] font-bold block mb-0.5">LoRAs:</span>
-            <div id="metaLorasList" class="text-[10px] text-amber-300"></div>
+
+          <!-- ============================================================== -->
+          <!-- NEUES FLAW- & FEEDBACK-SYSTEM (KÖRPER & CHARAKTER)             -->
+          <!-- ============================================================== -->
+          <div class="pt-2 border-t border-slate-800/80 space-y-2" id="lightboxFlawChipsContainer">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-bold uppercase text-pink-300 flex items-center space-x-1">
+                <span>⚠️</span> <span>MÄNGEL MELDEN (FLAWS)</span>
+              </span>
+              <span class="text-[9px] text-slate-500">Klick aktiviert Tag</span>
+            </div>
+
+            <!-- Kategorie 1: KÖRPER -->
+            <div class="space-y-1">
+              <span class="text-[9px] text-slate-400 font-bold block uppercase tracking-wider">Körper:</span>
+              <div class="flex flex-wrap gap-1">
+                <button type="button" onclick="toggleLightboxFlaw('deformiert')" data-flaw="deformiert" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">deformiert</button>
+                <button type="button" onclick="toggleLightboxFlaw('bad_anatomy')" data-flaw="bad_anatomy" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">bad anatomy</button>
+                <button type="button" onclick="toggleLightboxFlaw('extra_fingers')" data-flaw="extra_fingers" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">extra fingers...</button>
+                <button type="button" onclick="toggleLightboxFlaw('deformed_face')" data-flaw="deformed_face" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">deformed face</button>
+                <button type="button" onclick="toggleLightboxFlaw('low_quality')" data-flaw="low_quality" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">low quality</button>
+                <button type="button" onclick="toggleLightboxFlaw('bad_limbs')" data-flaw="bad_limbs" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">bad limbs</button>
+                <button type="button" onclick="toggleLightboxFlaw('tattoos')" data-flaw="tattoos" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">Tattoos</button>
+              </div>
+            </div>
+
+            <!-- Kategorie 2: CHARAKTER -->
+            <div class="space-y-1 pt-1">
+              <span class="text-[9px] text-slate-400 font-bold block uppercase tracking-wider">Charakter:</span>
+              <div class="flex flex-wrap gap-1">
+                <button type="button" onclick="toggleLightboxFlaw('zu_alt')" data-flaw="zu_alt" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">⏳ zu alt</button>
+                <button type="button" onclick="toggleLightboxFlaw('zu_jung')" data-flaw="zu_jung" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">👶 zu jung</button>
+                <button type="button" onclick="toggleLightboxFlaw('realistisch')" data-flaw="realistisch" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">📸 realistischer art</button>
+                <button type="button" onclick="toggleLightboxFlaw('cartoon')" data-flaw="cartoon" class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-pink-500 text-[10px] transition">🖌️ mehr cartoon art</button>
+              </div>
+            </div>
+
+            <!-- Freitextzeile & Submit -->
+            <div class="pt-1 space-y-1.5">
+              <input type="text" id="lightboxFlawFeedback" placeholder="Freitext-Feedback eingeben (optional)..." class="w-full bg-black/80 border border-slate-800 rounded px-2.5 py-1 text-[11px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-pink-500">
+              <button type="button" onclick="submitLightboxFlaws()" class="w-full py-1.5 bg-pink-950/80 hover:bg-pink-900 border border-pink-700/80 text-pink-200 font-bold rounded text-[11px] font-mono transition flex items-center justify-center space-x-1">
+                <span>✍️</span> <span>MÄNGEL IN NEGATIV-PROMPT SICHERN</span>
+              </button>
+              <div id="lightboxFlawStatus" class="min-h-[1rem] text-[10px] text-center font-mono"></div>
+            </div>
           </div>
         </div>
 
@@ -1888,6 +2228,242 @@
           </div>
         </div>
       </div>
+  <!-- ========================================================================= -->
+  <!-- MEGAN'S AUSSEHEN / APPEARANCE PRESETS MODAL (2-SPALTEN REDESIGN)           -->
+  <!-- ========================================================================= -->
+  <div id="appearancePresetModal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 select-none" onclick="closeAppearanceModal()">
+    <div class="relative w-full max-w-5xl bg-slate-950/95 border border-pink-600/50 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh] font-mono text-xs select-text" onclick="event.stopPropagation()">
+      
+      <!-- Modal Header -->
+      <div class="p-3.5 border-b border-slate-800/80 bg-slate-900/80 flex items-center justify-between shrink-0">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-rose-600 to-pink-500 flex items-center justify-center text-base shadow-[0_0_15px_rgba(244,63,94,0.4)]">
+            👤
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-sm font-extrabold text-pink-300 tracking-wider">MEGAN'S AUSSEHEN (APPEARANCE PRESETS)</h2>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-pink-950/80 border border-pink-700/60 text-pink-300 font-bold">2-SPALTEN-SYNC</span>
+            </div>
+            <p class="text-[11px] text-slate-400">Links: Visuelle ComfyUI-Tags • Rechts: Narrative Lore & System-Prompt • Clusterweit synchronisiert</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeAppearanceModal()" class="px-2.5 py-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 text-xs font-bold transition">✕ Schließen</button>
+      </div>
+
+      <!-- Preset Selector Bar -->
+      <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center space-x-2">
+          <label for="appearancePresetSelect" class="text-xs font-bold text-slate-300">Profil:</label>
+          <select id="appearancePresetSelect" onchange="onAppearancePresetSelectChange(this.value)" class="bg-black border border-pink-900/70 text-pink-200 text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-pink-500 font-mono max-w-[280px]">
+            <option value="">Lade Profile...</option>
+          </select>
+          <span id="appearanceActiveBadge" class="hidden px-2 py-0.5 rounded bg-emerald-950/90 border border-emerald-700/60 text-emerald-300 text-[10px] font-mono font-bold">✓ Aktives Aussehen</span>
+        </div>
+
+        <button type="button" onclick="initNewAppearancePreset()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded text-xs font-mono transition flex items-center space-x-1.5">
+          <span>➕</span> <span>Neues Profil</span>
+        </button>
+      </div>
+
+      <!-- Scrollable Form Body -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-3.5 scrollbar-thin">
+        
+        <!-- Profile Identity Basics -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Profil-ID</label>
+            <input type="text" id="appPresetId" placeholder="z.B. megan_athletic_sleeve" class="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-pink-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Anzeigename</label>
+            <input type="text" id="appPresetName" placeholder="z.B. Megan Athletic Sleeve" class="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Kurzbeschreibung</label>
+            <input type="text" id="appPresetDesc" placeholder="z.B. 1,78m, schlank & sportlich..." class="w-full bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+          </div>
+        </div>
+
+        <!-- SCHRITT 2: RPG-Kopfleiste (Strukturierte Leiste mit festen Attributen) -->
+        <div class="bg-gradient-to-r from-pink-950/40 via-purple-950/30 to-slate-900/60 border border-pink-500/40 rounded-lg p-3 space-y-2 shadow-inner">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold text-pink-300 flex items-center space-x-1.5 uppercase tracking-wider">
+              <span>⚔️</span> <span>RPG-CHARAKTER-ATTRIBUTE (KERNDATEN)</span>
+            </span>
+            <span class="text-[10px] text-pink-400/80 font-mono">Feste Attribute für Render-Tags & Lore-Generator</span>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 font-mono">
+            <!-- 1. Geschlecht -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Geschlecht</label>
+              <select id="appRpgGender" class="w-full bg-black/80 border border-pink-900/70 text-pink-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+                <option value="Weiblich">Weiblich</option>
+                <option value="Männlich">Männlich</option>
+                <option value="Androgyn">Androgyn</option>
+              </select>
+            </div>
+            <!-- 2. Alter / Altersspanne -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Alter / Spanne</label>
+              <input type="text" id="appRpgAge" placeholder="z. B. 20, 24, 28" list="appRpgAgeSuggestions" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              <datalist id="appRpgAgeSuggestions">
+                <option value="20"></option>
+                <option value="22"></option>
+                <option value="24"></option>
+                <option value="26"></option>
+                <option value="28"></option>
+              </datalist>
+            </div>
+            <!-- 3. Körpergröße (Tag) -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Körpergröße (Tag)</label>
+              <input type="text" id="appPresetHeight" placeholder="z. B. 163cm tall" list="appRpgHeightSuggestions" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              <datalist id="appRpgHeightSuggestions">
+                <option value="158cm tall"></option>
+                <option value="163cm tall"></option>
+                <option value="168cm tall"></option>
+                <option value="173cm tall"></option>
+                <option value="178cm tall"></option>
+              </datalist>
+            </div>
+            <!-- 4. Haarfarbe -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Haarfarbe</label>
+              <input type="text" id="appPresetHairColor" placeholder="z. B. Orange/Ginger, Schwarz..." list="appRpgHairColors" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              <datalist id="appRpgHairColors">
+                <option value="Orange/Ginger"></option>
+                <option value="Schwarz"></option>
+                <option value="Blond"></option>
+                <option value="Braun"></option>
+                <option value="Dunkelbraun"></option>
+              </datalist>
+            </div>
+            <!-- 5. Augenfarbe -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Augenfarbe</label>
+              <input type="text" id="appPresetEyeColor" placeholder="z. B. Grün, Blau, Bernstein..." list="appRpgEyeColors" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+              <datalist id="appRpgEyeColors">
+                <option value="Grün"></option>
+                <option value="Blau"></option>
+                <option value="Bernstein"></option>
+                <option value="Haselnuss"></option>
+                <option value="Grün-Blau"></option>
+              </datalist>
+            </div>
+          </div>
+        </div>
+
+        <!-- SCHRITT 3: 2-Spalten-Struktur geschärft -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 relative">
+          
+          <!-- LINKS: Visuelle ComfyUI-Tags -->
+          <div class="bg-slate-900/40 border border-cyan-500/30 rounded-xl p-3.5 space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+              <span class="text-xs font-bold text-cyan-300 flex items-center space-x-1.5">
+                <span>🎨</span> <span>LINKS: VISUELLE COMFYUI-TAGS</span>
+              </span>
+              <span class="text-[10px] text-slate-500">Physische Merkmale</span>
+            </div>
+            
+            <!-- 1. Statur / Silhouette -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">1. Statur & Silhouette</label>
+              <textarea id="appPresetBody" rows="3" placeholder="1girl, solo, 178cm tall, slender athletic build, voluptuous hourglass figure, very large full natural heavy breasts..." class="w-full bg-black/80 border border-slate-800 text-emerald-300 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none leading-relaxed"></textarea>
+            </div>
+
+            <!-- 2. Schnitt & Styling (Haare) -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">2. Schnitt & Styling (Haare)</label>
+              <input type="text" id="appPresetHairCut" placeholder="z. B. long layered hair, soft natural waves, messy chic bob cut" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
+            </div>
+
+            <!-- 3. Form & Ausdruck (Augen) -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">3. Form & Ausdruck (Augen)</label>
+              <input type="text" id="appPresetEyeShape" placeholder="z. B. alluring captivating gaze, seductive smile, mischievous smirk" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
+            </div>
+
+            <!-- 4. Tattoos & Piercings -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">4. Tattoos & Piercings</label>
+              <input type="text" id="appPresetFeatures" placeholder="z. B. massive intricate sleeve tattoo left arm, subtle navel piercing" class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 font-mono focus:border-cyan-400 focus:outline-none">
+            </div>
+
+            <!-- Live Combined Prompt Preview -->
+            <div class="pt-1">
+              <label class="block text-[9px] uppercase font-bold text-slate-500 mb-1">Kombinierte ComfyUI-Tags (Vorschau)</label>
+              <div id="appPresetCombinedPreview" class="bg-black/60 border border-slate-800/80 rounded p-2 text-[10px] text-cyan-200/90 font-mono max-h-16 overflow-y-auto leading-relaxed">
+                1girl, solo, ...
+              </div>
+            </div>
+          </div>
+
+          <!-- RECHTS: Narrative Chat-Lore (Wie der Bot spricht) -->
+          <div id="appearanceModalRightCol" class="bg-slate-900/40 border border-pink-500/30 rounded-xl p-3.5 space-y-3 transition">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+              <span class="text-xs font-bold text-pink-300 flex items-center space-x-1.5">
+                <span>💬</span> <span>RECHTS: NARRATIVE CHAT-LORE</span>
+              </span>
+              <!-- Central Action Button -->
+              <button type="button" onclick="generateLoreFromVisualTags()" class="px-2.5 py-1 bg-gradient-to-r from-amber-600 to-pink-600 hover:from-amber-500 hover:to-pink-500 text-slate-950 font-extrabold rounded text-[11px] shadow transition flex items-center space-x-1 cursor-pointer" title="Generiert aus RPG-Kopfdaten und visuellen Tags flüssige deutsche Chat-Lore">
+                <span>✨</span> <span>Aus Merkmalen generieren</span>
+              </button>
+            </div>
+
+            <!-- 1. Selbstbild & Physis -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">1. Selbstbild & Physis</label>
+              <textarea id="appLoreSelbstbild" rows="2" placeholder="1,78 m groß, 24 Jahre alt. Schlank und athletisch mit femininer Sanduhr-Figur..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none"></textarea>
+            </div>
+
+            <!-- 2. Intime/Physische Details (Dekolleté/Vorlieben) -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">2. Intime/Physische Details (Dekolleté/Vorlieben)</label>
+              <textarea id="appLoreIntim" rows="2" placeholder="Sehr große, pralle natürliche Brüste, tiefes Dekolleté und samtige Haut..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none"></textarea>
+            </div>
+
+            <!-- 3. Gestik / Haltung -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">3. Gestik / Haltung</label>
+              <input type="text" id="appLoreGestik" placeholder="Selbstbewusste und offene Körpersprache; betörender Blick mit verspieltem Lächeln..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+            </div>
+
+            <!-- 4. Signatur-Merkmale -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">4. Signatur-Merkmale</label>
+              <input type="text" id="appLoreMarkant" placeholder="Massives Sleeve-Tattoo linker Arm, silbernes Bauchnabel-Piercing..." class="w-full bg-black/80 border border-slate-800 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
+            </div>
+
+            <!-- Lore System Prompt Preview -->
+            <div class="pt-1">
+              <label class="block text-[9px] uppercase font-bold text-slate-500 mb-1">System-Prompt Vorschau (Injektion in character.json)</label>
+              <pre id="appLoreSystemPromptPreview" class="bg-black/60 border border-slate-800/80 rounded p-2 text-[10px] text-pink-200/90 font-mono max-h-20 overflow-y-auto leading-relaxed whitespace-pre-wrap">--</pre>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="p-3 border-t border-slate-800 bg-slate-950 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div>
+          <button type="button" onclick="deleteAppearancePresetForm()" class="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900 border border-rose-800/60 text-rose-300 rounded text-xs font-mono transition flex items-center space-x-1">
+            <span>🗑️</span> <span>Profil löschen</span>
+          </button>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <span id="appearanceModalStatus" class="text-xs font-mono"></span>
+          <button type="button" onclick="saveAppearancePresetForm()" class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 rounded text-xs font-bold transition flex items-center space-x-1 cursor-pointer">
+            <span>💾</span> <span>Profil speichern</span>
+          </button>
+          <button type="button" onclick="activateAppearancePresetForm()" class="px-4 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold transition shadow-[0_0_15px_rgba(244,63,94,0.4)] flex items-center space-x-1.5 cursor-pointer">
+            <span>✨</span> <span>Aussehen aktivieren (Sync)</span>
+          </button>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -2060,6 +2636,7 @@
     let chatSocket = null;
     let chatHistory = [];
     let currentAssistantBubble = null;
+    let currentMeganAssistantBubble = null;
     let currentActiveOllamaModel = "{{ local_model }}";
 
     // --- 3-Zone Cockpit Workspace Navigation ---
@@ -2071,6 +2648,8 @@
       const navBuero = document.getElementById('navItemBuero');
       const catlordView = document.getElementById('catlordWorkspaceView');
       const bueroView = document.getElementById('bueroWorkspaceView');
+      const meganView = document.getElementById('meganWorkspaceView');
+      const headerMeganBtn = document.getElementById('btnHeaderMeganStudio');
 
       const defaultClass = "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white transition text-left group";
       if (navCatlord) navCatlord.className = (workspace === 'catlord') ?
@@ -2080,14 +2659,37 @@
         "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-emerald-500/40 bg-emerald-950/40 text-emerald-300 transition text-left group" :
         defaultClass;
 
+      if (headerMeganBtn) {
+        if (workspace === 'megan') {
+          headerMeganBtn.className = "px-2.5 py-1 bg-pink-900 border border-pink-400 text-white rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink ring-1 ring-pink-400";
+        } else {
+          headerMeganBtn.className = "px-2.5 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink";
+        }
+      }
+
       if (workspace === 'catlord') {
         if (catlordView) catlordView.classList.remove('hidden');
         if (bueroView) bueroView.classList.add('hidden');
+        if (meganView) meganView.classList.add('hidden');
       } else if (workspace === 'buero') {
         if (catlordView) catlordView.classList.add('hidden');
         if (bueroView) bueroView.classList.remove('hidden');
+        if (meganView) meganView.classList.add('hidden');
         if (typeof fetchBueroData === 'function') {
           fetchBueroData();
+        }
+      } else if (workspace === 'megan') {
+        if (catlordView) catlordView.classList.add('hidden');
+        if (bueroView) bueroView.classList.add('hidden');
+        if (meganView) meganView.classList.remove('hidden');
+        if (typeof loadMeganStudioPresets === 'function') {
+          loadMeganStudioPresets();
+        }
+        if (typeof loadMeganVaultLore === 'function') {
+          loadMeganVaultLore();
+        }
+        if (typeof checkLovenseStatus === 'function') {
+          checkLovenseStatus();
         }
       {% if is_restricted %}
       } else if (workspace === 'companion') {
@@ -2328,6 +2930,22 @@
         chatMessages.appendChild(bubble);
         currentAssistantBubble = bubble.querySelector('.assistant-content');
         chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        const meganChat = document.getElementById('meganChatMessages');
+        if (meganChat) {
+          const mbubble = document.createElement('div');
+          mbubble.className = "flex flex-col space-y-1";
+          mbubble.innerHTML = `
+            <div class="flex items-center space-x-2 text-[10px] text-pink-400 font-bold">
+              <span>[MEGAN // ${modelLabel}]</span>
+              <span class="text-slate-500">${new Date().toLocaleTimeString()}</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-900 border border-pink-900/60 text-pink-100 font-mono leading-relaxed whitespace-pre-wrap megan-assistant-content"></div>
+          `;
+          meganChat.appendChild(mbubble);
+          currentMeganAssistantBubble = mbubble.querySelector('.megan-assistant-content');
+          meganChat.scrollTop = meganChat.scrollHeight;
+        }
       } else if (msg.type === 'haptic_action') {
         const notif = document.createElement('div');
         notif.className = "px-2.5 py-1 rounded bg-pink-950/80 border border-pink-500/80 text-pink-300 text-[10px] font-mono flex items-center space-x-1.5 shadow-lg animate-pulse";
@@ -2335,10 +2953,24 @@
         notif.innerHTML = `<span>⚡</span> <span class="font-bold tracking-wider">HAPTIC LINK AKTIV: ${actLabel}</span>`;
         chatMessages.appendChild(notif);
         chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        const meganChat = document.getElementById('meganChatMessages');
+        if (meganChat) {
+          const mnotif = document.createElement('div');
+          mnotif.className = "px-2.5 py-1 rounded bg-pink-950/80 border border-pink-500/80 text-pink-300 text-[10px] font-mono flex items-center space-x-1 shadow-lg animate-pulse";
+          mnotif.innerHTML = `<span>⚡</span> <span class="font-bold tracking-wider">HAPTIC: ${actLabel}</span>`;
+          meganChat.appendChild(mnotif);
+          meganChat.scrollTop = meganChat.scrollHeight;
+        }
       } else if (msg.type === 'token') {
         if (currentAssistantBubble) {
           currentAssistantBubble.textContent += msg.text;
           chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        if (currentMeganAssistantBubble) {
+          currentMeganAssistantBubble.textContent += msg.text;
+          const meganChat = document.getElementById('meganChatMessages');
+          if (meganChat) meganChat.scrollTop = meganChat.scrollHeight;
         }
       } else if (msg.type === 'done') {
         thinkingBadge.classList.add('hidden');
@@ -2348,14 +2980,25 @@
           speakText(fullReply);
           currentAssistantBubble = null;
         }
+        currentMeganAssistantBubble = null;
         document.getElementById('sendBtn').disabled = false;
         document.getElementById('chatInput').disabled = false;
         document.getElementById('chatInput').focus();
+
+        const meganSend = document.getElementById('btnMeganChatSend');
+        const meganInput = document.getElementById('meganChatInput');
+        if (meganSend) meganSend.disabled = false;
+        if (meganInput) meganInput.disabled = false;
       } else if (msg.type === 'error') {
         thinkingBadge.classList.add('hidden');
         alert("Chat Fehler: " + msg.text);
         document.getElementById('sendBtn').disabled = false;
         document.getElementById('chatInput').disabled = false;
+
+        const meganSend = document.getElementById('btnMeganChatSend');
+        const meganInput = document.getElementById('meganChatInput');
+        if (meganSend) meganSend.disabled = false;
+        if (meganInput) meganInput.disabled = false;
       }
     }
 
@@ -2657,6 +3300,16 @@
               }
             }
           }
+
+          if (oh.model || oh.active_model || data.active_model) {
+            const ohm = oh.active_model || oh.model || data.active_model;
+            const ohSel = document.getElementById('ohModelSelect');
+            if (ohSel && !ohSel.matches(':focus') && ohSel.value !== ohm) {
+              if ([...ohSel.options].some(o => o.value === ohm)) {
+                ohSel.value = ohm;
+              }
+            }
+          }
         }
 
         // 2. Fox Update
@@ -2721,6 +3374,18 @@
               proxyEl.textContent = st.toUpperCase();
               proxyEl.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${st === 'active' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'}`;
             }
+          }
+
+          if (fox.model || fox.active_model) {
+            const fm = fox.active_model || fox.model;
+            const foxSel = document.getElementById('foxModelSelect');
+            if (foxSel && !foxSel.matches(':focus') && foxSel.value !== fm) {
+              if ([...foxSel.options].some(o => o.value === fm)) {
+                foxSel.value = fm;
+              }
+            }
+            const foxCardModelText = document.getElementById('foxCardModelText');
+            if (foxCardModelText) foxCardModelText.textContent = fm;
           }
         }
 
@@ -2846,10 +3511,9 @@
       }
     }
 
-    // --- Service Control Action ---
+    // --- Service Control Action (Silent Non-Blocking Trigger) ---
     async function controlService(node, service, action) {
-      if (!confirm(`Soll der Dienst "${service}" auf ${node} wirklich via "${action}" gesteuert werden?`)) return;
-
+      // Kein nerviges confirm() Pop-Up mehr - Aktion wird direkt getriggert
       try {
         const res = await fetch('/api/service', {
           method: 'POST',
@@ -2857,14 +3521,11 @@
           body: JSON.stringify({ node, service, action })
         });
         const result = await res.json();
-        if (result.success) {
-          alert(`Befehl ausgeführt: ${service} -> ${action}`);
-          updateTelemetry();
-        } else {
-          alert(`Fehler bei Dienststeuerung: ${result.message || result.error}`);
-        }
+        // Schnelle Aktualisierung der Telemetrie ohne störendes alert()-Kästchen
+        setTimeout(() => updateTelemetry(), 1000);
+        setTimeout(() => updateTelemetry(), 3000);
       } catch (e) {
-        alert("Netzwerkfehler bei Dienststeuerung.");
+        console.error("Netzwerkfehler bei Dienststeuerung:", e);
       }
     }
 
@@ -2990,7 +3651,6 @@
       const promptInput = document.getElementById('renderPrompt');
       const negInput = document.getElementById('renderNegativePrompt');
       const ckptVal = document.getElementById('renderCheckpoint')?.value || "DreamShaper8_LCM.safetensors";
-      const durationVal = parseInt(document.getElementById('evoDurationSelect')?.value || document.getElementById('evoDurationSelectPanel')?.value || "10", 10);
 
       const promptText = promptInput ? promptInput.value.trim() : "";
       const negText = negInput ? negInput.value.trim() : "";
@@ -3000,11 +3660,7 @@
         return;
       }
 
-      const btnStart = document.getElementById('btnEvoStart');
-      const btnDirect = document.getElementById('btnEvolutionDirectStart');
-      if (btnStart) btnStart.disabled = true;
-      if (btnDirect) btnDirect.disabled = true;
-
+      document.getElementById('btnEvoStart').disabled = true;
       try {
         const res = await fetch('/api/evolution/start', {
           method: 'POST',
@@ -3014,34 +3670,28 @@
             negative_prompt: negText,
             checkpoint: ckptVal,
             steps: 8,
-            cfg: 2.0,
-            duration_minutes: durationVal
+            cfg: 2.0
           })
         });
-
         if (!res.ok) {
-          let errText = `Server-Fehler (${res.status})`;
+          let errMsg = `HTTP ${res.status}`;
           try {
-            const errJson = await res.json();
-            errText = errJson.error || errJson.message || errText;
-          } catch (_) {
-            try { errText = (await res.text()).slice(0, 120) || errText; } catch (_) {}
-          }
-          alert("Fehler beim Starten des Evolution Loops: " + errText);
+            const errData = await res.json();
+            errMsg = errData.error || errMsg;
+          } catch (_) {}
+          alert("Fehler beim Starten des Evolution Loops: " + errMsg);
           return;
         }
-
         const data = await res.json();
-        if (data && data.success) {
+        if (data.success) {
           startEvoPolling();
         } else {
-          alert("Fehler beim Starten des Evolution Loops: " + (data.error || data.message || "Unbekannt"));
+          alert("Fehler beim Starten des Evolution Loops: " + (data.error || "Unbekannt"));
         }
       } catch (err) {
-        alert("Netzwerkfehler beim Starten: " + err.message);
+        alert("Netzwerkfehler: " + err.message);
       } finally {
-        if (btnStart) btnStart.disabled = false;
-        if (btnDirect) btnDirect.disabled = false;
+        document.getElementById('btnEvoStart').disabled = false;
       }
     }
 
@@ -3049,9 +3699,7 @@
       const pOverride = document.getElementById('evoEvolvedPromptText')?.value.trim() || "";
       const nOverride = document.getElementById('evoEvolvedNegativeText')?.value.trim() || "";
 
-      const btnNext = document.getElementById('btnEvoNext');
-      if (btnNext) btnNext.disabled = true;
-
+      document.getElementById('btnEvoNext').disabled = true;
       try {
         const res = await fetch('/api/evolution/next', {
           method: 'POST',
@@ -3061,38 +3709,31 @@
             negative_prompt: nOverride
           })
         });
-
         if (!res.ok) {
-          let errText = `Server-Fehler (${res.status})`;
+          let errMsg = `HTTP ${res.status}`;
           try {
-            const errJson = await res.json();
-            errText = errJson.error || errJson.message || errText;
-          } catch (_) {
-            try { errText = (await res.text()).slice(0, 120) || errText; } catch (_) {}
-          }
-          alert("Fehler beim Fortsetzen: " + errText);
+            const errData = await res.json();
+            errMsg = errData.error || errMsg;
+          } catch (_) {}
+          alert("Fehler beim Fortsetzen: " + errMsg);
           return;
         }
-
         const data = await res.json();
-        if (data && data.success) {
+        if (data.success) {
           startEvoPolling();
         } else {
-          alert("Fehler beim Fortsetzen: " + (data.error || data.message || "Unbekannt"));
+          alert("Fehler beim Fortsetzen: " + (data.error || "Unbekannt"));
         }
       } catch (err) {
-        alert("Netzwerkfehler beim Fortsetzen: " + err.message);
+        alert("Netzwerkfehler: " + err.message);
       } finally {
-        if (btnNext) btnNext.disabled = false;
+        document.getElementById('btnEvoNext').disabled = false;
       }
     }
 
     async function stopEvolutionLoop() {
       try {
-        const res = await fetch('/api/evolution/stop', { method: 'POST' });
-        if (!res.ok) {
-          console.warn("Stop loop HTTP error:", res.status);
-        }
+        await fetch('/api/evolution/stop', { method: 'POST' });
         setTimeout(checkEvolutionStatus, 500);
       } catch (err) {
         console.warn("Error stopping evolution loop:", err);
@@ -3209,19 +3850,6 @@
               </div>
             </div>
           `).join('');
-        }
-      }
-
-      // Update remaining countdown if available
-      const cdBadge = document.getElementById('evoCountdownBadge');
-      if (cdBadge) {
-        if (st.remaining_seconds && st.remaining_seconds > 0) {
-          const m = Math.floor(st.remaining_seconds / 60);
-          const s = st.remaining_seconds % 60;
-          cdBadge.textContent = `⏱️ Verbleibend: ${m}:${s < 10 ? '0' : ''}${s}`;
-          cdBadge.classList.remove('hidden');
-        } else {
-          cdBadge.classList.add('hidden');
         }
       }
     }
@@ -4940,29 +5568,75 @@
     {% if is_restricted %}
     // --- Companion Bot Runtime Configuration ---
     async function loadOllamaModelsForBotConfig() {
-      const select = document.getElementById("botLlmModel");
+      const select = document.getElementById("modelSelector") || document.getElementById("botLlmModel");
+      const hiddenBotLlm = document.getElementById("botLlmModel");
+      const badge = document.getElementById("modelStatusBadge");
       if (!select) return;
 
       try {
-        const res = await fetch("/api/ollama/models");
+        const res = await fetch("/api/models");
         if (!res.ok) return;
         const data = await res.json();
         const models = data.models || [];
+        const activeModel = data.active_model || (models[0] ? models[0].name : "");
+
         if (models.length > 0) {
-          const prevVal = select.value;
           select.innerHTML = "";
           models.forEach(m => {
             const opt = document.createElement("option");
             opt.value = m.name;
             opt.textContent = m.name;
+            if (m.name === activeModel || m.is_active) {
+              opt.selected = true;
+            }
             select.appendChild(opt);
           });
-          if (prevVal && models.some(m => m.name === prevVal)) {
-            select.value = prevVal;
+          select.value = activeModel;
+          if (hiddenBotLlm) hiddenBotLlm.value = activeModel;
+          if (badge) {
+            badge.textContent = `Aktiv: ${activeModel.split(':')[0]}`;
+            badge.title = `Vollständiger Modellname: ${activeModel}`;
           }
+          updateTacticalAgentModelUI(activeModel);
         }
       } catch (e) {
-        console.warn("Failed to load Ollama models:", e);
+        console.warn("Failed to load models via /api/models:", e);
+      }
+    }
+
+    async function onModelSelectorChanged(newModel) {
+      if (!newModel) return;
+      const hiddenBotLlm = document.getElementById("botLlmModel");
+      if (hiddenBotLlm) hiddenBotLlm.value = newModel;
+      const badge = document.getElementById("modelStatusBadge");
+      if (badge) {
+        badge.textContent = `Schalte um...`;
+        badge.className = "text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-700/60 animate-pulse";
+      }
+
+      try {
+        const res = await fetch("/api/models/select", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: newModel })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (badge) {
+            badge.textContent = `Aktiv: ${newModel.split(':')[0]}`;
+            badge.className = "text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-600/60";
+            badge.title = `Aktiv: ${newModel}`;
+          }
+          updateTacticalAgentModelUI(newModel);
+        } else {
+          throw new Error(data.error || "Fehler beim Modellwechsel");
+        }
+      } catch (err) {
+        console.error("Modellwechsel fehlgeschlagen:", err.message);
+        if (badge) {
+          badge.textContent = `Fehler`;
+          badge.className = "text-[9px] font-mono px-1.5 py-0.2 rounded bg-rose-950/80 text-rose-300 border border-rose-700/60";
+        }
       }
     }
 
@@ -5113,24 +5787,35 @@
 
         // LLM
         const llm = cfg.llm || {};
-        const llmModelEl = document.getElementById("botLlmModel");
-        if (llmModelEl && llm.model) {
-          if (![...llmModelEl.options].some(o => o.value === llm.model)) {
+        const activeModelName = cfg.active_model || llm.model || "darkidol-8b:latest";
+        const modelSel = document.getElementById("modelSelector");
+        const hiddenBotLlm = document.getElementById("botLlmModel");
+        const badge = document.getElementById("modelStatusBadge");
+
+        if (modelSel && activeModelName) {
+          if (![...modelSel.options].some(o => o.value === activeModelName)) {
             const opt = document.createElement("option");
-            opt.value = llm.model;
-            opt.textContent = llm.model;
-            llmModelEl.appendChild(opt);
+            opt.value = activeModelName;
+            opt.textContent = activeModelName;
+            modelSel.appendChild(opt);
           }
-          llmModelEl.value = llm.model;
-          updateTacticalAgentModelUI(llm.model);
+          modelSel.value = activeModelName;
         }
+        if (hiddenBotLlm) hiddenBotLlm.value = activeModelName;
+        if (badge && activeModelName) {
+          badge.textContent = `Aktiv: ${activeModelName.split(':')[0]}`;
+          badge.title = `Aktiv: ${activeModelName}`;
+        }
+        updateTacticalAgentModelUI(activeModelName);
         if (document.getElementById("botLlmTemp")) {
           document.getElementById("botLlmTemp").value = llm.temperature ?? 0.95;
           document.getElementById("botLlmTempDisplay").textContent = llm.temperature ?? 0.95;
         }
         if (document.getElementById("botLlmTopP")) document.getElementById("botLlmTopP").value = llm.top_p ?? 0.90;
         if (document.getElementById("botLlmRepPenalty")) document.getElementById("botLlmRepPenalty").value = llm.repeat_penalty ?? 1.18;
-        if (document.getElementById("botLlmMaxTokens")) document.getElementById("botLlmMaxTokens").value = llm.num_predict ?? 300;
+        if (document.getElementById("botLlmMaxTokens")) document.getElementById("botLlmMaxTokens").value = llm.num_predict ?? 400;
+        if (document.getElementById("botLlmNumCtx")) document.getElementById("botLlmNumCtx").value = String(llm.num_ctx ?? 16384);
+        if (document.getElementById("botLlmMaxTurns")) document.getElementById("botLlmMaxTurns").value = llm.max_history_turns ?? 32;
 
         // Render
         const rnd = cfg.render || {};
@@ -5220,7 +5905,7 @@
 
       const idleHours = parseFloat(document.getElementById("botProactiveIdleHours")?.value || 4);
       const cdHours = parseFloat(document.getElementById("botProactiveCooldownHours")?.value || 6);
-      const selectedModel = document.getElementById("botLlmModel")?.value;
+      const selectedModel = document.getElementById("modelSelector")?.value || document.getElementById("botLlmModel")?.value || "darkidol-8b:latest";
       if (selectedModel) {
         updateTacticalAgentModelUI(selectedModel);
       }
@@ -5231,6 +5916,7 @@
 
       const payload = {
         config: {
+          active_model: selectedModel,
           personality: {
             dominance: parseInt(document.getElementById("botPersDominance")?.value || 50, 10),
             dominance_text: document.getElementById("botPersDominanceCustom")?.value?.trim() || "",
@@ -5240,19 +5926,19 @@
             detail_depth_text: document.getElementById("botPersDetailCustom")?.value?.trim() || "",
             language: "de"
           },
-          vision: {
-            enabled: document.getElementById("botVisionEnabled")?.checked ?? true,
-            target: "fox",
-            model: "moondream:latest"
+          cluster_offload: {
+            enabled: document.getElementById("clusterOffloadEnabled")?.checked ?? true,
+            target: "fox"
           },
 
           llm: {
-            model: document.getElementById("botLlmModel")?.value || "lexi-llama-3-8b-uncensored_q4_k_m:latest",
-            temperature: parseFloat(document.getElementById("botLlmTemp")?.value || 0.95),
+            model: selectedModel,
+            temperature: parseFloat(document.getElementById("botLlmTemp")?.value || 0.7),
             top_p: parseFloat(document.getElementById("botLlmTopP")?.value || 0.90),
-            repeat_penalty: parseFloat(document.getElementById("botLlmRepPenalty")?.value || 1.18),
-            num_predict: parseInt(document.getElementById("botLlmMaxTokens")?.value || 300),
-            num_ctx: 4096
+            repeat_penalty: parseFloat(document.getElementById("botLlmRepPenalty")?.value || 1.25),
+            num_predict: parseInt(document.getElementById("botLlmMaxTokens")?.value || 400),
+            num_ctx: parseInt(document.getElementById("botLlmNumCtx")?.value || 16384),
+            max_history_turns: parseInt(document.getElementById("botLlmMaxTurns")?.value || 32)
           },
           render: {
             workflow_template: "text_to_image",
@@ -5684,6 +6370,24 @@
           subtext.textContent = (info && info.details) ? info.details : (isNoToys ? "Bridge erreichbar, aber kein Toy gekoppelt" : "Keine Verbindung zur Lovense Connect App");
           subtext.className = isNoToys ? "text-[10px] text-amber-400/80 font-mono" : "text-[10px] text-slate-500 font-mono";
         }
+      }
+
+      const meganBadge = document.getElementById('meganLovenseStatusBadge');
+      const meganSubtext = document.getElementById('meganLovenseSubtext');
+      if (meganBadge) {
+        if (info && info.online) {
+          meganBadge.className = "px-2.5 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-emerald-950/80 border border-emerald-600 text-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.25)]";
+          meganBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1 inline-block"></span><span>ONLINE</span>`;
+        } else {
+          const isNoToys = info && (info.status === 'NO_TOYS');
+          meganBadge.className = isNoToys
+            ? "px-2.5 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-amber-950/80 border border-amber-600 text-amber-300"
+            : "px-2.5 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-rose-950/80 border border-rose-700 text-rose-300";
+          meganBadge.textContent = isNoToys ? "KEIN TOY" : "OFFLINE";
+        }
+      }
+      if (meganSubtext) {
+        meganSubtext.textContent = (info && info.details) ? info.details : "192.168.188.34:20010 • Lovense Connect";
       }
     }
     {% endif %}
@@ -6129,6 +6833,7 @@
       });
     }
 
+    loadOllamaModelsForBotConfig();
     loadBotConfig();
     loadCharacterProfilesList();
     {% endif %}
@@ -6180,11 +6885,487 @@
       } catch (e) {}
     }
 
+    // --- Cluster Node Models Management & Fox Node Health ---
+    async function loadNodeModels(node, force = false) {
+      const selectId = node === 'fox' ? 'foxModelSelect' : 'ohModelSelect';
+      const select = document.getElementById(selectId);
+      if (!select) return;
+
+      if (force) {
+        select.disabled = true;
+      }
+
+      try {
+        const res = await fetch(`/api/models?node=${encodeURIComponent(node)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const models = data.models || [];
+        const activeModel = data.active_model || (models[0] ? models[0].name : "");
+
+        if (models.length > 0) {
+          const currentVal = select.value || activeModel;
+          select.innerHTML = "";
+          models.forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m.name;
+            opt.textContent = m.name;
+            if (m.name === currentVal || m.name === activeModel || m.is_active) {
+              opt.selected = true;
+            }
+            select.appendChild(opt);
+          });
+          select.value = activeModel;
+        }
+
+        if (node === 'fox') {
+          const cardModelText = document.getElementById('foxCardModelText');
+          if (cardModelText) cardModelText.textContent = activeModel;
+        }
+      } catch (err) {
+        console.warn(`[Cluster] Fehler beim Laden der Modelle für ${node}:`, err);
+      } finally {
+        select.disabled = false;
+      }
+    }
+
+    async function switchNodeModel(node, model) {
+      if (!model) return;
+      const selectId = node === 'fox' ? 'foxModelSelect' : 'ohModelSelect';
+      const select = document.getElementById(selectId);
+      if (select) select.disabled = true;
+
+      try {
+        const res = await fetch("/api/models/select", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ node, model })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          console.log(`[Cluster] ${node} Modell erfolgreich umgeschaltet auf: ${model}`);
+          if (node === 'outerheaven') {
+            const companionSelect = document.getElementById("modelSelector") || document.getElementById("botLlmModel");
+            if (companionSelect) companionSelect.value = model;
+            const badge = document.getElementById("modelStatusBadge");
+            if (badge) {
+              badge.textContent = `Aktiv: ${model.split(':')[0]}`;
+              badge.className = "text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-600/60";
+              badge.title = `Aktiv: ${model}`;
+            }
+            if (typeof updateTacticalAgentModelUI === 'function') {
+              updateTacticalAgentModelUI(model);
+            }
+          } else if (node === 'fox') {
+            const cardModelText = document.getElementById('foxCardModelText');
+            if (cardModelText) cardModelText.textContent = model;
+          }
+          setTimeout(() => updateTelemetry(), 1000);
+        } else {
+          console.error(`[Cluster] Modellwechsel fehlgeschlagen:`, data ? data.error : "Unbekannt");
+        }
+      } catch (err) {
+        console.error(`[Cluster] Netzwerkfehler beim Modellwechsel:`, err);
+      } finally {
+        if (select) select.disabled = false;
+      }
+    }
+
+    async function checkFoxNodeStatus() {
+      const badge = document.getElementById("foxStatusBadge");
+      const text = document.getElementById("foxStatusText");
+      if (text) text.textContent = "⏳ PRÜFE...";
+      try {
+        const res = await fetch("/api/models?node=fox");
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.models && data.models.length > 0) {
+            if (badge) {
+              badge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider flex items-center space-x-1 bg-emerald-950/80 border border-emerald-700 text-emerald-300";
+            }
+            if (text) text.textContent = "🟢 ONLINE";
+            const cardModelText = document.getElementById('foxCardModelText');
+            if (cardModelText && data.active_model) cardModelText.textContent = data.active_model;
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("Fox node check failed:", e);
+      }
+      if (badge) {
+        badge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider flex items-center space-x-1 bg-rose-950/80 border border-rose-700 text-rose-300";
+      }
+      if (text) text.textContent = "🔴 OFFLINE";
+    }
+    // --- MEGAN STUDIO CONTROLLER LOGIC (3-SPALTEN-LAYOUT) ---
+    function handleMeganChatSubmit(event) {
+      if (event) event.preventDefault();
+      const input = document.getElementById('meganChatInput');
+      if (!input) return;
+      const text = input.value.trim();
+      if (!text || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) return;
+
+      // Append to meganChatMessages
+      const meganChat = document.getElementById('meganChatMessages');
+      if (meganChat) {
+        const userBubble = document.createElement('div');
+        userBubble.className = "flex flex-col space-y-1 items-end";
+        userBubble.innerHTML = `
+          <div class="flex items-center space-x-2 text-[10px] text-slate-400 font-bold">
+            <span class="text-slate-500">${new Date().toLocaleTimeString()}</span>
+            <span class="text-pink-300">[BIG BOSS]</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-pink-950/40 border border-pink-700/50 text-pink-100 font-mono leading-relaxed max-w-[85%] whitespace-pre-wrap">${text}</div>
+        `;
+        meganChat.appendChild(userBubble);
+        meganChat.scrollTop = meganChat.scrollHeight;
+      }
+
+      // Append to drawer chatMessages as well
+      const chatMessages = document.getElementById('chatMessages');
+      if (chatMessages) {
+        const userBubble = document.createElement('div');
+        userBubble.className = "flex flex-col space-y-1 items-end";
+        userBubble.innerHTML = `
+          <div class="flex items-center space-x-2 text-[10px] text-slate-400 font-bold">
+            <span class="text-slate-500">${new Date().toLocaleTimeString()}</span>
+            <span class="text-slate-300">[BIG BOSS]</span>
+          </div>
+          <div class="p-3 rounded-lg bg-cyan-950/40 border border-cyan-700/50 text-cyan-100 font-mono leading-relaxed max-w-[85%] whitespace-pre-wrap">${text}</div>
+        `;
+        chatMessages.appendChild(userBubble);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+
+      chatHistory.push({ role: 'user', content: text });
+      chatSocket.send(JSON.stringify({
+        node: activeChatNode,
+        message: text,
+        history: chatHistory
+      }));
+
+      input.value = '';
+      const sendBtn = document.getElementById('btnMeganChatSend');
+      if (sendBtn) sendBtn.disabled = true;
+    }
+
+    function onMeganLovenseSliderChange(val) {
+      const num = parseInt(val, 10);
+      const label = document.getElementById('meganLovenseIntensityLabel');
+      if (label) {
+        label.textContent = `Stufe ${num} / 20 (${num * 5}%)`;
+      }
+      if (num === 0) {
+        sendMeganLovenseCommand('stop', 0, false);
+      } else {
+        sendMeganLovenseCommand('vibrate', num, false);
+      }
+    }
+
+    async function sendMeganLovenseCommand(action, intensity, updateSlider = true) {
+      const num = parseInt(intensity, 10);
+      if (updateSlider) {
+        const slider = document.getElementById('meganLovenseSlider');
+        if (slider) slider.value = num;
+        const label = document.getElementById('meganLovenseIntensityLabel');
+        if (label) {
+          label.textContent = `Stufe ${num} / 20 (${num * 5}%)`;
+        }
+      }
+
+      try {
+        const res = await fetch('/api/bot/haptic/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: action, intensity: num, time_sec: action === 'stop' ? 0 : 2 })
+        });
+        const data = await res.json();
+        console.log('Lovense command dispatched:', data);
+      } catch (err) {
+        console.warn('sendMeganLovenseCommand error:', err);
+      }
+    }
+
+    let meganPresetsCache = { positive: [], negative: [] };
+
+    async function loadMeganStudioPresets() {
+      try {
+        const res = await fetch('/api/prompts/presets');
+        if (!res.ok) return;
+        const data = await res.json();
+        meganPresetsCache.positive = data.positive || [];
+        meganPresetsCache.negative = data.negative || [];
+
+        const posSel = document.getElementById('meganPosPresetSelect');
+        if (posSel) {
+          posSel.innerHTML = '<option value="">📂 Positiv-Preset laden...</option>';
+          meganPresetsCache.positive.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name || p.id;
+            posSel.appendChild(opt);
+          });
+        }
+
+        const negSel = document.getElementById('meganNegPresetSelect');
+        if (negSel) {
+          negSel.innerHTML = '<option value="">📂 Negativ-Preset laden...</option>';
+          meganPresetsCache.negative.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name || p.id;
+            negSel.appendChild(opt);
+          });
+        }
+      } catch (err) {
+        console.warn('loadMeganStudioPresets failed:', err);
+      }
+    }
+
+    function loadMeganPosPreset(presetId) {
+      if (!presetId) return;
+      const found = meganPresetsCache.positive.find(p => p.id === presetId);
+      if (found) {
+        const el = document.getElementById('meganPositivePrompt');
+        if (el) {
+          el.value = found.text || found.positive || '';
+          const countEl = document.getElementById('meganPosCharCount');
+          if (countEl) countEl.textContent = el.value.length + ' Zeichen';
+        }
+      }
+    }
+
+    async function saveMeganPosPreset() {
+      const el = document.getElementById('meganPositivePrompt');
+      const text = el ? el.value.trim() : '';
+      if (!text) {
+        alert('Bitte gib zuerst einen positiven Prompt ein.');
+        return;
+      }
+      const title = prompt('Name für das neue Positiv-Preset:', 'Megan Positiv Preset');
+      if (!title) return;
+
+      try {
+        const res = await fetch('/api/prompts/presets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category: 'positive', name: title, text: text, positive: text })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert(`Positiv-Preset '${title}' erfolgreich gespeichert!`);
+          await loadMeganStudioPresets();
+        } else {
+          alert('Fehler beim Speichern: ' + (data.error || 'Unbekannt'));
+        }
+      } catch (err) {
+        alert('Netzwerkfehler: ' + err.message);
+      }
+    }
+
+    function loadMeganNegPreset(presetId) {
+      if (!presetId) return;
+      const found = meganPresetsCache.negative.find(p => p.id === presetId);
+      if (found) {
+        const el = document.getElementById('meganNegativePrompt');
+        if (el) {
+          el.value = found.text || found.negative || '';
+          const countEl = document.getElementById('meganNegCharCount');
+          if (countEl) countEl.textContent = el.value.length + ' Zeichen';
+        }
+      }
+    }
+
+    async function saveMeganNegPreset() {
+      const el = document.getElementById('meganNegativePrompt');
+      const text = el ? el.value.trim() : '';
+      if (!text) {
+        alert('Bitte gib zuerst einen negativen Prompt ein.');
+        return;
+      }
+      const title = prompt('Name für das neue Negativ-Preset:', 'Megan Negativ Preset');
+      if (!title) return;
+
+      try {
+        const res = await fetch('/api/prompts/presets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category: 'negative', name: title, text: text, negative: text })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert(`Negativ-Preset '${title}' erfolgreich gespeichert!`);
+          await loadMeganStudioPresets();
+        } else {
+          alert('Fehler beim Speichern: ' + (data.error || 'Unbekannt'));
+        }
+      } catch (err) {
+        alert('Netzwerkfehler: ' + err.message);
+      }
+    }
+
+    async function executeMeganRender() {
+      const posEl = document.getElementById('meganPositivePrompt');
+      const negEl = document.getElementById('meganNegativePrompt');
+      const statusEl = document.getElementById('meganRenderStatus');
+      const btn = document.getElementById('btnMeganExecuteRender');
+
+      const posText = posEl ? posEl.value.trim() : '';
+      const negText = negEl ? negEl.value.trim() : '';
+      if (!posText) {
+        alert('Bitte gib einen Positiv-Prompt für den Render an.');
+        return;
+      }
+
+      if (btn) btn.disabled = true;
+      if (statusEl) {
+        statusEl.className = 'text-xs p-2 rounded text-center font-mono bg-cyan-950/60 border border-cyan-800 text-cyan-300';
+        statusEl.textContent = '⚙️ Übermittle Render-Job an Intel Arc A770 (ComfyUI)...';
+        statusEl.classList.remove('hidden');
+      }
+
+      try {
+        const res = await fetch('/api/render', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: posText, negative_prompt: negText })
+        });
+        if (!res.ok) {
+          let errMsg = `HTTP ${res.status}`;
+          try { const errData = await res.json(); errMsg = errData.error || errMsg; } catch (_) {}
+          throw new Error(errMsg);
+        }
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Fehler beim Starten des Renderings');
+        }
+
+        const promptId = data.prompt_id;
+        if (statusEl) statusEl.textContent = `🚀 In Warteschlange (ID: ${promptId.slice(0, 8)}...). Render läuft...`;
+
+        let attempts = 0;
+        const interval = setInterval(async () => {
+          attempts++;
+          try {
+            const pollRes = await fetch(`/api/render/status/${promptId}`);
+            if (!pollRes.ok) return;
+            const pollData = await pollRes.json();
+            if (pollData.completed) {
+              clearInterval(interval);
+              if (statusEl) {
+                statusEl.className = 'text-xs p-2 rounded text-center font-mono bg-emerald-950/60 border border-emerald-800 text-emerald-300';
+                statusEl.textContent = '✅ Render abgeschlossen! Galerie aktualisiert.';
+              }
+              if (btn) btn.disabled = false;
+              if (typeof loadGallery === 'function') loadGallery();
+            } else if (attempts > 50) {
+              clearInterval(interval);
+              if (statusEl) statusEl.textContent = '⚠️ Timeout beim Warten auf Fertigstellung.';
+              if (btn) btn.disabled = false;
+            }
+          } catch (e) {
+            console.error('Megan render poll error:', e);
+          }
+        }, 2000);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'text-xs p-2 rounded text-center font-mono bg-rose-950/60 border border-rose-800 text-rose-300';
+          statusEl.textContent = 'Fehler: ' + err.message;
+        }
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function loadMeganVaultLore() {
+      const notice = document.getElementById('meganVaultStatusNotice');
+      if (notice) {
+        notice.textContent = 'Lade...';
+        notice.className = 'text-[10px] font-mono text-amber-400';
+        notice.classList.remove('hidden');
+      }
+
+      try {
+        const res = await fetch('/api/bot/lore');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const textEl = document.getElementById('meganVaultLoreText');
+        if (textEl) {
+          textEl.value = data.lore || '';
+          const countEl = document.getElementById('meganVaultCharCount');
+          if (countEl) countEl.textContent = textEl.value.length + ' Zeichen';
+        }
+        if (notice) {
+          notice.textContent = '✔ character.json geladen';
+          notice.className = 'text-[10px] font-mono text-emerald-400';
+          setTimeout(() => notice.classList.add('hidden'), 2500);
+        }
+      } catch (err) {
+        if (notice) {
+          notice.textContent = `Fehler: ${err.message}`;
+          notice.className = 'text-[10px] font-mono text-rose-400';
+        }
+      }
+    }
+
+    async function saveMeganVaultLore() {
+      const notice = document.getElementById('meganVaultStatusNotice');
+      if (notice) {
+        notice.textContent = 'Speichere...';
+        notice.className = 'text-[10px] font-mono text-amber-400';
+        notice.classList.remove('hidden');
+      }
+
+      const textEl = document.getElementById('meganVaultLoreText');
+      const loreText = textEl ? textEl.value : '';
+
+      try {
+        const res = await fetch('/api/bot/characters/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: 'character.json', lore: loreText })
+        });
+        if (!res.ok) {
+          let errMsg = `HTTP ${res.status}`;
+          try { const errData = await res.json(); errMsg = errData.error || errMsg; } catch (_) {}
+          throw new Error(errMsg);
+        }
+        const data = await res.json();
+        if (data.success) {
+          if (notice) {
+            notice.textContent = data.was_repaired ? '✔ character.json gespeichert (Syntax repariert)' : '✔ character.json gespeichert & Live-Sync aktiv!';
+            notice.className = 'text-[10px] font-mono text-emerald-400 font-bold';
+            setTimeout(() => notice.classList.add('hidden'), 4500);
+          }
+          // Also sync to characterLoreText in modal if open
+          const modalLore = document.getElementById('characterLoreText');
+          if (modalLore) modalLore.value = loreText;
+        } else {
+          if (notice) {
+            notice.textContent = `Fehler: ${data.error || 'Speichern fehlgeschlagen'}`;
+            notice.className = 'text-[10px] font-mono text-rose-400';
+          }
+        }
+      } catch (err) {
+        if (notice) {
+          notice.textContent = `Netzwerkfehler: ${err.message}`;
+          notice.className = 'text-[10px] font-mono text-rose-400';
+        }
+      }
+    }
+
+    // Initialize Cluster Models & Fox status on load
+    loadNodeModels('outerheaven');
+    loadNodeModels('fox');
+    checkFoxNodeStatus();
+
     updateCatlordTrainerStatus();
     // Catlord trainer polling disabled (no background loop)
     setInterval(updateTelemetry, 3000);
     setInterval(fetchClusterHealth, 10000);
     setInterval(fetchBueroData, 20000);
   </script>
+  <!-- Modular Upgrade-Suite Scripts (Additive, Crash-Schutz) -->
+  <script src="/static/lightbox.js"></script>
+  <script src="/static/autocomplete.js"></script>
+  <script src="/static/appearance_presets.js"></script>
 </body>
 </html>
