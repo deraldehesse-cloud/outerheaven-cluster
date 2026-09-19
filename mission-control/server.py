@@ -835,7 +835,7 @@ async def auth_middleware(request: web.Request, handler):
     if any(path.startswith(rp) for rp in restricted_prefixes) and not is_restricted and request.remote not in ["127.0.0.1", "::1"]:
         return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
 
-    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path == "/manifest.json" or path == "/sw.js" or path in ["/api/health", "/api/cluster/health"] or path.startswith("/api/buero/") or path.startswith("/api/images/") or path.startswith("/api/prompts/") or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or path.startswith("/output/3d/") or path == "/3d-viewer" or request.remote in ["127.0.0.1", "::1"]:
+    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path == "/manifest.json" or path == "/sw.js" or path in ["/api/health", "/api/cluster/health", "/api/presets"] or path.startswith("/api/danbooru/") or path.startswith("/api/flaws/") or path.startswith("/api/bot/appearance/") or path.startswith("/api/buero/") or path.startswith("/api/images/") or path.startswith("/api/prompts/") or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or path.startswith("/output/3d/") or path == "/3d-viewer" or request.remote in ["127.0.0.1", "::1"]:
         return await handler(request)
 
     if authenticated:
@@ -3413,6 +3413,274 @@ async def handle_prompts_presets_delete(request: web.Request) -> web.Response:
         logger.error(f"Error deleting preset {preset_id}: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
+
+# --- Danbooru Tag Autocomplete Engine ---
+DANBOORU_CSV_PATHS = [
+    BASE_DIR / "data" / "danbooru_tags.csv",
+    Path("/mnt/storage-beta/projekte/projekt-sexchat/danbooru_tags.csv"),
+    BASE_DIR.parent / "danbooru_tags.csv",
+]
+_DANBOORU_TAGS_CACHE = None
+
+def _load_danbooru_cache():
+    global _DANBOORU_TAGS_CACHE
+    if _DANBOORU_TAGS_CACHE is not None:
+        return _DANBOORU_TAGS_CACHE
+
+    target = None
+    for p in DANBOORU_CSV_PATHS:
+        if p.is_file():
+            target = p
+            break
+
+    tags = []
+    if target:
+        try:
+            with open(target, "r", encoding="utf-8", errors="replace") as f:
+                reader = csv.reader(f)
+                next(reader, None)
+                for row in reader:
+                    if len(row) >= 3:
+                        try:
+                            t_name = row[0].strip()
+                            cat = int(row[1])
+                            cnt = int(row[2])
+                            tags.append({"tag": t_name, "category": cat, "count": cnt})
+                        except ValueError:
+                            continue
+            tags.sort(key=lambda x: x["count"], reverse=True)
+            logger.info(f"Loaded {len(tags)} Danbooru tags into memory from {target}")
+        except Exception as e:
+            logger.warning(f"Error loading Danbooru tags from {target}: {e}")
+    _DANBOORU_TAGS_CACHE = tags
+    return _DANBOORU_TAGS_CACHE
+
+
+async def handle_danbooru_tags(request: web.Request) -> web.Response:
+    query = request.query.get("q", "").strip().lower().replace(" ", "_")
+    limit = min(50, max(1, int(request.query.get("limit", 15))))
+    if not query or len(query) < 1:
+        return web.json_response({"success": True, "tags": []})
+
+    all_tags = _load_danbooru_cache()
+    prefix_matches = []
+    contain_matches = []
+
+    for item in all_tags:
+        t_low = item["tag"].lower()
+        if t_low.startswith(query):
+            prefix_matches.append(item)
+            if len(prefix_matches) >= limit:
+                break
+        elif query in t_low and len(contain_matches) < limit:
+            contain_matches.append(item)
+
+    results = prefix_matches
+    if len(results) < limit:
+        results = results + contain_matches[:limit - len(results)]
+
+    return web.json_response({"success": True, "query": query, "tags": results})
+
+
+# --- Flaw & Feedback System Endpoints ---
+PENDING_FLAWS_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/pending_flaws.json")
+if not PENDING_FLAWS_FILE.parent.exists():
+    PENDING_FLAWS_FILE = BASE_DIR / "data" / "pending_flaws.json"
+
+
+async def handle_flaws_pending_get(request: web.Request) -> web.Response:
+    flaws = []
+    if PENDING_FLAWS_FILE.is_file():
+        try:
+            flaws = json.loads(PENDING_FLAWS_FILE.read_text(encoding="utf-8"))
+            if not isinstance(flaws, list):
+                flaws = []
+        except Exception:
+            flaws = []
+    return web.json_response({"success": True, "flaws": flaws})
+
+
+async def handle_flaws_submit(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    submitted_flaws = body.get("flaws", [])
+    feedback_text = body.get("feedback", "").strip()
+
+    flaws_list = []
+    if PENDING_FLAWS_FILE.is_file():
+        try:
+            flaws_list = json.loads(PENDING_FLAWS_FILE.read_text(encoding="utf-8"))
+            if not isinstance(flaws_list, list):
+                flaws_list = []
+        except Exception:
+            flaws_list = []
+
+    added = []
+    for f in submitted_flaws:
+        f_clean = f.strip()
+        if f_clean and f_clean not in flaws_list:
+            flaws_list.append(f_clean)
+            added.append(f_clean)
+
+    if feedback_text:
+        fb_entry = f"User feedback: {feedback_text}"
+        if fb_entry not in flaws_list:
+            flaws_list.append(fb_entry)
+            added.append(fb_entry)
+
+    try:
+        PENDING_FLAWS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PENDING_FLAWS_FILE.write_text(json.dumps(flaws_list, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Could not write pending_flaws.json: {e}")
+
+    # Synchronize to character.json if requested
+    if body.get("sync_to_character", True) and LORE_FILE.is_file():
+        try:
+            cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
+            if "negative_prompts" not in cdata:
+                cdata["negative_prompts"] = {}
+            current_quality = cdata["negative_prompts"].get("quality", "")
+            current_tags = [t.strip() for t in current_quality.split(",") if t.strip()]
+            for sf in submitted_flaws:
+                for sub_tag in sf.split(","):
+                    st = sub_tag.strip()
+                    if st and st.lower() not in [t.lower() for t in current_tags]:
+                        current_tags.append(st)
+            cdata["negative_prompts"]["quality"] = ", ".join(current_tags)
+            LORE_FILE.write_text(json.dumps(cdata, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception as c_err:
+            logger.warning(f"Could not sync flaws to character.json: {c_err}")
+
+    return web.json_response({
+        "success": True,
+        "added": added,
+        "total_pending": len(flaws_list)
+    })
+
+
+async def handle_flaws_clear(request: web.Request) -> web.Response:
+    try:
+        PENDING_FLAWS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PENDING_FLAWS_FILE.write_text("[]", encoding="utf-8")
+        return web.json_response({"success": True, "message": "Flaws gelöscht."})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+# --- Appearance Presets Management ---
+APPEARANCE_PRESETS_DIR = Path("/mnt/storage-beta/projekte/projekt-sexchat/appearance_presets")
+if not APPEARANCE_PRESETS_DIR.exists():
+    APPEARANCE_PRESETS_DIR = BASE_DIR / "data" / "appearance_presets"
+    APPEARANCE_PRESETS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+async def handle_appearance_presets_list(request: web.Request) -> web.Response:
+    presets = []
+    active_id = "megan_athletic_sleeve"
+    if LORE_FILE.is_file():
+        try:
+            cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
+            active_id = cdata.get("active_appearance_preset", active_id)
+        except Exception:
+            pass
+
+    for f in sorted(APPEARANCE_PRESETS_DIR.glob("*.json")):
+        try:
+            pdata = json.loads(f.read_text(encoding="utf-8"))
+            pid = pdata.get("id", f.stem)
+            pdata["is_active"] = (pid == active_id)
+            presets.append(pdata)
+        except Exception as e:
+            logger.warning(f"Error reading appearance preset {f.name}: {e}")
+
+    return web.json_response({"success": True, "active_id": active_id, "presets": presets})
+
+
+async def handle_appearance_preset_get(request: web.Request) -> web.Response:
+    pid = request.match_info.get("id", "").strip()
+    clean_id = re.sub(r"[^a-zA-Z0-9_\-]", "", pid)
+    p_file = APPEARANCE_PRESETS_DIR / f"{clean_id}.json"
+    if not p_file.is_file():
+        return web.json_response({"error": "Preset nicht gefunden"}, status=404)
+    try:
+        pdata = json.loads(p_file.read_text(encoding="utf-8"))
+        return web.json_response({"success": True, "preset": pdata})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_appearance_preset_save(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    raw_id = body.get("id", "").strip() or body.get("name", "").strip().lower().replace(" ", "_")
+    clean_id = re.sub(r"[^a-zA-Z0-9_\-]", "", raw_id)
+    if not clean_id:
+        return web.json_response({"error": "Ungültige oder fehlende Preset-ID."}, status=400)
+
+    APPEARANCE_PRESETS_DIR.mkdir(parents=True, exist_ok=True)
+    p_file = APPEARANCE_PRESETS_DIR / f"{clean_id}.json"
+    try:
+        body["id"] = clean_id
+        p_file.write_text(json.dumps(body, indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.info(f"Appearance preset saved: {clean_id}")
+        return web.json_response({"success": True, "id": clean_id, "message": "Preset erfolgreich gespeichert."})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_appearance_preset_activate(request: web.Request) -> web.Response:
+    pid = request.match_info.get("id", "").strip()
+    clean_id = re.sub(r"[^a-zA-Z0-9_\-]", "", pid)
+    p_file = APPEARANCE_PRESETS_DIR / f"{clean_id}.json"
+    if not p_file.is_file():
+        return web.json_response({"error": "Preset nicht gefunden"}, status=404)
+
+    try:
+        pdata = json.loads(p_file.read_text(encoding="utf-8"))
+        if LORE_FILE.is_file():
+            cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
+            cdata["active_appearance_preset"] = clean_id
+            
+            # Sync visual tags to character appearance if present
+            vis = pdata.get("visual", {})
+            parts = []
+            if vis.get("body"): parts.append(vis["body"])
+            if vis.get("face"): parts.append(vis["face"])
+            if vis.get("hair"): parts.append(vis["hair"])
+            if vis.get("features"): parts.append(vis["features"])
+            if vis.get("style_aesthetic"): parts.append(vis["style_aesthetic"])
+            if parts and "appearance" in cdata:
+                cdata["appearance"]["prompt_base"] = ", ".join(parts)
+            
+            LORE_FILE.write_text(json.dumps(cdata, indent=2, ensure_ascii=False), encoding="utf-8")
+            logger.info(f"Activated appearance preset {clean_id} into {LORE_FILE}")
+            
+        return web.json_response({"success": True, "id": clean_id, "message": f"Preset '{clean_id}' aktiviert."})
+    except Exception as e:
+        logger.error(f"Error activating appearance preset {clean_id}: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_appearance_preset_delete(request: web.Request) -> web.Response:
+    pid = request.match_info.get("id", "").strip()
+    clean_id = re.sub(r"[^a-zA-Z0-9_\-]", "", pid)
+    p_file = APPEARANCE_PRESETS_DIR / f"{clean_id}.json"
+    if p_file.is_file():
+        try:
+            p_file.unlink()
+            return web.json_response({"success": True, "message": "Preset gelöscht"})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+    return web.json_response({"error": "Nicht gefunden"}, status=404)
+
+
 # --- Dual-Agent WebSocket Chat ---
 
 async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
@@ -3666,6 +3934,19 @@ def create_app() -> web.Application:
     app.router.add_get("/api/gallery", handle_gallery_list)
     app.router.add_get("/api/gallery/{filename:.+}", handle_gallery_file)
     app.router.add_delete("/api/gallery/{filename:.+}", handle_gallery_delete)
+
+    # Danbooru Autocomplete & Flaws System
+    app.router.add_get("/api/danbooru/tags", handle_danbooru_tags)
+    app.router.add_get("/api/flaws/pending", handle_flaws_pending_get)
+    app.router.add_post("/api/flaws/submit", handle_flaws_submit)
+    app.router.add_post("/api/flaws/clear", handle_flaws_clear)
+
+    # Appearance Presets Management
+    app.router.add_get("/api/bot/appearance/presets", handle_appearance_presets_list)
+    app.router.add_post("/api/bot/appearance/presets", handle_appearance_preset_save)
+    app.router.add_get("/api/bot/appearance/presets/{id}", handle_appearance_preset_get)
+    app.router.add_post("/api/bot/appearance/presets/{id}/activate", handle_appearance_preset_activate)
+    app.router.add_delete("/api/bot/appearance/presets/{id}", handle_appearance_preset_delete)
 
     # 3D Asset Endpoints & Viewer
     app.router.add_get("/api/3d/models", handle_3d_models_list)

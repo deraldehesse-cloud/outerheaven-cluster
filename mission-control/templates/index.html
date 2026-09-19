@@ -579,16 +579,22 @@
             <!-- ComfyUI Context & Evolution Header Bar -->
             <div class="bg-gradient-to-r from-slate-900/90 via-black/80 to-slate-900/90 p-2.5 rounded-lg border border-pink-500/30 flex flex-wrap items-center justify-between gap-2 shadow-lg">
               <div class="flex items-center space-x-2">
-                <span class="text-base">🎯</span>
+                <span class="text-base">🎭</span>
                 <label for="evoContextSelect" class="text-[11px] font-bold text-pink-300 uppercase tracking-wider">
-                  Projekt / Kontext:
+                  Aussehen / Style:
                 </label>
                 <select id="evoContextSelect" onchange="applyEvolutionContextPreset(this.value)"
                   class="bg-black border border-pink-500/50 text-pink-200 text-xs font-bold rounded px-2.5 py-1 focus:outline-none focus:border-pink-400 font-mono">
-                  <option value="frei">🎨 Frei / Benutzerdefiniert</option>
-                  <option value="catlord">🐾 Catlord (Manga / Anime Action)</option>
-                  <option value="megan">💋 Megan (Photorealistic Companion)</option>
-                  <option value="test">⚡ Test (Cyberpunk Cityscape)</option>
+                  <option value="">🎭 Aussehen / Style wählen...</option>
+                  <optgroup label="Basis-Styles">
+                    <option value="megan">💋 Megan (Photorealistic Companion)</option>
+                    <option value="catlord">🐾 Catlord (Manga / Anime Action)</option>
+                    <option value="test">⚡ Test (Cyberpunk Cityscape)</option>
+                    <option value="frei">🎨 Frei / Benutzerdefiniert</option>
+                  </optgroup>
+                  <optgroup id="evoAppearanceOptgroup" label="RPG Aussehen-Profile">
+                    <!-- Populated dynamically via loadAppearancePresets -->
+                  </optgroup>
                 </select>
               </div>
               <button type="button" id="btnEvolutionDirectStart" onclick="startDirectEvolutionLoop()"
@@ -3602,14 +3608,89 @@
       }
     };
 
+    let loadedAppearanceProfilesCache = [];
+
     function applyEvolutionContextPreset(key) {
-      const preset = EVO_PRESETS[key];
-      if (!preset) return;
+      if (!key) return;
+      let promptText = "";
+      let negText = "";
+
+      if (EVO_PRESETS[key]) {
+        promptText = EVO_PRESETS[key].prompt || "";
+        negText = EVO_PRESETS[key].negative || "";
+      } else {
+        const foundProfile = loadedAppearanceProfilesCache.find(p => p.id === key);
+        if (foundProfile) {
+          const vis = foundProfile.visual || {};
+          const parts = [];
+          if (vis.body) parts.push(vis.body);
+          if (vis.face) parts.push(vis.face);
+          if (vis.eye_color || vis.eye_shape) parts.push([vis.eye_color, vis.eye_shape].filter(Boolean).join(', '));
+          if (vis.hair_color || vis.hair_style || vis.hair) parts.push([vis.hair_color, vis.hair_style || vis.hair].filter(Boolean).join(', '));
+          if (vis.features) parts.push(vis.features);
+          if (vis.style_aesthetic) parts.push(vis.style_aesthetic);
+          promptText = parts.filter(Boolean).join(', ');
+        } else if (typeof promptPresetsData !== 'undefined' && promptPresetsData.presets) {
+          const foundPreset = (promptPresetsData.positive || promptPresetsData.presets || []).find(p => p.id === key);
+          if (foundPreset) {
+            promptText = foundPreset.text || foundPreset.positive || "";
+            negText = foundPreset.negative || "";
+          }
+        }
+      }
+
+      if (!promptText && !negText) return;
+
       const promptInput = document.getElementById('renderPrompt');
+      const meganPosInput = document.getElementById('meganPositivePrompt');
+      if (promptInput && promptText) {
+        promptInput.value = promptText;
+        promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (meganPosInput && promptText) {
+        meganPosInput.value = promptText;
+        meganPosInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+
       const negInput = document.getElementById('renderNegativePrompt');
-      if (promptInput && preset.prompt) promptInput.value = preset.prompt;
-      if (negInput && preset.negative) negInput.value = preset.negative;
+      const meganNegInput = document.getElementById('meganNegativePrompt');
+      if (negInput && negText) {
+        negInput.value = negText;
+        negInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (meganNegInput && negText) {
+        meganNegInput.value = negText;
+        meganNegInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
     }
+
+    async function loadDashboardAppearanceStyles() {
+      try {
+        const res = await fetch('/api/bot/appearance/presets');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.success && Array.isArray(data.presets)) {
+          window.syncDashboardAppearanceOptions(data.presets);
+        }
+      } catch (e) {
+        console.warn("Could not load appearance profiles into style selector:", e);
+      }
+    }
+
+    window.syncDashboardAppearanceOptions = function(presets) {
+      if (!Array.isArray(presets)) return;
+      loadedAppearanceProfilesCache = presets;
+      const optGroup = document.getElementById('evoAppearanceOptgroup');
+      if (optGroup) {
+        optGroup.innerHTML = '';
+        presets.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `👤 ${p.name || p.id}${p.is_active ? ' (Aktiv)' : ''}`;
+          optGroup.appendChild(opt);
+        });
+      }
+    };
 
     function startDirectEvolutionLoop() {
       const panel = document.getElementById('evolutionPanel');
@@ -7356,6 +7437,7 @@
     loadNodeModels('outerheaven');
     loadNodeModels('fox');
     checkFoxNodeStatus();
+    loadDashboardAppearanceStyles();
 
     updateCatlordTrainerStatus();
     // Catlord trainer polling disabled (no background loop)
