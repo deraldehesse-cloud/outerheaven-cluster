@@ -282,7 +282,7 @@
     <main class="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 min-w-0">
 
       <!-- Symmetrische Node-Karten (Raster 7 & 8) -->
-      <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section id="nodesOverview" class="grid grid-cols-1 md:grid-cols-2 gap-4">
         
         <!-- Knoten 7: NODE // OUTER HEAVEN -->
         <div class="bg-slate-950/90 border border-cyan-dim rounded-lg p-4 glow-cyan relative overflow-hidden flex flex-col justify-between">
@@ -1052,7 +1052,7 @@
       </div> <!-- End bueroWorkspaceView -->
 
       <!-- MEGAN STUDIO WORKSPACE (3-SPALTEN-LAYOUT) -->
-      <div id="meganWorkspaceView" class="w-full hidden space-y-4">
+      <div id="workspaceMegan" data-alias="meganWorkspaceView" class="workspace-panel w-full hidden space-y-4">
         <!-- Megan Studio Top Bar -->
         <div class="bg-slate-950/90 border border-pink-500/40 rounded-lg p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-lg glow-pink">
           <div class="flex items-center space-x-3">
@@ -1066,14 +1066,15 @@
             </div>
           </div>
           <div class="flex items-center space-x-2">
+            <button type="button" id="btnBackToCockpit" onclick="switchToCockpit()"
+                    class="px-3 py-1.5 bg-slate-900 hover:bg-cyan-950/80 border border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-cyan-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5 shadow"
+                    title="Zurück zum Haupt-Cockpit">
+              <span>⬅</span> <span>ZURÜCK ZUM COCKPIT</span>
+            </button>
             <button type="button" id="btnMeganStudioAppearance" onclick="window.openAppearanceModal()"
                     class="px-3 py-1.5 bg-gradient-to-r from-purple-900/80 to-pink-900/80 hover:from-purple-800 hover:to-pink-800 border border-pink-500/60 text-pink-200 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5 shadow"
                     title="RPG Charakter Creator / Aussehen-Presets öffnen">
               <span>👤</span> <span>RPG-AUSSEHEN MODAL</span>
-            </button>
-            <button type="button" onclick="selectWorkspace('catlord')"
-                    class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-cyan-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5">
-              <span>🐱</span> <span>Catlord Studio</span>
             </button>
           </div>
         </div>
@@ -1190,6 +1191,27 @@
                   <h2 class="text-xs font-bold text-pink-300 uppercase tracking-wider">COMFYUI PROMPT-STUDIO</h2>
                 </div>
                 <span class="text-[10px] text-slate-500 font-mono">ARC A770 (16GB VRAM)</span>
+              </div>
+
+              <!-- Aussehen- & Style-Auswahl Dropdown -->
+              <div class="space-y-1.5 bg-slate-900/80 p-2.5 rounded border border-pink-900/60">
+                <div class="flex items-center justify-between">
+                  <label for="meganStyleSelect" class="text-[11px] font-bold text-pink-300 flex items-center space-x-1.5">
+                    <span>👗</span> <span>CHARAKTER-STYLE & AUSSEHEN</span>
+                  </label>
+                  <span id="meganActiveStyleLabel" class="text-[10px] text-pink-400 font-mono truncate max-w-[180px]">Standard</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <select id="meganStyleSelect" onchange="applyMeganStylePreset(this.value)"
+                          class="flex-1 bg-black border border-pink-700/60 text-pink-200 text-xs rounded px-2.5 py-1.5 focus:border-pink-500 focus:outline-none font-mono">
+                    <option value="">📂 Stil / Aussehen auswählen...</option>
+                  </select>
+                  <button type="button" onclick="loadMeganStudioPresets()"
+                          class="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-400 hover:text-pink-300 rounded text-xs transition shrink-0"
+                          title="Presets neu laden">
+                    🔄
+                  </button>
+                </div>
               </div>
 
               <!-- Positiv-Prompt Section -->
@@ -2648,54 +2670,94 @@
     // --- 3-Zone Cockpit Workspace Navigation ---
     let currentActiveWorkspace = 'catlord';
 
-    function selectWorkspace(workspace) {
-      currentActiveWorkspace = workspace;
-      const navCatlord = document.getElementById('navItemCatlord');
-      const navBuero = document.getElementById('navItemBuero');
-      const catlordView = document.getElementById('catlordWorkspaceView');
-      const bueroView = document.getElementById('bueroWorkspaceView');
-      const meganView = document.getElementById('meganWorkspaceView');
-      const headerMeganBtn = document.getElementById('btnHeaderMeganStudio');
-
-      const defaultClass = "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white transition text-left group";
-      if (navCatlord) navCatlord.className = (workspace === 'catlord') ?
-        "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-cyan-500/40 bg-cyan-950/40 text-cyan-300 transition text-left group" :
-        defaultClass;
-      if (navBuero) navBuero.className = (workspace === 'buero') ?
-        "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-emerald-500/40 bg-emerald-950/40 text-emerald-300 transition text-left group" :
-        defaultClass;
-
-      if (headerMeganBtn) {
-        if (workspace === 'megan') {
-          headerMeganBtn.className = "px-2.5 py-1 bg-pink-900 border border-pink-400 text-white rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink ring-1 ring-pink-400";
+    // --- Null-Safe Visibility Helper ---
+    function setElementVisibility(elementOrId, show, displayType = 'block') {
+      const el = typeof elementOrId === 'string' ? document.getElementById(elementOrId) : elementOrId;
+      if (!el) return;
+      try {
+        if (show) {
+          el.classList.remove('hidden');
+          if (displayType) el.style.display = displayType;
         } else {
+          el.classList.add('hidden');
+          el.style.display = 'none';
+        }
+      } catch (e) {
+        console.warn('[Visibility] Error toggling element:', elementOrId, e);
+      }
+    }
+
+    function switchToMeganStudio() {
+      currentActiveWorkspace = 'megan';
+      setElementVisibility('nodesOverview', false);
+      setElementVisibility('catlordWorkspaceView', false);
+      setElementVisibility('bueroWorkspaceView', false);
+      setElementVisibility('workspaceMegan', true, 'block');
+      setElementVisibility('meganWorkspaceView', true, 'block');
+      setElementVisibility('btnBackToCockpit', true, 'flex');
+
+      const headerMeganBtn = document.getElementById('btnHeaderMeganStudio');
+      if (headerMeganBtn) {
+        headerMeganBtn.className = "px-2.5 py-1 bg-pink-900 border border-pink-400 text-white rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink ring-1 ring-pink-400";
+      }
+      const navCatlord = document.getElementById('navItemCatlord');
+      if (navCatlord) navCatlord.className = "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white transition text-left group";
+      const navBuero = document.getElementById('navItemBuero');
+      if (navBuero) navBuero.className = "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white transition text-left group";
+
+      if (typeof loadMeganStudioPresets === 'function') loadMeganStudioPresets();
+      if (typeof loadMeganVaultLore === 'function') loadMeganVaultLore();
+      if (typeof checkLovenseStatus === 'function') checkLovenseStatus();
+    }
+
+    function switchToCockpit() {
+      currentActiveWorkspace = 'catlord';
+      setElementVisibility('workspaceMegan', false);
+      setElementVisibility('meganWorkspaceView', false);
+      setElementVisibility('btnBackToCockpit', false);
+      setElementVisibility('bueroWorkspaceView', false);
+      setElementVisibility('nodesOverview', true, 'grid');
+      setElementVisibility('catlordWorkspaceView', true, 'block');
+
+      const headerMeganBtn = document.getElementById('btnHeaderMeganStudio');
+      if (headerMeganBtn) {
+        headerMeganBtn.className = "px-2.5 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink";
+      }
+      const navCatlord = document.getElementById('navItemCatlord');
+      if (navCatlord) navCatlord.className = "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-cyan-500/40 bg-cyan-950/40 text-cyan-300 transition text-left group";
+      const navBuero = document.getElementById('navItemBuero');
+      if (navBuero) navBuero.className = "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white transition text-left group";
+    }
+
+    window.switchToMeganStudio = switchToMeganStudio;
+    window.switchToCockpit = switchToCockpit;
+    window.setElementVisibility = setElementVisibility;
+
+    function selectWorkspace(workspace) {
+      if (workspace === 'megan') {
+        switchToMeganStudio();
+      } else if (workspace === 'catlord') {
+        switchToCockpit();
+      } else if (workspace === 'buero') {
+        currentActiveWorkspace = 'buero';
+        setElementVisibility('workspaceMegan', false);
+        setElementVisibility('meganWorkspaceView', false);
+        setElementVisibility('btnBackToCockpit', false);
+        setElementVisibility('nodesOverview', false);
+        setElementVisibility('catlordWorkspaceView', false);
+        setElementVisibility('bueroWorkspaceView', true, 'block');
+
+        const navCatlord = document.getElementById('navItemCatlord');
+        if (navCatlord) navCatlord.className = "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white transition text-left group";
+        const navBuero = document.getElementById('navItemBuero');
+        if (navBuero) navBuero.className = "w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg border border-emerald-500/40 bg-emerald-950/40 text-emerald-300 transition text-left group";
+        const headerMeganBtn = document.getElementById('btnHeaderMeganStudio');
+        if (headerMeganBtn) {
           headerMeganBtn.className = "px-2.5 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink";
         }
-      }
 
-      if (workspace === 'catlord') {
-        if (catlordView) catlordView.classList.remove('hidden');
-        if (bueroView) bueroView.classList.add('hidden');
-        if (meganView) meganView.classList.add('hidden');
-      } else if (workspace === 'buero') {
-        if (catlordView) catlordView.classList.add('hidden');
-        if (bueroView) bueroView.classList.remove('hidden');
-        if (meganView) meganView.classList.add('hidden');
         if (typeof fetchBueroData === 'function') {
           fetchBueroData();
-        }
-      } else if (workspace === 'megan') {
-        if (catlordView) catlordView.classList.add('hidden');
-        if (bueroView) bueroView.classList.add('hidden');
-        if (meganView) meganView.classList.remove('hidden');
-        if (typeof loadMeganStudioPresets === 'function') {
-          loadMeganStudioPresets();
-        }
-        if (typeof loadMeganVaultLore === 'function') {
-          loadMeganVaultLore();
-        }
-        if (typeof checkLovenseStatus === 'function') {
-          checkLovenseStatus();
         }
       {% if is_restricted %}
       } else if (workspace === 'companion') {
@@ -7166,41 +7228,134 @@
       }
     }
 
-    let meganPresetsCache = { positive: [], negative: [] };
+    let meganPresetsCache = { positive: [], negative: [], styles: [] };
 
     async function loadMeganStudioPresets() {
+      // 1. Load Appearance Presets (character.json styles)
       try {
-        const res = await fetch('/api/prompts/presets');
-        if (!res.ok) return;
-        const data = await res.json();
-        meganPresetsCache.positive = data.positive || [];
-        meganPresetsCache.negative = data.negative || [];
-
-        const posSel = document.getElementById('meganPosPresetSelect');
-        if (posSel) {
-          posSel.innerHTML = '<option value="">📂 Positiv-Preset laden...</option>';
-          meganPresetsCache.positive.forEach(p => {
-            const opt = document.createElement('option');
-            opt.value = p.id;
-            opt.textContent = p.name || p.id;
-            posSel.appendChild(opt);
-          });
-        }
-
-        const negSel = document.getElementById('meganNegPresetSelect');
-        if (negSel) {
-          negSel.innerHTML = '<option value="">📂 Negativ-Preset laden...</option>';
-          meganPresetsCache.negative.forEach(p => {
-            const opt = document.createElement('option');
-            opt.value = p.id;
-            opt.textContent = p.name || p.id;
-            negSel.appendChild(opt);
-          });
+        const appRes = await fetch('/api/bot/appearance/presets');
+        if (appRes.ok) {
+          const appData = await appRes.json();
+          meganPresetsCache.styles = (appData && appData.presets) ? appData.presets : [];
         }
       } catch (err) {
-        console.warn('loadMeganStudioPresets failed:', err);
+        console.warn('Fehler beim Abrufen der Appearance-Presets:', err);
+      }
+
+      // 2. Load Prompt Presets (positive / negative)
+      try {
+        const res = await fetch('/api/presets');
+        if (res.ok) {
+          const data = await res.json();
+          meganPresetsCache.positive = data.positive || data.presets || [];
+          meganPresetsCache.negative = data.negative || [];
+        }
+      } catch (err) {
+        console.warn('loadMeganStudioPresets fetch error:', err);
+      }
+
+      // 3. Populate Megan Style Dropdown (#meganStyleSelect)
+      const styleSel = document.getElementById('meganStyleSelect');
+      if (styleSel) {
+        styleSel.innerHTML = '<option value="">📂 Stil / Aussehen auswählen...</option>';
+
+        if (meganPresetsCache.styles && meganPresetsCache.styles.length > 0) {
+          const charGroup = document.createElement('optgroup');
+          charGroup.label = '👤 Charakter-Profile (Aussehen & Lore)';
+          meganPresetsCache.styles.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = `style:${p.id}`;
+            opt.textContent = `${p.name || p.id}${p.is_active ? ' (Aktiv)' : ''}`;
+            if (p.is_active) opt.selected = true;
+            charGroup.appendChild(opt);
+          });
+          styleSel.appendChild(charGroup);
+        }
+
+        if (meganPresetsCache.positive && meganPresetsCache.positive.length > 0) {
+          const promptGroup = document.createElement('optgroup');
+          promptGroup.label = '✨ Prompt-Presets (Szenen & Ästhetik)';
+          meganPresetsCache.positive.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = `prompt:${p.id}`;
+            opt.textContent = p.name || p.id;
+            promptGroup.appendChild(opt);
+          });
+          styleSel.appendChild(promptGroup);
+        }
+      }
+
+      // 4. Populate Positiv- & Negativ-Preset Dropdowns
+      const posSel = document.getElementById('meganPosPresetSelect');
+      if (posSel) {
+        posSel.innerHTML = '<option value="">📂 Positiv-Preset laden...</option>';
+        meganPresetsCache.positive.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name || p.id;
+          posSel.appendChild(opt);
+        });
+      }
+
+      const negSel = document.getElementById('meganNegPresetSelect');
+      if (negSel) {
+        negSel.innerHTML = '<option value="">📂 Negativ-Preset laden...</option>';
+        meganPresetsCache.negative.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name || p.id;
+          negSel.appendChild(opt);
+        });
       }
     }
+
+    function applyMeganStylePreset(val) {
+      if (!val) return;
+      const posEl = document.getElementById('meganPositivePrompt');
+      const labelEl = document.getElementById('meganActiveStyleLabel');
+
+      if (val.startsWith('style:')) {
+        const styleId = val.replace('style:', '');
+        const p = meganPresetsCache.styles.find(item => item.id === styleId);
+        if (p) {
+          if (labelEl) labelEl.textContent = p.name || p.id;
+          const vis = p.visual || {};
+          const parts = [];
+          if (vis.body) parts.push(vis.body);
+          if (p.prompt_height) parts.push(p.prompt_height);
+          if (vis.face) parts.push(vis.face);
+          if (vis.hair) parts.push(vis.hair);
+          if (vis.features) parts.push(vis.features);
+          if (vis.style_aesthetic) parts.push(vis.style_aesthetic);
+          const finalPrompt = parts.join(', ');
+
+          if (posEl) {
+            posEl.value = finalPrompt;
+            posEl.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
+      } else if (val.startsWith('prompt:')) {
+        const promptId = val.replace('prompt:', '');
+        const p = meganPresetsCache.positive.find(item => item.id === promptId);
+        if (p) {
+          if (labelEl) labelEl.textContent = p.name || p.id;
+          if (posEl) {
+            posEl.value = p.positive || p.text || '';
+            posEl.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          if (p.negative) {
+            const negEl = document.getElementById('meganNegativePrompt');
+            if (negEl) {
+              negEl.value = p.negative;
+              negEl.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          }
+        }
+      }
+    }
+
+    window.applyMeganStylePreset = applyMeganStylePreset;
+    window.loadMeganStudioPresets = loadMeganStudioPresets;
 
     function loadMeganPosPreset(presetId) {
       if (!presetId) return;

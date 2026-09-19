@@ -3263,14 +3263,21 @@ async def handle_image_metadata(request: web.Request) -> web.Response:
 
 
 async def handle_prompts_presets_get(request: web.Request) -> web.Response:
-    """GET /api/prompts/presets"""
+    """GET /api/prompts/presets or /api/presets"""
     data = {}
-    target_file = PROMPT_PRESETS_FILE if PROMPT_PRESETS_FILE.is_file() else (BASE_DIR / "workflows" / "prompt_presets.json")
-    if target_file.is_file():
-        try:
-            data = json.loads(target_file.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.error(f"Error loading presets file: {e}")
+    candidates = [
+        PROMPT_PRESETS_FILE,
+        BASE_DIR / "workflows" / "prompt_presets.json",
+        Path("/mnt/storage-beta/workflows/prompt_presets.json")
+    ]
+    for target_file in candidates:
+        if target_file and target_file.is_file():
+            try:
+                data = json.loads(target_file.read_text(encoding="utf-8"))
+                if data:
+                    break
+            except Exception as e:
+                logger.error(f"Error loading presets file {target_file}: {e}")
 
     positive_list = data.get("positive", [])
     negative_list = data.get("negative", [])
@@ -3966,6 +3973,7 @@ def create_app() -> web.Application:
     # Images Metadata & Prompt Presets
     app.router.add_get("/api/images/metadata", handle_image_metadata)
     app.router.add_get("/api/prompts/presets", handle_prompts_presets_get)
+    app.router.add_get("/api/presets", handle_prompts_presets_get)
     app.router.add_post("/api/prompts/presets", handle_prompts_presets_post)
     app.router.add_delete("/api/prompts/presets/{id}", handle_prompts_presets_delete)
 
