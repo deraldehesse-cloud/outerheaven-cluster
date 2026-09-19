@@ -1242,9 +1242,9 @@
                           class="flex-1 bg-black border border-slate-700 text-pink-300 text-xs rounded px-2 py-1 focus:border-pink-500 focus:outline-none">
                     <option value="">📂 Positiv-Preset laden...</option>
                   </select>
-                  <button type="button" onclick="saveMeganPosPreset()"
+                  <button type="button" id="btnSaveMeganPromptPreset" onclick="savePromptPreset()"
                           class="px-2.5 py-1 bg-pink-950/70 hover:bg-pink-900 border border-pink-700/80 text-pink-200 rounded text-xs font-bold transition flex items-center space-x-1 shrink-0"
-                          title="Aktuellen Positiv-Prompt als Preset speichern">
+                          title="Aktuellen Positiv- und Negativ-Prompt als ComfyUI Preset speichern">
                     <span>💾</span> <span>Als Preset speichern</span>
                   </button>
                 </div>
@@ -2265,10 +2265,68 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- COMFYUI PROMPT-PRESET MODAL (KOMPAKTER SPEICHERN-DIALOG)                  -->
+  <!-- ========================================================================= -->
+  <div id="comfyPromptPresetModal" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4 select-none" onclick="closeComfyPromptPresetModal()">
+    <div class="relative max-w-lg w-full bg-slate-950/95 border border-pink-500/50 rounded-xl p-4 sm:p-5 space-y-3.5 font-mono text-xs shadow-2xl max-h-[92vh] flex flex-col select-text" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2.5 shrink-0">
+        <span class="text-pink-300 font-bold uppercase flex items-center space-x-2 text-xs sm:text-sm">
+          <span>💾</span> <span>COMFYUI PROMPT-PRESET SPEICHERN</span>
+        </span>
+        <button type="button" onclick="closeComfyPromptPresetModal()" class="text-slate-400 hover:text-white text-xs font-bold px-2 py-0.5 rounded hover:bg-slate-800 transition">✕</button>
+      </div>
+
+      <div class="overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+        <div>
+          <label class="block text-[10px] uppercase text-pink-300 font-bold mb-1">Preset-Name / Titel *</label>
+          <input type="text" id="comfyPresetName" placeholder="z. B. Megan Cyberpunk Neon"
+                 class="w-full bg-black border border-slate-700 rounded px-3 py-2 text-xs text-pink-200 focus:outline-none focus:border-pink-500 font-mono">
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-[10px] uppercase text-pink-300 font-bold flex items-center space-x-1">
+              <span>✨</span> <span>Positiver Prompt</span>
+            </label>
+            <span id="comfyPresetPosCount" class="text-[10px] text-slate-500">0 Zeichen</span>
+          </div>
+          <textarea id="comfyPresetPosPrompt" rows="4" placeholder="Positiver Prompt Inhalt..."
+                    oninput="document.getElementById('comfyPresetPosCount').textContent = this.value.length + ' Zeichen'"
+                    class="w-full bg-black/80 border border-slate-800 rounded p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-pink-500 resize-y leading-relaxed"></textarea>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-[10px] uppercase text-slate-400 font-bold flex items-center space-x-1">
+              <span>🚫</span> <span>Negativer Prompt</span>
+            </label>
+            <span id="comfyPresetNegCount" class="text-[10px] text-slate-500">0 Zeichen</span>
+          </div>
+          <textarea id="comfyPresetNegPrompt" rows="2" placeholder="Negativer Prompt Inhalt..."
+                    oninput="document.getElementById('comfyPresetNegCount').textContent = this.value.length + ' Zeichen'"
+                    class="w-full bg-black/80 border border-slate-800 rounded p-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-pink-500 resize-y leading-relaxed"></textarea>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800 shrink-0">
+        <button type="button" onclick="closeComfyPromptPresetModal()" class="px-3.5 py-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition text-xs font-bold font-mono">
+          Abbrechen
+        </button>
+        <button type="button" id="btnSubmitComfyPreset" onclick="submitComfyPromptPreset()" class="px-4 py-1.5 rounded bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-bold transition text-xs font-mono shadow-lg flex items-center space-x-1.5">
+          <span>💾</span> <span>Preset Speichern</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ========================================================================= -->
   <!-- MEGAN'S AUSSEHEN / APPEARANCE PRESETS MODAL (2-SPALTEN REDESIGN)           -->
   <!-- ========================================================================= -->
-  <div id="appearancePresetModal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 select-none" onclick="closeAppearanceModal()">
+  <div id="appearanceModal" data-alias="appearancePresetModal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 select-none" onclick="closeAppearanceModal()">
     <div class="relative w-full max-w-5xl bg-slate-950/95 border border-pink-600/50 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh] font-mono text-xs select-text" onclick="event.stopPropagation()">
       
       <!-- Modal Header -->
@@ -2338,6 +2396,7 @@
                 <option value="Weiblich">Weiblich</option>
                 <option value="Männlich">Männlich</option>
                 <option value="Androgyn">Androgyn</option>
+                <option value="Transgender">Transgender</option>
               </select>
             </div>
             <!-- 2. Alter / Altersspanne -->
@@ -2947,16 +3006,49 @@
 
     window.openBotSettings = openBotSettings;
     window.closeBotSettings = closeBotSettings;
+    {% endif %}
+
+    // --- RPG-Aussehen / Charakter-Profile Modal (Exklusiv für Button [ 👤 RPG-Aussehen Modal ]) ---
+    function openAppearanceModal() {
+      const modal = document.getElementById('appearanceModal') || document.getElementById('appearancePresetModal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+      }
+      if (typeof window.loadActiveAppearanceProfile === 'function') {
+        window.loadActiveAppearanceProfile();
+      } else if (typeof window.loadAppearancePresets === 'function') {
+        window.loadAppearancePresets();
+      }
+    }
+
+    function closeAppearanceModal() {
+      const modal = document.getElementById('appearanceModal') || document.getElementById('appearancePresetModal');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+      }
+    }
+
+    window.openAppearanceModal = openAppearanceModal;
+    window.closeAppearanceModal = closeAppearanceModal;
 
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
-        const modal = document.getElementById('companionSettingsModal');
-        if (modal && !modal.classList.contains('hidden') && modal.style.display !== 'none') {
-          closeBotSettings();
+        const comfyModal = document.getElementById('comfyPromptPresetModal');
+        if (comfyModal && !comfyModal.classList.contains('hidden') && comfyModal.style.display !== 'none') {
+          if (typeof closeComfyPromptPresetModal === 'function') closeComfyPromptPresetModal();
+        }
+        const appModal = document.getElementById('appearanceModal') || document.getElementById('appearancePresetModal');
+        if (appModal && !appModal.classList.contains('hidden') && appModal.style.display !== 'none') {
+          closeAppearanceModal();
+        }
+        const botModal = document.getElementById('companionSettingsModal');
+        if (botModal && !botModal.classList.contains('hidden') && botModal.style.display !== 'none') {
+          if (typeof closeBotSettings === 'function') closeBotSettings();
         }
       }
     });
-    {% endif %}
 
     function updateTacticalAgentModelUI(modelName) {
       if (!modelName || typeof modelName !== 'string') return;
@@ -7434,29 +7526,143 @@
           const countEl = document.getElementById('meganPosCharCount');
           if (countEl) countEl.textContent = el.value.length + ' Zeichen';
         }
+        if (found.negative) {
+          const negEl = document.getElementById('meganNegativePrompt');
+          if (negEl) {
+            negEl.value = found.negative;
+            const negCountEl = document.getElementById('meganNegCharCount');
+            if (negCountEl) negCountEl.textContent = negEl.value.length + ' Zeichen';
+          }
+        }
       }
     }
 
-    async function saveMeganPosPreset() {
-      const el = document.getElementById('meganPositivePrompt');
-      const text = el ? el.value.trim() : '';
-      if (!text) {
-        alert('Bitte gib zuerst einen positiven Prompt ein.');
+    // --- ComfyUI Prompt-Preset Speichern (Streng entkoppelt vom RPG-Aussehen-Modal) ---
+    function openComfyPromptPresetModal() {
+      const posEl = document.getElementById('meganPositivePrompt') || document.getElementById('renderPrompt');
+      const negEl = document.getElementById('meganNegativePrompt') || document.getElementById('renderNegativePrompt');
+      const nameInput = document.getElementById('comfyPresetName');
+      const posInput = document.getElementById('comfyPresetPosPrompt');
+      const negInput = document.getElementById('comfyPresetNegPrompt');
+
+      if (posInput) {
+        posInput.value = posEl ? posEl.value.trim() : '';
+        const countEl = document.getElementById('comfyPresetPosCount');
+        if (countEl) countEl.textContent = posInput.value.length + ' Zeichen';
+      }
+      if (negInput) {
+        negInput.value = negEl ? negEl.value.trim() : '';
+        const countEl = document.getElementById('comfyPresetNegCount');
+        if (countEl) countEl.textContent = negInput.value.length + ' Zeichen';
+      }
+      if (nameInput) {
+        nameInput.value = '';
+      }
+
+      const modal = document.getElementById('comfyPromptPresetModal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+        setTimeout(() => { if (nameInput) nameInput.focus(); }, 100);
+      }
+    }
+
+    function closeComfyPromptPresetModal() {
+      const modal = document.getElementById('comfyPromptPresetModal');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+      }
+    }
+
+    async function submitComfyPromptPreset() {
+      const nameInput = document.getElementById('comfyPresetName');
+      const posInput = document.getElementById('comfyPresetPosPrompt');
+      const negInput = document.getElementById('comfyPresetNegPrompt');
+
+      const name = nameInput ? nameInput.value.trim() : '';
+      if (!name) {
+        alert('Bitte gib einen Namen für das Preset ein.');
+        if (nameInput) nameInput.focus();
         return;
       }
-      const title = prompt('Name für das neue Positiv-Preset:', 'Megan Positiv Preset');
-      if (!title) return;
+      const posText = posInput ? posInput.value.trim() : '';
+      const negText = negInput ? negInput.value.trim() : '';
+      if (!posText && !negText) {
+        alert('Bitte gib mindestens einen positiven oder negativen Prompt ein.');
+        return;
+      }
 
+      const btn = document.getElementById('btnSubmitComfyPreset');
+      if (btn) btn.disabled = true;
+
+      try {
+        const payload = {
+          category: 'positive',
+          name: name,
+          title: name,
+          text: posText,
+          positive: posText,
+          negative: negText
+        };
+        const res = await fetch('/api/prompts/presets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok && (data.success !== false)) {
+          closeComfyPromptPresetModal();
+          // Dropdown aktualisieren
+          if (typeof loadMeganStudioPresets === 'function') {
+            await loadMeganStudioPresets();
+          }
+          if (typeof loadPromptPresets === 'function') {
+            await loadPromptPresets();
+          }
+          const posSel = document.getElementById('meganPosPresetSelect');
+          if (posSel && (data.id || payload.name)) {
+            posSel.value = data.id || payload.name;
+          }
+          alert(`✔ Preset '${name}' erfolgreich in prompt_presets.json abgelegt!`);
+        } else {
+          alert('Fehler beim Speichern: ' + (data.error || 'Serverfehler'));
+        }
+      } catch (err) {
+        alert('Netzwerkfehler: ' + err.message);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function savePromptPreset() {
+      const modal = document.getElementById('comfyPromptPresetModal');
+      if (modal) {
+        openComfyPromptPresetModal();
+        return;
+      }
+      // Fallback per prompt()
+      const posEl = document.getElementById('meganPositivePrompt') || document.getElementById('renderPrompt');
+      const negEl = document.getElementById('meganNegativePrompt') || document.getElementById('renderNegativePrompt');
+      const posText = posEl ? posEl.value.trim() : '';
+      const negText = negEl ? negEl.value.trim() : '';
+      if (!posText && !negText) {
+        alert('Bitte gib zuerst einen Prompt ein.');
+        return;
+      }
+      const title = prompt('Preset-Name für prompt_presets.json:', 'Megan Szene');
+      if (!title) return;
       try {
         const res = await fetch('/api/prompts/presets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ category: 'positive', name: title, text: text, positive: text })
+          body: JSON.stringify({ category: 'positive', name: title, title: title, text: posText, positive: posText, negative: negText })
         });
         const data = await res.json();
-        if (res.ok && data.success) {
-          alert(`Positiv-Preset '${title}' erfolgreich gespeichert!`);
-          await loadMeganStudioPresets();
+        if (res.ok && data.success !== false) {
+          if (typeof loadMeganStudioPresets === 'function') await loadMeganStudioPresets();
+          if (typeof loadPromptPresets === 'function') await loadPromptPresets();
+          alert(`✔ Preset '${title}' erfolgreich gespeichert!`);
         } else {
           alert('Fehler beim Speichern: ' + (data.error || 'Unbekannt'));
         }
@@ -7464,6 +7670,12 @@
         alert('Netzwerkfehler: ' + err.message);
       }
     }
+
+    window.savePromptPreset = savePromptPreset;
+    window.saveMeganPosPreset = savePromptPreset;
+    window.openComfyPromptPresetModal = openComfyPromptPresetModal;
+    window.closeComfyPromptPresetModal = closeComfyPromptPresetModal;
+    window.submitComfyPromptPreset = submitComfyPromptPreset;
 
     function loadMeganNegPreset(presetId) {
       if (!presetId) return;

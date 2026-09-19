@@ -14,17 +14,25 @@
   let loadedPresets = [];
   let currentPresetId = '';
 
+  function getAppearanceModal() {
+    return document.getElementById('appearanceModal') || document.getElementById('appearancePresetModal');
+  }
+
   window.openAppearanceModal = function() {
-    const modal = document.getElementById('appearancePresetModal');
+    const modal = getAppearanceModal();
     if (modal) {
       modal.classList.remove('hidden');
+      modal.style.display = 'flex';
       loadAppearancePresets();
     }
   };
 
   window.closeAppearanceModal = function() {
-    const modal = document.getElementById('appearancePresetModal');
-    if (modal) modal.classList.add('hidden');
+    const modal = getAppearanceModal();
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+    }
   };
 
   window.loadAppearancePresets = async function() {
@@ -83,6 +91,8 @@
     setVal('appPresetName', p.name || '');
     setVal('appPresetHeight', p.prompt_height || '');
     setVal('appPresetDesc', p.description || '');
+    setVal('appRpgGender', p.gender || (p.rpg && p.rpg.gender) || 'Weiblich');
+    setVal('appRpgAge', p.age || (p.rpg && p.rpg.age) || '');
 
     const badge = document.getElementById('appearanceActiveBadge');
     if (badge) {
@@ -317,6 +327,8 @@
       name: name,
       description: desc,
       prompt_height: height,
+      gender: getVal('appRpgGender') || 'Weiblich',
+      age: getVal('appRpgAge') || '',
       visual: {
         body: getVal('appPresetBody'),
         eyes: [getVal('appPresetEyeColor'), getVal('appPresetEyeShape')].filter(Boolean).join(', '),
