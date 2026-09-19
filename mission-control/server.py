@@ -2145,10 +2145,66 @@ EVOLUTION_STORAGE_DIR = Path("/mnt/storage-beta/projekte/comfyui-evolution")
 EVOLUTION_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 active_evolution_runner = None
+active_evolution_task: Optional[asyncio.Task] = None
 evolution_future = None
 
+async def run_timeboxed_evolution_loop(runner):
+    """
+    Executes 10-batch cycles repeatedly until runner.expires_at is reached
+    (or exactly 1 cycle if duration_minutes == 0).
+    Performs mandatory ComfyUI VRAM Cache Purge between cycles.
+    """
+    loop = asyncio.get_running_loop()
+    from comfy_evolution_loop import set_evolution_lock
+
+    try:
+        while not runner._abort_flag:
+            # 1. Run 10-batch cycle in executor
+            await loop.run_in_executor(None, runner.run_10_batch_cycle)
+
+            if runner._abort_flag:
+                break
+
+            # 2. Mandatory VRAM Purge between cycles
+            logger.info(f"Evolution Loop: 10er-Batch #{runner.iteration} abgeschlossen. Purging ComfyUI VRAM Cache...")
+            try:
+                await trigger_comfy_cache_purge(unload_models=False)
+            except Exception as pe:
+                logger.warning(f"VRAM purge warning in evolution loop: {pe}")
+
+            # 3. Time check
+            if runner.duration_minutes <= 0:
+                runner.state = "COMPLETED"
+                runner.status_message = f"Einmaliger 10er-Batch abgeschlossen (Ø {runner.average_score:.1f}/10)."
+                break
+
+            remaining = runner.expires_at - time.time()
+            if remaining <= 0:
+                runner.state = "COMPLETED"
+                runner.status_message = f"Dauer-Loop beendet nach Zeitablauf ({runner.duration_minutes}m, {runner.iteration} Runden, Ø {runner.average_score:.1f}/10)."
+                break
+
+            # Advance to next iteration automatically
+            runner.advance_to_next_iteration()
+            runner.state = "RUNNING"
+            set_evolution_lock(active=True, session_id=runner.session_id, iteration=runner.iteration, duration_minutes=runner.duration_minutes)
+            runner.status_message = f"Runde {runner.iteration} startet automatisch in Kürze (Restzeit: {int(remaining)}s)..."
+            await asyncio.sleep(2)
+    except asyncio.CancelledError:
+        logger.info("run_timeboxed_evolution_loop task cancelled.")
+        if runner:
+            runner.abort()
+    except Exception as e:
+        logger.error(f"Unexpected error in run_timeboxed_evolution_loop: {e}", exc_info=True)
+        if runner:
+            runner.state = "ERROR"
+            runner.status_message = f"Fehler im Dauer-Loop: {e}"
+    finally:
+        set_evolution_lock(active=False, session_id=runner.session_id, iteration=runner.iteration, duration_minutes=runner.duration_minutes)
+
+
 async def handle_evolution_start(request: web.Request) -> web.Response:
-    global active_evolution_runner, evolution_future
+    global active_evolution_runner, active_evolution_task
     try:
         try:
             body = await request.json()
@@ -2182,6 +2238,9 @@ async def handle_evolution_start(request: web.Request) -> web.Response:
                 "state": active_evolution_runner.get_state_dict()
             }, status=409)
 
+        if active_evolution_task and not active_evolution_task.done():
+            active_evolution_task.cancel()
+
         if str(BASE_DIR) not in sys.path:
             sys.path.insert(0, str(BASE_DIR))
         from comfy_evolution_loop import EvolutionRunner, set_evolution_lock
@@ -2201,8 +2260,7 @@ async def handle_evolution_start(request: web.Request) -> web.Response:
 
         set_evolution_lock(active=True, session_id=active_evolution_runner.session_id, iteration=0, duration_minutes=duration_minutes)
 
-        loop = asyncio.get_running_loop()
-        evolution_future = loop.run_in_executor(None, active_evolution_runner.run_10_batch_cycle)
+        active_evolution_task = asyncio.create_task(run_timeboxed_evolution_loop(active_evolution_runner))
 
         logger.info(f"ComfyUI Evolution Loop started: session={active_evolution_runner.session_id}, duration={duration_minutes}m")
         return web.json_response({
@@ -2250,8 +2308,31 @@ async def handle_evolution_status(request: web.Request) -> web.Response:
         }, status=500)
 
 
+async def handle_evolution_timer(request: web.Request) -> web.Response:
+    """Returns active timer & status for the evolution loop."""
+    global active_evolution_runner
+    if not active_evolution_runner:
+        return web.json_response({
+            "active": False,
+            "state": "IDLE",
+            "duration_minutes": 0,
+            "remaining_seconds": 0,
+            "iteration": 0,
+            "expires_at": 0
+        })
+    st = active_evolution_runner.get_state_dict()
+    return web.json_response({
+        "active": st.get("state") == "RUNNING",
+        "state": st.get("state"),
+        "duration_minutes": st.get("duration_minutes", 0),
+        "remaining_seconds": st.get("remaining_seconds", 0),
+        "iteration": st.get("iteration", 0),
+        "expires_at": st.get("expires_at", 0)
+    })
+
+
 async def handle_evolution_next(request: web.Request) -> web.Response:
-    global active_evolution_runner, evolution_future
+    global active_evolution_runner, active_evolution_task
     try:
         if not active_evolution_runner:
             return web.json_response({
@@ -2285,8 +2366,10 @@ async def handle_evolution_next(request: web.Request) -> web.Response:
         active_evolution_runner.advance_to_next_iteration(p_override, n_override)
         set_evolution_lock(active=True, session_id=active_evolution_runner.session_id, iteration=active_evolution_runner.iteration, duration_minutes=active_evolution_runner.duration_minutes)
 
-        loop = asyncio.get_running_loop()
-        evolution_future = loop.run_in_executor(None, active_evolution_runner.run_10_batch_cycle)
+        if active_evolution_task and not active_evolution_task.done():
+            active_evolution_task.cancel()
+
+        active_evolution_task = asyncio.create_task(run_timeboxed_evolution_loop(active_evolution_runner))
 
         logger.info(f"ComfyUI Evolution Loop: Runde {active_evolution_runner.iteration} gestartet.")
         return web.json_response({
@@ -2307,7 +2390,7 @@ async def handle_evolution_next(request: web.Request) -> web.Response:
 
 
 async def handle_evolution_stop(request: web.Request) -> web.Response:
-    global active_evolution_runner
+    global active_evolution_runner, active_evolution_task
     try:
         if str(BASE_DIR) not in sys.path:
             sys.path.insert(0, str(BASE_DIR))
@@ -2319,6 +2402,10 @@ async def handle_evolution_stop(request: web.Request) -> web.Response:
 
         if active_evolution_runner:
             active_evolution_runner.abort()
+        if active_evolution_task and not active_evolution_task.done():
+            active_evolution_task.cancel()
+
+        if active_evolution_runner:
             logger.info("ComfyUI Evolution Loop aborted by user.")
             return web.json_response({
                 "success": True,
@@ -3899,6 +3986,8 @@ def create_app() -> web.Application:
     # ComfyUI Autonomous Evolution Loop
     app.router.add_post("/api/evolution/start", handle_evolution_start)
     app.router.add_get("/api/evolution/status", handle_evolution_status)
+    app.router.add_get("/api/evolution/timer", handle_evolution_timer)
+    app.router.add_post("/api/evolution/timer", handle_evolution_timer)
     app.router.add_post("/api/evolution/next", handle_evolution_next)
     app.router.add_post("/api/evolution/stop", handle_evolution_stop)
     app.router.add_static("/outputs/evolution/", path=str(EVOLUTION_STORAGE_DIR), name="evolution_outputs", follow_symlinks=True)

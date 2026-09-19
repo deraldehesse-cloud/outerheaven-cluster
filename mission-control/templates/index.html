@@ -706,10 +706,10 @@
                 </div>
               </div>
               <div class="flex items-center space-x-2">
-                <button type="button" id="btnEvoStart" onclick="startEvolutionLoop()" class="px-3 py-1 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold transition shadow flex items-center space-x-1">
+                <button type="button" id="btnCockpitEvoStart" onclick="startEvolutionLoop()" class="px-3 py-1 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold transition shadow flex items-center space-x-1">
                   <span>▶️</span> <span>Zyklus starten</span>
                 </button>
-                <button type="button" id="btnEvoStop" onclick="stopEvolutionLoop()" class="hidden px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-rose-700 text-rose-400 rounded text-xs font-bold transition">
+                <button type="button" id="btnCockpitEvoStop" onclick="stopEvolutionLoop()" class="hidden px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-rose-700 text-rose-400 rounded text-xs font-bold transition">
                   ⏹️ Abbrechen
                 </button>
                 <button type="button" onclick="toggleEvolutionPanel()" class="text-slate-500 hover:text-white px-2 py-1 text-xs">
@@ -742,7 +742,7 @@
             </div>
 
             <!-- Round Complete & Top-3 Results Box -->
-            <div id="evoResultsContainer" class="hidden space-y-3 pt-1">
+            <div id="cockpitEvoResultsContainer" class="hidden space-y-3 pt-1">
               <div class="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-pink-950/30 border border-pink-900/60 rounded-lg">
                 <div class="flex items-center space-x-2">
                   <span class="text-lg">🏆</span>
@@ -1279,16 +1279,84 @@
             </div>
 
             <!-- Execution / Render Section -->
-            <div class="pt-3 border-t border-slate-800 space-y-2">
+            <div class="pt-3 border-t border-slate-800 space-y-3">
               <div id="meganRenderStatus" class="hidden text-xs p-2 rounded text-center font-mono bg-cyan-950/60 border border-cyan-800 text-cyan-300">
                 ⚙️ Übermittle Render-Job...
               </div>
 
+              <!-- Schnell-Render Einzelbild Button -->
               <button type="button" id="btnMeganExecuteRender" onclick="executeMeganRender()"
                       class="w-full py-2.5 bg-gradient-to-r from-pink-600 via-rose-600 to-amber-600 hover:from-pink-500 hover:via-rose-500 hover:to-amber-500 text-slate-950 font-black text-xs uppercase tracking-wider rounded transition shadow-lg flex items-center justify-center space-x-2 glow-pink">
                 <span>🚀</span>
-                <span>RENDER ON ARC A770</span>
+                <span>RENDER ON ARC A770 (EINZELBILD)</span>
               </button>
+
+              <!-- Autonomous Evolution Loop Steuerpanel (10er-Batches & Dauer-Loop) -->
+              <div class="bg-slate-900/90 border border-pink-700/60 rounded-lg p-3 space-y-3 shadow-md font-mono text-xs">
+                <div class="flex items-center justify-between border-b border-pink-950/80 pb-2">
+                  <div class="flex items-center space-x-2">
+                    <span class="w-2 h-2 rounded-full bg-pink-500 animate-pulse"></span>
+                    <span class="font-bold text-pink-300 text-[11px] uppercase tracking-wider">EVOLUTION LOOP (10ER-BATCHES)</span>
+                  </div>
+                  <div class="flex items-center space-x-1.5">
+                    <span id="evoBatchBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-950 border border-slate-700 text-slate-300">Batch #0</span>
+                    <span id="evoCountdownBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-950 border border-pink-800 text-pink-300">⏳ Bereit</span>
+                  </div>
+                </div>
+
+                <!-- Dauer-Loop Dropdown & Actions -->
+                <div class="space-y-2">
+                  <div class="flex items-center space-x-2">
+                    <label for="evoDurationSelect" class="text-[10px] text-slate-400 font-bold uppercase shrink-0">Dauer:</label>
+                    <select id="evoDurationSelect" class="flex-1 bg-black border border-pink-700/60 text-pink-200 text-xs rounded px-2 py-1.5 focus:border-pink-500 focus:outline-none">
+                      <option value="0">⏱️ Einmalig (1x 10 Bilder)</option>
+                      <option value="10" selected>⏱️ 10 Minuten Dauer-Loop (10er-Batches)</option>
+                      <option value="20">⏱️ 20 Minuten Dauer-Loop (10er-Batches)</option>
+                      <option value="30">⏱️ 30 Minuten Dauer-Loop (10er-Batches)</option>
+                      <option value="60">⏱️ 1 Stunde Dauer-Loop (10er-Batches)</option>
+                    </select>
+                  </div>
+
+                  <div class="grid grid-cols-1 gap-2">
+                    <button type="button" id="btnEvoStart" onclick="startEvolutionLoop()"
+                            class="w-full py-2 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-bold text-xs uppercase tracking-wider rounded transition shadow flex items-center justify-center space-x-1.5">
+                      <span>🚀</span>
+                      <span>10X EVOLUTION LOOP STARTEN</span>
+                    </button>
+                    <button type="button" id="btnEvoStop" onclick="stopEvolutionLoop()"
+                            class="hidden w-full py-2 bg-rose-950 hover:bg-rose-900 border border-rose-600 text-rose-300 font-bold text-xs uppercase tracking-wider rounded transition shadow flex items-center justify-center space-x-1.5">
+                      <span>⏹</span>
+                      <span>LOOP ABBRECHEN</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Status & Progress -->
+                <div id="evoStatusContainer" class="bg-black/60 p-2.5 rounded border border-slate-800 space-y-1.5">
+                  <div class="flex justify-between items-center text-[10px]">
+                    <span id="meganEvoStatusText" class="text-pink-200 truncate max-w-[220px]">Bereit für Evolution Loop.</span>
+                    <span id="meganEvoProgressCounter" class="text-pink-400 font-bold">0 / 10</span>
+                  </div>
+                  <div class="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                    <div id="meganEvoProgressBar" class="bg-gradient-to-r from-pink-500 to-purple-500 h-full w-0 transition-all duration-300"></div>
+                  </div>
+                </div>
+
+                <!-- Live Results Container & Batch Thumbnails Grid -->
+                <div id="evoResultsContainer" class="hidden space-y-2.5 pt-1">
+                  <div class="flex items-center justify-between text-[11px] bg-pink-950/40 border border-pink-900/60 p-2 rounded">
+                    <span class="font-bold text-pink-300 flex items-center space-x-1">
+                      <span>🏆</span> <span id="evoResultTitle">Batch-Ergebnisse</span>
+                    </span>
+                    <span id="evoAvgBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-950 border border-pink-600 text-pink-300 shadow">Ø - / 10</span>
+                  </div>
+
+                  <!-- 10 Thumbnail Grid (Score Badges + Seeds) -->
+                  <div id="evoBatchGrid" class="grid grid-cols-5 gap-1.5">
+                    <!-- Dynamically populated 10 rendered thumbnails -->
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -3950,19 +4018,28 @@
     }
 
     async function startEvolutionLoop() {
-      const promptInput = document.getElementById('renderPrompt');
-      const negInput = document.getElementById('renderNegativePrompt');
+      // Primary: read from Megan Studio inputs; Fallback: Quick Render inputs
+      const meganPrompt = document.getElementById('meganPositivePrompt');
+      const meganNeg = document.getElementById('meganNegativePrompt');
+      const renderPrompt = document.getElementById('renderPrompt');
+      const renderNeg = document.getElementById('renderNegativePrompt');
       const ckptVal = document.getElementById('renderCheckpoint')?.value || "DreamShaper8_LCM.safetensors";
+      const durationSelect = document.getElementById('evoDurationSelect');
+      const durationMinutes = durationSelect ? parseInt(durationSelect.value, 10) : 10;
 
-      const promptText = promptInput ? promptInput.value.trim() : "";
-      const negText = negInput ? negInput.value.trim() : "";
+      const promptText = (meganPrompt && meganPrompt.value.trim()) ? meganPrompt.value.trim() : (renderPrompt ? renderPrompt.value.trim() : "");
+      const negText = (meganNeg && meganNeg.value.trim()) ? meganNeg.value.trim() : (renderNeg ? renderNeg.value.trim() : "");
 
       if (!promptText) {
         alert("Bitte gib einen Basis-Prompt für die Evolution ein!");
         return;
       }
 
-      document.getElementById('btnEvoStart').disabled = true;
+      const btnEvoStart = document.getElementById('btnEvoStart');
+      const btnCockpitStart = document.getElementById('btnCockpitEvoStart');
+      if (btnEvoStart) btnEvoStart.disabled = true;
+      if (btnCockpitStart) btnCockpitStart.disabled = true;
+
       try {
         const res = await fetch('/api/evolution/start', {
           method: 'POST',
@@ -3972,7 +4049,8 @@
             negative_prompt: negText,
             checkpoint: ckptVal,
             steps: 8,
-            cfg: 2.0
+            cfg: 2.0,
+            duration_minutes: durationMinutes
           })
         });
         if (!res.ok) {
@@ -3993,7 +4071,8 @@
       } catch (err) {
         alert("Netzwerkfehler: " + err.message);
       } finally {
-        document.getElementById('btnEvoStart').disabled = false;
+        if (btnEvoStart) btnEvoStart.disabled = false;
+        if (btnCockpitStart) btnCockpitStart.disabled = false;
       }
     }
 
@@ -4001,7 +4080,8 @@
       const pOverride = document.getElementById('evoEvolvedPromptText')?.value.trim() || "";
       const nOverride = document.getElementById('evoEvolvedNegativeText')?.value.trim() || "";
 
-      document.getElementById('btnEvoNext').disabled = true;
+      const btnEvoNext = document.getElementById('btnEvoNext');
+      if (btnEvoNext) btnEvoNext.disabled = true;
       try {
         const res = await fetch('/api/evolution/next', {
           method: 'POST',
@@ -4029,16 +4109,24 @@
       } catch (err) {
         alert("Netzwerkfehler: " + err.message);
       } finally {
-        document.getElementById('btnEvoNext').disabled = false;
+        if (btnEvoNext) btnEvoNext.disabled = false;
       }
     }
 
     async function stopEvolutionLoop() {
+      const btnEvoStop = document.getElementById('btnEvoStop');
+      const btnCockpitStop = document.getElementById('btnCockpitEvoStop');
+      if (btnEvoStop) btnEvoStop.disabled = true;
+      if (btnCockpitStop) btnCockpitStop.disabled = true;
+
       try {
         await fetch('/api/evolution/stop', { method: 'POST' });
         setTimeout(checkEvolutionStatus, 500);
       } catch (err) {
         console.warn("Error stopping evolution loop:", err);
+      } finally {
+        if (btnEvoStop) btnEvoStop.disabled = false;
+        if (btnCockpitStop) btnCockpitStop.disabled = false;
       }
     }
 
@@ -4066,40 +4154,101 @@
     }
 
     function updateEvolutionUI(st) {
+      // Cockpit panel elements
       const badge = document.getElementById('evoStateBadge');
       const statusTxt = document.getElementById('evoStatusText');
       const counter = document.getElementById('evoProgressCounter');
       const bar = document.getElementById('evoProgressBar');
-      const btnStart = document.getElementById('btnEvoStart');
-      const btnStop = document.getElementById('btnEvoStop');
+      const btnCockpitStart = document.getElementById('btnCockpitEvoStart');
+      const btnCockpitStop = document.getElementById('btnCockpitEvoStop');
       const liveContainer = document.getElementById('evoLivePreviewContainer');
-      const resultsContainer = document.getElementById('evoResultsContainer');
+      const cockpitResultsContainer = document.getElementById('cockpitEvoResultsContainer');
 
-      if (!badge || !statusTxt) return;
+      // Megan Studio panel elements
+      const btnMeganStart = document.getElementById('btnEvoStart');
+      const btnMeganStop = document.getElementById('btnEvoStop');
+      const meganBatchBadge = document.getElementById('evoBatchBadge');
+      const meganCountdownBadge = document.getElementById('evoCountdownBadge');
+      const meganStatusText = document.getElementById('meganEvoStatusText');
+      const meganCounter = document.getElementById('meganEvoProgressCounter');
+      const meganBar = document.getElementById('meganEvoProgressBar');
+      const meganResultsContainer = document.getElementById('evoResultsContainer');
+      const meganBatchGrid = document.getElementById('evoBatchGrid');
+      const meganAvgBadge = document.getElementById('evoAvgBadge');
+      const meganResultTitle = document.getElementById('evoResultTitle');
 
-      badge.textContent = st.state;
-      if (st.state === 'RUNNING') {
-        badge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-pink-950 border border-pink-600 text-pink-300 animate-pulse";
-        if (btnStart) btnStart.classList.add('hidden');
-        if (btnStop) btnStop.classList.remove('hidden');
-      } else if (st.state === 'PAUSED_FOR_USER') {
-        badge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 border border-amber-600 text-amber-300";
-        if (btnStart) btnStart.classList.add('hidden');
-        if (btnStop) btnStop.classList.add('hidden');
-      } else {
-        badge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 border border-slate-700 text-slate-400";
-        if (btnStart) btnStart.classList.remove('hidden');
-        if (btnStop) btnStop.classList.add('hidden');
+      // Update Badges in Megan Studio
+      if (meganBatchBadge) {
+        meganBatchBadge.textContent = `Batch #${st.iteration || 0}`;
+      }
+      if (meganCountdownBadge) {
+        if (st.state === 'RUNNING') {
+          if (st.duration_minutes === 0) {
+            meganCountdownBadge.textContent = "⏳ 1x Durchlauf";
+            meganCountdownBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-pink-950 border border-pink-700 text-pink-300";
+          } else {
+            const sec = Math.max(0, st.remaining_seconds || 0);
+            const m = Math.floor(sec / 60);
+            const s = sec % 60;
+            meganCountdownBadge.textContent = `⏳ ${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            meganCountdownBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 border border-amber-600 text-amber-300 animate-pulse";
+          }
+        } else if (st.state === 'COMPLETED') {
+          meganCountdownBadge.textContent = "✔ Abgeschlossen";
+          meganCountdownBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 border border-emerald-600 text-emerald-300";
+        } else if (st.state === 'ABORTED') {
+          meganCountdownBadge.textContent = "⏹ Gestoppt";
+          meganCountdownBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 border border-rose-700 text-rose-300";
+        } else {
+          meganCountdownBadge.textContent = "⏳ Bereit";
+          meganCountdownBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-slate-950 border border-pink-800 text-pink-300";
+        }
       }
 
-      statusTxt.textContent = st.status_message || "";
+      // Buttons toggle
+      if (st.state === 'RUNNING') {
+        if (btnMeganStart) btnMeganStart.classList.add('hidden');
+        if (btnMeganStop) btnMeganStop.classList.remove('hidden');
+        if (btnCockpitStart) btnCockpitStart.classList.add('hidden');
+        if (btnCockpitStop) btnCockpitStop.classList.remove('hidden');
+        if (badge) {
+          badge.textContent = st.state;
+          badge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-pink-950 border border-pink-600 text-pink-300 animate-pulse";
+        }
+      } else if (st.state === 'PAUSED_FOR_USER') {
+        if (btnMeganStart) btnMeganStart.classList.add('hidden');
+        if (btnMeganStop) btnMeganStop.classList.add('hidden');
+        if (btnCockpitStart) btnCockpitStart.classList.add('hidden');
+        if (btnCockpitStop) btnCockpitStop.classList.add('hidden');
+        if (badge) {
+          badge.textContent = st.state;
+          badge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 border border-amber-600 text-amber-300";
+        }
+      } else {
+        if (btnMeganStart) btnMeganStart.classList.remove('hidden');
+        if (btnMeganStop) btnMeganStop.classList.add('hidden');
+        if (btnCockpitStart) btnCockpitStart.classList.remove('hidden');
+        if (btnCockpitStop) btnCockpitStop.classList.add('hidden');
+        if (badge) {
+          badge.textContent = st.state;
+          badge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 border border-slate-700 text-slate-400";
+        }
+      }
+
+      // Status text & Progress
+      if (statusTxt) statusTxt.textContent = st.status_message || "";
+      if (meganStatusText) meganStatusText.textContent = st.status_message || "Bereit für Evolution Loop.";
+
       const cur = st.current_image || 0;
       const tot = st.total_images || 10;
       if (counter) counter.textContent = `${cur} / ${tot} Bilder`;
+      if (meganCounter) meganCounter.textContent = `${cur} / ${tot}`;
+
       const pct = Math.min(100, Math.round((cur / tot) * 100));
       if (bar) bar.style.width = `${pct}%`;
+      if (meganBar) meganBar.style.width = `${pct}%`;
 
-      // Live image preview
+      // Live image preview (Cockpit)
       const images = st.images || [];
       if (images.length > 0 && st.state === 'RUNNING') {
         const lastImg = images[images.length - 1];
@@ -4116,9 +4265,31 @@
         liveContainer.classList.add('hidden');
       }
 
-      // Round Complete & Results Box
+      // Populate Megan Studio 10 Thumbnail Grid (#evoBatchGrid)
+      if (images.length > 0) {
+        if (meganResultsContainer) meganResultsContainer.classList.remove('hidden');
+        if (meganResultTitle) meganResultTitle.textContent = `Batch #${st.iteration || 1} (${images.length}/10 Bilder)`;
+        if (meganAvgBadge && st.average_score) meganAvgBadge.textContent = `Ø ${st.average_score} / 10`;
+
+        if (meganBatchGrid) {
+          meganBatchGrid.innerHTML = images.map((img) => `
+            <div class="relative bg-black/70 border border-slate-800 hover:border-pink-500/80 rounded overflow-hidden group cursor-pointer transition shadow"
+                 onclick="openLightbox('${img.url}', 'Batch #${st.iteration || 1} Bild ${img.index}/10 - Score: ${img.score}/10 (Seed: ${img.seed})')">
+              <img src="${img.url}" class="w-full h-16 object-cover group-hover:scale-105 transition duration-300" loading="lazy">
+              <div class="absolute top-0.5 right-0.5 px-1 py-0.2 rounded text-[8px] font-bold bg-black/80 text-pink-300 border border-pink-800/60 font-mono">
+                ${img.score ? img.score + '⭐' : '#' + img.index}
+              </div>
+              <div class="absolute bottom-0 inset-x-0 bg-black/80 text-[7px] text-slate-400 font-mono text-center truncate px-0.5">
+                ${img.seed || ''}
+              </div>
+            </div>
+          `).join('');
+        }
+      }
+
+      // Cockpit Round Complete & Top-3 Box
       if (st.state === 'PAUSED_FOR_USER' || (st.top_3 && st.top_3.length > 0)) {
-        if (resultsContainer) resultsContainer.classList.remove('hidden');
+        if (cockpitResultsContainer) cockpitResultsContainer.classList.remove('hidden');
         const roundEl = document.getElementById('evoRoundNum');
         const nextRoundEl = document.getElementById('evoNextRoundNum');
         const avgBadge = document.getElementById('evoAvgScoreBadge');
