@@ -27,6 +27,10 @@
     .border-amber-dim {
       border-color: rgba(251, 191, 36, 0.25);
     }
+    #workspaceMegan {
+      width: 100% !important;
+      max-width: 100% !important;
+    }
     .scrollbar-thin::-webkit-scrollbar {
       width: 6px;
       height: 6px;
@@ -1076,14 +1080,19 @@
                     title="RPG Charakter Creator / Aussehen-Presets öffnen">
               <span>👤</span> <span>RPG-AUSSEHEN MODAL</span>
             </button>
+            <button type="button" id="btnMeganStudioConfig" onclick="openBotSettings()"
+                    class="px-3 py-1.5 bg-pink-950/80 hover:bg-pink-900 border border-pink-600/70 text-pink-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5 shadow glow-pink"
+                    title="Companion Bot Runtime Configuration öffnen">
+              <span>⚙️</span> <span>MEGAN CONFIG</span>
+            </button>
           </div>
         </div>
 
         <!-- 3-Spalten Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 font-mono">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 font-mono w-full">
           
           <!-- SPALTE LINKS: Lovense-Statusanzeige, Intensitätsregler (0-20), Quick-Buttons (5, 10, 15, MAX, STOP) und Chatfenster -->
-          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-4 shadow-lg">
+          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-4 shadow-lg min-w-0">
             
             <!-- Lovense Controller Card -->
             <div class="space-y-3 pb-3 border-b border-pink-950">
@@ -1182,7 +1191,7 @@
           </div>
 
           <!-- SPALTE MITTE: ComfyUI Prompt-Studio mit Positiv-Prompt, Negativ-Prompt, Preset Laden/Speichern & Render-Button -->
-          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-4 shadow-lg">
+          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-4 shadow-lg min-w-0">
             
             <div class="space-y-3.5">
               <div class="flex items-center justify-between pb-2 border-b border-pink-950">
@@ -1284,7 +1293,7 @@
           </div>
 
           <!-- SPALTE RECHTS: Canonical Vault Live-Binding (character.json Ansicht mit Speichern-Button) -->
-          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-3 shadow-lg">
+          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-3 shadow-lg min-w-0">
             
             <div class="space-y-3 flex-1 flex flex-col">
               <div class="flex items-center justify-between pb-2 border-b border-pink-950">
@@ -1340,7 +1349,7 @@
     </button>
 
     <!-- ZONE 3: Rechte Seitenleiste (Kontext-Panel / Agent-Console Drawer) - standardmäßig eingeklappt -->
-    <aside id="agentDrawer" class="hidden w-80 md:w-96 bg-slate-950/95 border-l border-slate-800 flex flex-col h-full shrink-0 z-30 shadow-2xl transition-all duration-300 overflow-hidden font-mono">
+    <aside id="agentDrawer" data-alias="agentConsole" class="agent-console hidden w-80 md:w-96 bg-slate-950/95 border-l border-slate-800 flex flex-col h-full shrink-0 z-30 shadow-2xl transition-all duration-300 overflow-hidden font-mono">
       <!-- Agent Console Header -->
       <div class="p-3 border-b border-slate-800 bg-slate-900/70 flex items-center justify-between gap-2 shrink-0">
         <div class="flex items-center space-x-2">
@@ -1492,9 +1501,9 @@
   </div> <!-- End 3-Zone Cockpit Layout -->
 
   {% if is_restricted %}
-  <!-- [RESTRICTED] Companion Bot Runtime Configuration & Hot-Reload Modal / Drawer -->
-  <div id="companionSettingsModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end">
-    <div class="w-full max-w-4xl bg-slate-950 border-l border-pink-900/60 p-4 sm:p-6 overflow-y-auto h-full shadow-2xl space-y-4 font-mono relative">
+  <!-- [RESTRICTED] Companion Bot Runtime Configuration & Hot-Reload Modal (Centered Overlay) -->
+  <div id="companionSettingsModal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 select-none" onclick="closeBotSettings()">
+    <div class="relative w-full max-w-5xl bg-slate-950/95 border border-pink-600/50 rounded-xl shadow-2xl overflow-y-auto max-h-[94vh] p-4 sm:p-6 space-y-4 font-mono select-text" onclick="event.stopPropagation()">
       <!-- Glow effect -->
       <div class="absolute -top-24 -right-24 w-72 h-72 bg-pink-600/10 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -2696,6 +2705,26 @@
       setElementVisibility('meganWorkspaceView', true, 'block');
       setElementVisibility('btnBackToCockpit', true, 'flex');
 
+      // 1. Rechte Seitenleiste (Agent Console / Drawer) zwingend ausblenden
+      const agentConsole = document.getElementById('agentDrawer') || document.getElementById('agentConsole') || document.querySelector('.agent-console');
+      if (agentConsole) {
+        agentConsole.classList.add('hidden');
+        agentConsole.style.display = 'none';
+      }
+      const toggleRightDrawer = document.getElementById('btnToggleRightDrawer');
+      if (toggleRightDrawer) {
+        toggleRightDrawer.classList.add('hidden');
+        toggleRightDrawer.style.display = 'none';
+      }
+
+      // 2. Megan Studio über die volle Bildschirmbreite ausdehnen
+      const meganEl = document.getElementById('workspaceMegan');
+      if (meganEl) {
+        meganEl.classList.remove('hidden');
+        meganEl.style.display = 'block';
+        meganEl.style.width = '100%';
+      }
+
       const headerMeganBtn = document.getElementById('btnHeaderMeganStudio');
       if (headerMeganBtn) {
         headerMeganBtn.className = "px-2.5 py-1 bg-pink-900 border border-pink-400 text-white rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink ring-1 ring-pink-400";
@@ -2718,6 +2747,21 @@
       setElementVisibility('bueroWorkspaceView', false);
       setElementVisibility('nodesOverview', true, 'grid');
       setElementVisibility('catlordWorkspaceView', true, 'block');
+
+      // Rechte Seitenleiste im Haupt-Cockpit wieder einblenden
+      const agentConsole = document.getElementById('agentDrawer') || document.getElementById('agentConsole') || document.querySelector('.agent-console');
+      if (agentConsole) {
+        agentConsole.classList.remove('hidden');
+        agentConsole.style.display = '';
+        if (typeof updateDrawerToggleBtn === 'function') {
+          updateDrawerToggleBtn(true);
+        }
+      }
+      const toggleRightDrawer = document.getElementById('btnToggleRightDrawer');
+      if (toggleRightDrawer) {
+        toggleRightDrawer.classList.remove('hidden');
+        toggleRightDrawer.style.display = '';
+      }
 
       const headerMeganBtn = document.getElementById('btnHeaderMeganStudio');
       if (headerMeganBtn) {
@@ -2822,33 +2866,41 @@
     }
 
     function toggleAgentDrawer() {
-      const drawer = document.getElementById('agentDrawer');
+      const drawer = document.getElementById('agentDrawer') || document.getElementById('agentConsole') || document.querySelector('.agent-console');
       if (!drawer) return;
-      const isCurrentlyHidden = drawer.classList.contains('hidden');
+      const isCurrentlyHidden = drawer.classList.contains('hidden') || drawer.style.display === 'none';
       if (isCurrentlyHidden) {
         drawer.classList.remove('hidden');
+        drawer.style.display = '';
         updateDrawerToggleBtn(true);
       } else {
         drawer.classList.add('hidden');
+        drawer.style.display = '';
         updateDrawerToggleBtn(false);
       }
     }
 
     function openAgentDrawer() {
-      const drawer = document.getElementById('agentDrawer');
-      if (drawer) drawer.classList.remove('hidden');
+      const drawer = document.getElementById('agentDrawer') || document.getElementById('agentConsole') || document.querySelector('.agent-console');
+      if (drawer) {
+        drawer.classList.remove('hidden');
+        drawer.style.display = '';
+      }
       updateDrawerToggleBtn(true);
     }
 
     function closeAgentDrawer() {
-      const drawer = document.getElementById('agentDrawer');
-      if (drawer) drawer.classList.add('hidden');
+      const drawer = document.getElementById('agentDrawer') || document.getElementById('agentConsole') || document.querySelector('.agent-console');
+      if (drawer) {
+        drawer.classList.add('hidden');
+        drawer.style.display = '';
+      }
       updateDrawerToggleBtn(false);
     }
 
     window.addEventListener('resize', () => {
-      const drawer = document.getElementById('agentDrawer');
-      if (drawer && !drawer.classList.contains('hidden')) {
+      const drawer = document.getElementById('agentDrawer') || document.getElementById('agentConsole') || document.querySelector('.agent-console');
+      if (drawer && !drawer.classList.contains('hidden') && drawer.style.display !== 'none') {
         updateDrawerToggleBtn(true);
       }
       const sidebar = document.getElementById('cockpitSidebar');
@@ -2863,6 +2915,7 @@
       const modal = document.getElementById('companionSettingsModal');
       if (modal) {
         modal.classList.remove('hidden');
+        modal.style.display = 'flex';
         if (typeof loadBotConfig === 'function') {
           loadBotConfig();
         }
@@ -2881,14 +2934,28 @@
         if (typeof checkFoxVisionStatus === 'function') {
           checkFoxVisionStatus();
         }
-
       }
     }
 
     function closeBotSettings() {
       const modal = document.getElementById('companionSettingsModal');
-      if (modal) modal.classList.add('hidden');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+      }
     }
+
+    window.openBotSettings = openBotSettings;
+    window.closeBotSettings = closeBotSettings;
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        const modal = document.getElementById('companionSettingsModal');
+        if (modal && !modal.classList.contains('hidden') && modal.style.display !== 'none') {
+          closeBotSettings();
+        }
+      }
+    });
     {% endif %}
 
     function updateTacticalAgentModelUI(modelName) {
