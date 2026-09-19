@@ -112,6 +112,7 @@ TELEGRAM_BOT_TOKEN = (
 ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID", "7934555424").strip().strip('"').strip("'")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/api/chat")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "lexi-llama-3-8b-uncensored_q4_k_m:latest")
+CHARACTER_JSON_PATH = PROJECT_ROOT / "character.json"
 SYSTEM_PROMPT_PATH = PROJECT_ROOT / "docs" / "haven_system_prompt.txt"
 if not SYSTEM_PROMPT_PATH.is_file():
     SYSTEM_PROMPT_PATH = PROJECT_ROOT / "docs" / "megan_system_prompt.txt"
@@ -902,7 +903,16 @@ def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situatio
 def get_full_system_prompt() -> str:
     check_and_reload_bot_config()
     base_prompt = ""
-    if SYSTEM_PROMPT_PATH.is_file():
+    if CHARACTER_JSON_PATH.is_file():
+        try:
+            cdata = json.loads(CHARACTER_JSON_PATH.read_text(encoding="utf-8"))
+            if isinstance(cdata, dict):
+                base_prompt = (cdata.get("system_prompt") or cdata.get("lore") or "").strip()
+            elif isinstance(cdata, str):
+                base_prompt = cdata.strip()
+        except Exception as e:
+            print(f"[Warnung] Fehler beim Lesen von character.json: {e}")
+    if not base_prompt and SYSTEM_PROMPT_PATH.is_file():
         try:
             base_prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
         except Exception as e:
