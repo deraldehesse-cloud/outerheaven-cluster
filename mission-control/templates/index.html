@@ -2864,6 +2864,7 @@
       if (typeof loadMeganStudioPresets === 'function') loadMeganStudioPresets();
       if (typeof loadMeganVaultLore === 'function') loadMeganVaultLore();
       if (typeof checkLovenseStatus === 'function') checkLovenseStatus();
+      if (typeof checkEvolutionStatus === 'function') checkEvolutionStatus();
     }
 
     function switchToCockpit() {
@@ -4012,6 +4013,9 @@
         if (!res.ok) return;
         const st = await res.json();
         updateEvolutionUI(st);
+        if (st.state === 'RUNNING' && !evoPollTimer) {
+          startEvoPolling();
+        }
       } catch (err) {
         console.warn("Error checking evolution status:", err);
       }
@@ -4039,6 +4043,29 @@
       const btnCockpitStart = document.getElementById('btnCockpitEvoStart');
       if (btnEvoStart) btnEvoStart.disabled = true;
       if (btnCockpitStart) btnCockpitStart.disabled = true;
+
+      // Sofortige visuelle Rückmeldung im Megan Studio
+      const meganResultsContainer = document.getElementById('evoResultsContainer');
+      const meganBatchGrid = document.getElementById('evoBatchGrid');
+      const meganResultTitle = document.getElementById('evoResultTitle');
+      const meganStatusText = document.getElementById('meganEvoStatusText');
+      if (meganResultsContainer) meganResultsContainer.classList.remove('hidden');
+      if (meganResultTitle) meganResultTitle.textContent = "Batch #1 (Startet...)";
+      if (meganStatusText) meganStatusText.textContent = "Evolution Loop wird initialisiert...";
+      if (meganBatchGrid) {
+        let initHtml = `
+          <div class="relative bg-pink-950/30 border border-pink-600/70 rounded h-16 flex flex-col items-center justify-center text-center p-1 animate-pulse shadow">
+            <span class="text-xs">⚙️</span>
+            <span class="text-[8px] text-pink-300 font-mono mt-0.5 font-bold">#1 Rendert...</span>
+          </div>`;
+        for (let idx = 2; idx <= 10; idx++) {
+          initHtml += `
+            <div class="relative bg-black/40 border border-slate-800 rounded h-16 flex flex-col items-center justify-center text-center p-1">
+              <span class="text-[9px] text-slate-600 font-mono">#${idx}</span>
+            </div>`;
+        }
+        meganBatchGrid.innerHTML = initHtml;
+      }
 
       try {
         const res = await fetch('/api/evolution/start', {
@@ -4266,24 +4293,49 @@
       }
 
       // Populate Megan Studio 10 Thumbnail Grid (#evoBatchGrid)
-      if (images.length > 0) {
+      if (st.state === 'RUNNING' || images.length > 0) {
         if (meganResultsContainer) meganResultsContainer.classList.remove('hidden');
-        if (meganResultTitle) meganResultTitle.textContent = `Batch #${st.iteration || 1} (${images.length}/10 Bilder)`;
-        if (meganAvgBadge && st.average_score) meganAvgBadge.textContent = `Ø ${st.average_score} / 10`;
+        if (meganResultTitle) {
+          if (st.state === 'RUNNING' && images.length < 10) {
+            meganResultTitle.textContent = `Batch #${st.iteration || 1} (${images.length}/10 Bilder • Rendert...)`;
+          } else {
+            meganResultTitle.textContent = `Batch #${st.iteration || 1} (${images.length}/10 Bilder)`;
+          }
+        }
+        if (meganAvgBadge) {
+          meganAvgBadge.textContent = (st.average_score !== undefined && st.average_score !== null && st.average_score > 0) ? `Ø ${st.average_score} / 10` : 'Ø - / 10';
+        }
 
         if (meganBatchGrid) {
-          meganBatchGrid.innerHTML = images.map((img) => `
-            <div class="relative bg-black/70 border border-slate-800 hover:border-pink-500/80 rounded overflow-hidden group cursor-pointer transition shadow"
-                 onclick="openLightbox('${img.url}', 'Batch #${st.iteration || 1} Bild ${img.index}/10 - Score: ${img.score}/10 (Seed: ${img.seed})')">
-              <img src="${img.url}" class="w-full h-16 object-cover group-hover:scale-105 transition duration-300" loading="lazy">
-              <div class="absolute top-0.5 right-0.5 px-1 py-0.2 rounded text-[8px] font-bold bg-black/80 text-pink-300 border border-pink-800/60 font-mono">
-                ${img.score ? img.score + '⭐' : '#' + img.index}
-              </div>
-              <div class="absolute bottom-0 inset-x-0 bg-black/80 text-[7px] text-slate-400 font-mono text-center truncate px-0.5">
-                ${img.seed || ''}
-              </div>
-            </div>
-          `).join('');
+          let gridHtml = '';
+          for (let i = 0; i < 10; i++) {
+            if (i < images.length) {
+              const img = images[i];
+              gridHtml += `
+                <div class="relative bg-black/70 border border-slate-800 hover:border-pink-500/80 rounded overflow-hidden group cursor-pointer transition shadow"
+                     onclick="openLightbox('${img.url}', 'Batch #${st.iteration || 1} Bild ${img.index}/10 - Score: ${img.score}/10 (Seed: ${img.seed})')">
+                  <img src="${img.url}" class="w-full h-16 object-cover group-hover:scale-105 transition duration-300" loading="lazy">
+                  <div class="absolute top-0.5 right-0.5 px-1 py-0.2 rounded text-[8px] font-bold bg-black/80 text-pink-300 border border-pink-800/60 font-mono">
+                    ${img.score ? img.score + '⭐' : '#' + img.index}
+                  </div>
+                  <div class="absolute bottom-0 inset-x-0 bg-black/80 text-[7px] text-slate-400 font-mono text-center truncate px-0.5">
+                    ${img.seed || ''}
+                  </div>
+                </div>`;
+            } else if (i === images.length && st.state === 'RUNNING') {
+              gridHtml += `
+                <div class="relative bg-pink-950/30 border border-pink-600/70 rounded h-16 flex flex-col items-center justify-center text-center p-1 animate-pulse shadow">
+                  <span class="text-xs">⚙️</span>
+                  <span class="text-[8px] text-pink-300 font-mono mt-0.5 font-bold">#${i + 1} Rendert...</span>
+                </div>`;
+            } else {
+              gridHtml += `
+                <div class="relative bg-black/40 border border-slate-800 rounded h-16 flex flex-col items-center justify-center text-center p-1">
+                  <span class="text-[9px] text-slate-600 font-mono">#${i + 1}</span>
+                </div>`;
+            }
+          }
+          meganBatchGrid.innerHTML = gridHtml;
         }
       }
 
@@ -8043,6 +8095,7 @@
     loadNodeModels('fox');
     checkFoxNodeStatus();
     loadDashboardAppearanceStyles();
+    checkEvolutionStatus();
 
     updateCatlordTrainerStatus();
     // Catlord trainer polling disabled (no background loop)

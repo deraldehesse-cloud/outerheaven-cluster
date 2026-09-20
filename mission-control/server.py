@@ -2201,6 +2201,10 @@ async def run_timeboxed_evolution_loop(runner):
             runner.status_message = f"Fehler im Dauer-Loop: {e}"
     finally:
         set_evolution_lock(active=False, session_id=runner.session_id, iteration=runner.iteration, duration_minutes=runner.duration_minutes)
+        try:
+            await trigger_comfy_cache_purge(unload_models=False)
+        except Exception:
+            pass
 
 
 async def handle_evolution_start(request: web.Request) -> web.Response:
