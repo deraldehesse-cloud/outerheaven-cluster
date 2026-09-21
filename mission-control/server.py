@@ -598,6 +598,27 @@ async def get_outerheaven_telemetry(session: aiohttp.ClientSession) -> Dict[str,
     except Exception:
         pass
 
+    if services.get("ollama-model-watcher") not in ["active", "activating"]:
+        try:
+            proc_uw = await asyncio.create_subprocess_exec(
+                "systemctl", "--user", "is-active", "ollama-model-watcher.service",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+            )
+            out_uw, _ = await proc_uw.communicate()
+            res_uw = out_uw.decode().strip()
+            if res_uw in ["active", "activating"]:
+                services["ollama-model-watcher"] = res_uw
+        except Exception:
+            pass
+    if services.get("ollama-model-watcher") not in ["active", "activating"]:
+        try:
+            pg_w = await asyncio.create_subprocess_exec("pgrep", "-f", "watch-ollama-model", stdout=asyncio.subprocess.PIPE)
+            pg_w_out, _ = await pg_w.communicate()
+            if pg_w.returncode == 0 and pg_w_out.strip():
+                services["ollama-model-watcher"] = "active"
+        except Exception:
+            pass
+
     active_model = get_active_ollama_model()
     return {
         "node": "outerheaven",
@@ -923,15 +944,32 @@ class ThinkFilter:
             self.buffer = ""
         return results
 
+MEGAN_TRUNCATE_MARKERS = [
+    "\nUser:",
+    "\nBig Boss:",
+    "Big Boss:",
+    "\nSebastian:",
+    "Sebastian:",
+    "*Big Boss",
+    "*big boss",
+    "*Sebastian",
+    "*sebastian",
+    "<turn|>",
+    "<|turn>",
+    "<|im_end|>",
+    "[Spontaneous"
+]
+
 class MeganTruncateSanitizer:
     """
-    Stops hallucinated monologues where the model speaks for the user (*Big Boss...*, *Sebastian...).
-    Strictly cuts off output before the first occurrence of '*Big Boss' or '*Sebastian'.
+    Pre-Save & Stream Sanitizer for Megan Studio:
+    Stops hallucinated monologues and roleplay drift.
+    Strictly cuts off output before the first occurrence of user markers, trigger blocks, or stop tokens.
     """
     def __init__(self):
         self.triggered = False
         self.buffer = ""
-        self.stop_patterns = ["*Big Boss", "*big boss", "*Sebastian", "*sebastian"]
+        self.stop_patterns = MEGAN_TRUNCATE_MARKERS
 
     def feed(self, text: str) -> str:
         if self.triggered or not text:
@@ -939,7 +977,7 @@ class MeganTruncateSanitizer:
 
         self.buffer += text
 
-        # Check for immediate trigger
+        # Check for immediate trigger from stop_patterns
         earliest_pos = -1
         for p in self.stop_patterns:
             pos = self.buffer.find(p)
@@ -947,13 +985,20 @@ class MeganTruncateSanitizer:
                 if earliest_pos == -1 or pos < earliest_pos:
                     earliest_pos = pos
 
+        # Check for trigger blocks like \n[ or [Spontaneous or [Trigger:
+        bracket_match = re.search(r"(\n\[|\[(?:Spontaneous|[A-Za-z0-9_\-]+:))", self.buffer)
+        if bracket_match:
+            b_pos = bracket_match.start()
+            if earliest_pos == -1 or b_pos < earliest_pos:
+                earliest_pos = b_pos
+
         if earliest_pos != -1:
             self.triggered = True
             output = self.buffer[:earliest_pos]
             self.buffer = ""
             return output
 
-        # Check for potential partial match at the tail (e.g. "*Big", "*Seb")
+        # Check for potential partial match at the tail
         max_prefix_len = 0
         for p in self.stop_patterns:
             for l in range(1, len(p)):
@@ -980,22 +1025,45 @@ class MeganTruncateSanitizer:
             if pos != -1:
                 self.triggered = True
                 res = res[:pos]
+        bracket_match = re.search(r"(\n\[|\[(?:Spontaneous|[A-Za-z0-9_\-]+:))", res)
+        if bracket_match:
+            self.triggered = True
+            res = res[:bracket_match.start()]
         return res
 
 def sanitize_megan_text(text: str) -> str:
-    """Synchronous string sanitizer: truncates strictly before *Big Boss or *Sebastian."""
+    """
+    Synchronous string sanitizer for Megan Studio responses:
+    - Truncates strictly at the first occurrence of foreign role markers, stop tokens, or trigger blocks.
+    - If the entire response consists only of foreign role hallucination, discards it and logs neutral status.
+    """
     if not text:
         return ""
-    patterns = ["*Big Boss", "*big boss", "*Sebastian", "*sebastian"]
+
     earliest = -1
-    for p in patterns:
-        idx = text.find(p)
+    for m in MEGAN_TRUNCATE_MARKERS:
+        idx = text.find(m)
         if idx != -1:
             if earliest == -1 or idx < earliest:
                 earliest = idx
+
+    bracket_m = re.search(r"(\n\[|\[(?:Spontaneous|[A-Za-z0-9_\-]+:))", text)
+    if bracket_m:
+        idx = bracket_m.start()
+        if earliest == -1 or idx < earliest:
+            earliest = idx
+
     if earliest != -1:
-        return text[:earliest].rstrip()
-    return text
+        text = text[:earliest]
+
+    cleaned = text.rstrip()
+
+    # If the response was entirely foreign roles / hallucination, discard and log
+    if not cleaned or re.match(r"^[\s\r\n]*(?:User:|Big Boss:|Sebastian:|<turn\|>|<\|turn>|<\|im_end\|>|\[)", cleaned):
+        logger.warning("[Sanitizer] Bot response consisted entirely of foreign roles or trigger blocks; discarded.")
+        return ""
+
+    return cleaned
 
 # --- Auth Middleware ---
 @web.middleware
@@ -2101,8 +2169,8 @@ async def trigger_comfy_cache_purge(unload_models: bool = False) -> dict:
 
 async def analyze_image_with_moondream(image_path: str, prompt: str = "") -> str:
     """
-    Analyzes an image using remote Ollama model moondream:latest on Fox.
-    Keeps Outer Heaven VRAM reserved solely for DarkIdol.
+    Analyzes an image using Ollama vision model on Outer Heaven (:11434).
+    Node Fox is strictly decoupled from all Megan Studio image and vision tasks.
     """
     p = Path(image_path)
     if not p.is_file():
@@ -2129,18 +2197,18 @@ async def analyze_image_with_moondream(image_path: str, prompt: str = "") -> str
         }
         timeout = aiohttp.ClientTimeout(total=45)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(f"http://{FOX_TS_IP}:11434/api/generate", json=payload) as resp:
+            async with session.post(f"{LOCAL_OLLAMA_URL}/api/generate", json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     res_text = data.get("response", "").strip()
-                    logger.info(f"Fox Moondream analysis successful ({len(res_text)} chars)")
+                    logger.info(f"Outer Heaven Moondream analysis successful ({len(res_text)} chars)")
                     return res_text
                 else:
                     err_txt = await resp.text()
-                    logger.warning(f"Fox Moondream error {resp.status}: {err_txt}")
+                    logger.warning(f"Outer Heaven Moondream error {resp.status}: {err_txt}")
                     return ""
     except Exception as e:
-        logger.error(f"Error in remote analyze_image_with_moondream on Fox: {e}")
+        logger.error(f"Error in analyze_image_with_moondream on Outer Heaven: {e}")
         return ""
 
 
@@ -4681,12 +4749,8 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
             else:
                 system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
 
-            if node == "outerheaven" and is_gpu_rendering:
-                logger.info("[Chat WS] Outer Heaven GPU is rendering. Transparently handing off inference to Fox.")
-                node = "fox"
-                target_url = f"{FOX_OLLAMA_URL}/api/chat"
-                model_name = get_active_fox_model()
-            elif node == "outerheaven":
+            if is_chat_auth or node == "outerheaven":
+                node = "outerheaven"
                 target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
                 model_name = get_active_ollama_model()
             else:
@@ -4702,13 +4766,15 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     "temperature": chat_temp,
                     "stop": [
                         "<|im_end|>",
-                        "<|eot_id|>",
                         "<|end_of_text|>",
+                        "<|eot_id|>",
+                        "<turn|>",
+                        "<|turn|>",
                         "\nUser:",
                         "\nBig Boss:",
-                        "\nSebastian:",
                         "Big Boss:",
-                        "Sebastian:"
+                        "\n[",
+                        "[Spontaneous"
                     ]
                 }
             }

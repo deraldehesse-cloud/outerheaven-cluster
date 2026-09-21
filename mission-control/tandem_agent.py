@@ -52,15 +52,17 @@ class TandemAgent:
             "and 'needs_clarification': false.\n\n"
             "SCHEMA:\n"
             "{\n"
-            '  "intent": "calendar_event" | "email_action" | "general_query" | "creative_deep" | "direct_chat",\n'
+            '  "intent": "calendar_event" | "email_action" | "mail_sort" | "general_query" | "creative_deep" | "direct_chat",\n'
             '  "target_lane": "qwen" | "darkidol",\n'
             '  "needs_clarification": boolean,\n'
             '  "user_message": "<Direct German text for user: short clarification question OR friendly brief acknowledgement>",\n'
             '  "extracted_slots": {\n'
             '    "title": "<title or subject or null>",\n'
+            '    "sender": "<sender or recipient or null>",\n'
             '    "date": "<YYYY-MM-DD or null>",\n'
             '    "time": "<HH:MM or null>",\n'
             '    "all_day": boolean,\n'
+            '    "category": "<invoices | personal | automated | junk | null>",\n'
             '    "details": "<extra notes or query details or null>"\n'
             "  }\n"
             "}"
@@ -84,14 +86,19 @@ class TandemAgent:
             timeout = 30 if "vram" in model or format_json else 180
 
         num_tokens = 350 if format_json else 600
+        options = {
+            "temperature": temperature,
+            "num_predict": num_tokens
+        }
+        # Hard limit darkidol:ram context window strictly to 4096
+        if "darkidol" in model.lower():
+            options["num_ctx"] = 4096
+
         payload = {
             "model": model,
             "prompt": prompt,
             "stream": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": num_tokens
-            }
+            "options": options
         }
         if system:
             payload["system"] = system
@@ -105,7 +112,7 @@ class TandemAgent:
     def process(self, user_input: str, custom_system: str = "") -> Dict[str, Any]:
         """
         Tandem-Ablauf:
-        1. Qwen (qwen:vram) prüft & extrahiert Slots oder stellt Rückfrage.
+        1. Qwen (qwen:vram) prüft & extrahiert Slots oder stellt Rückfrage (inkl. E-Mail-Triage).
         2. Bei vollständigen Daten oder komplexen Aufgaben übernimmt DarkIdol (darkidol:ram).
         """
         now = datetime.datetime.now()
@@ -182,16 +189,16 @@ class TandemAgent:
                 "intent": gate_data.get("intent")
             }
         except Exception as worker_err:
-            logger.warning(f"DarkIdol deep-worker failed: {worker_err}. Falling back to mistral:latest")
+            logger.warning(f"DarkIdol deep-worker failed: {worker_err}. Falling back to qwen:vram")
             fallback_resp = self._query(
-                model="mistral:latest",
+                model="qwen:vram",
                 prompt=user_input,
                 system=darkidol_system,
                 temperature=0.7
             )
             return {
                 "stage": "fallback_complete",
-                "active_model": "mistral:latest",
+                "active_model": "qwen:vram",
                 "message": fallback_resp,
                 "slots": gate_data.get("extracted_slots", {}),
                 "intent": gate_data.get("intent")

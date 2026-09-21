@@ -21,38 +21,72 @@ logger = logging.getLogger("megan-context")
 
 STATE_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/megan_state.json")
 
+import re
+import shutil
+
 # Mandatory Stop Sequences & Ollama Options to prevent hallucination / roleplay drift
 MEGAN_OLLAMA_OPTIONS = {
     "temperature": 0.7,
     "stop": [
         "<|im_end|>",
-        "<|eot_id|>",
         "<|end_of_text|>",
+        "<|eot_id|>",
+        "<turn|>",
+        "<|turn|>",
         "\nUser:",
         "\nBig Boss:",
-        "\nSebastian:",
         "Big Boss:",
-        "Sebastian:"
+        "\n[",
+        "[Spontaneous"
     ]
 }
 
+MEGAN_TRUNCATE_MARKERS = [
+    "\nUser:",
+    "\nBig Boss:",
+    "Big Boss:",
+    "\nSebastian:",
+    "Sebastian:",
+    "<turn|>",
+    "<|turn>",
+    "<|im_end|>",
+    "[Spontaneous"
+]
+
 def sanitize_megan_response(text: str) -> str:
     """
-    Truncates text strictly before '*Big Boss' or '*Sebastian' to prevent the model
-    from speaking or roleplaying for the user.
+    Pre-Save Sanitizer for Megan responses:
+    - Truncates strictly before first occurrence of user markers, stop tokens or trigger blocks.
+    - If response consists entirely of foreign roles or hallucination, discards it and logs neutral status.
     """
     if not text:
         return ""
-    patterns = ["*Big Boss", "*big boss", "*Sebastian", "*sebastian"]
+
     earliest = -1
-    for p in patterns:
-        idx = text.find(p)
+    for m in MEGAN_TRUNCATE_MARKERS:
+        idx = text.find(m)
         if idx != -1:
             if earliest == -1 or idx < earliest:
                 earliest = idx
+
+    # Check for [ trigger blocks like [Trigger: or \n[
+    bracket_m = re.search(r"(\n\[|\[(?:Spontaneous|[A-Za-z0-9_\-]+:))", text)
+    if bracket_m:
+        idx = bracket_m.start()
+        if earliest == -1 or idx < earliest:
+            earliest = idx
+
     if earliest != -1:
-        return text[:earliest].rstrip()
-    return text
+        text = text[:earliest]
+
+    cleaned = text.rstrip()
+
+    # If the response was entirely foreign roles / hallucination, discard and log
+    if not cleaned or re.match(r"^[\s\r\n]*(?:User:|Big Boss:|Sebastian:|<turn\|>|<\|turn>|<\|im_end\|>|\[)", cleaned):
+        logger.warning("[Sanitizer] Response consisted entirely of foreign roles or trigger blocks; discarded.")
+        return ""
+
+    return cleaned
 
 # Fallback defaults if state file is missing
 DEFAULT_LOCATIONS = {
@@ -161,6 +195,31 @@ class MeganContextEngine:
     def _save_state(self, data: Dict[str, Any]):
         try:
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            # 1. Pre-Save Sanitizer on history entries
+            if "history" in data and isinstance(data["history"], list):
+                sanitized_hist = []
+                for entry in data["history"]:
+                    if isinstance(entry, dict):
+                        for k in ["content", "response", "text"]:
+                            if k in entry and isinstance(entry[k], str):
+                                entry[k] = sanitize_megan_response(entry[k])
+                        # Filter out empty or fully discarded responses
+                        if any(entry.get(k) for k in ["content", "response", "text"]):
+                            sanitized_hist.append(entry)
+                    elif isinstance(entry, str):
+                        cleaned = sanitize_megan_response(entry)
+                        if cleaned:
+                            sanitized_hist.append(cleaned)
+                data["history"] = sanitized_hist
+
+            # 2. Automatisches Backup vor dem Schreiben
+            if self.state_path.is_file():
+                backup_path = self.state_path.parent / "megan_state_backup.json"
+                try:
+                    shutil.copy2(self.state_path, backup_path)
+                except Exception as b_err:
+                    logger.warning(f"Could not create megan_state backup: {b_err}")
+
             data["last_updated"] = time.time()
             with open(self.state_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)

@@ -1,9 +1,8 @@
 """
 hermes_router.py - Intelligentes Dual-Modell-Routing auf Worker-Node Fox.
 Host: 100.93.184.87:11434
-- qwen:vram      -> Intent, Classification, JSON-Parsing, Tool-Calling (VRAM, ChatML)
-- darkidol:ram   -> Deep Reasoning, Creative, Uncensored Text, Lyrics (CPU/RAM, Llama-3)
-- mistral:latest -> Fallback
+- qwen:vram      -> Intent, Classification, JSON-Parsing, Tool-Calling, Email-Triage (VRAM, ChatML)
+- darkidol:ram   -> Deep Reasoning, Creative, Uncensored Text, Email Processing (CPU/RAM, Llama-3, max num_ctx: 4096)
 """
 
 import json
@@ -35,13 +34,18 @@ class HermesRouter:
         self.url = ollama_url
 
     def _query_ollama(self, model: str, prompt: str, system: str = "", format_json: bool = False) -> str:
+        options = {
+            "temperature": 0.2 if format_json else 0.7
+        }
+        # Hard limit darkidol:ram context window strictly to 4096
+        if "darkidol" in model.lower():
+            options["num_ctx"] = 4096
+
         payload = {
             "model": model,
             "prompt": prompt,
             "stream": False,
-            "options": {
-                "temperature": 0.2 if format_json else 0.7
-            }
+            "options": options
         }
         if system:
             payload["system"] = system
@@ -57,14 +61,14 @@ class HermesRouter:
             raise
 
     def classify_intent(self, user_prompt: str) -> Dict[str, Any]:
-        """Qwen: Schnelle Klassifikation & Intent-Erkennung."""
+        """Qwen: Schnelle Klassifikation & Intent-Erkennung inkl. E-Mail-Sortierung."""
         router_prompt = f"""
 Analyze this user prompt and categorize it.
 User prompt: "{user_prompt}"
 
 Return raw JSON:
 {{
-  "category": "structured_data" | "creative_deep" | "direct_tool",
+  "category": "structured_data" | "creative_deep" | "direct_tool" | "email_action" | "mail_sort",
   "target_lane": "qwen" | "darkidol",
   "context_summary": "<short extracted intent or query keywords>"
 }}
@@ -84,16 +88,16 @@ Return raw JSON:
     def dispatch(self, user_prompt: str, custom_system: str = "") -> Tuple[str, str]:
         """
         Orchestriert die Pipeline:
-        1. Qwen bewertet & extrahiert.
+        1. Fast-Path: Qwen (qwen:vram) bewertet, klassifiziert & extrahiert (inkl. E-Mail-Triage).
         2. Bei reinen Daten/Extraktionen antwortet Qwen direkt.
-        3. Bei komplexen Aufgaben übergibt Qwen den Intent an DarkIdol.
+        3. Deep-Path: Bei komplexen Aufgaben übergibt Qwen den Intent an DarkIdol (darkidol:ram).
         """
         try:
             analysis = self.classify_intent(user_prompt)
             target = analysis.get("target_lane", "darkidol")
 
             if target == "qwen":
-                logger.info("Executing via Qwen Fast-Lane (JSON/Extraction)")
+                logger.info("Executing via Qwen Fast-Lane (JSON/Extraction/Email-Triage)")
                 resp = self._query_ollama(
                     model="qwen:vram",
                     prompt=user_prompt,
@@ -111,13 +115,13 @@ Return raw JSON:
                 return "darkidol:ram", resp
 
         except Exception as primary_err:
-            logger.warning(f"Primary lane failed ({primary_err}), falling back to mistral:latest")
+            logger.warning(f"Primary lane failed ({primary_err}), retrying via Qwen Fast-Lane")
             resp = self._query_ollama(
-                model="mistral:latest",
+                model="qwen:vram",
                 prompt=user_prompt,
-                system=custom_system
+                system=custom_system or QWEN_SYSTEM_CLASSIFIER
             )
-            return "mistral:latest", resp
+            return "qwen:vram", resp
 
 
 hermes_router = HermesRouter()

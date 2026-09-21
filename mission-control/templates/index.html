@@ -316,10 +316,6 @@
               </div>
             </div>
             <div class="flex flex-col items-end space-y-1">
-              <div class="text-[10px] text-cyan-400 font-mono bg-cyan-950/40 border border-cyan-800/40 px-2 py-0.5 rounded cursor-pointer select-none"
-                   onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)" title="Tailscale IP aufdecken">
-                <span class="ip-text" data-full="{{ outerheaven_ip }}" data-masked="100.***.***.29">{{ outerheaven_ip }}</span>
-              </div>
               <div id="ohDelegationBadge" class="px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center space-x-1 bg-slate-900 border border-slate-700 text-slate-400">
                 <span id="ohDelegationDot" class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                 <span id="ohDelegationText">DELEGATION: IDLE</span>
@@ -349,42 +345,6 @@
             <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
             <span class="font-bold">⚡ DELEGATED TO OH:</span>
             <span id="ohActiveTaskName" class="truncate text-slate-100 font-semibold"></span>
-          </div>
-
-          <!-- Hardware-Metriken (Progress-Bars) -->
-          <div class="space-y-2.5 text-xs font-mono mb-3">
-            <!-- ARC A770 VRAM -->
-            <div>
-              <div class="flex justify-between text-[11px] mb-1">
-                <span class="text-cyan-400 font-semibold">ARC A770 VRAM (16 GB):</span>
-                <span id="ohVramText" class="text-slate-300">-- / 16.0 GB (--%)</span>
-              </div>
-              <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
-                <div id="ohVramBar" class="bg-gradient-to-r from-cyan-600 to-cyan-400 h-full w-0 transition-all duration-500"></div>
-              </div>
-            </div>
-
-            <!-- CPU Load -->
-            <div>
-              <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                <span>CPU LOAD:</span>
-                <span id="ohLoadText" class="text-slate-200">0.0, 0.0, 0.0</span>
-              </div>
-              <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
-                <div id="ohCpuBar" class="bg-cyan-500/80 h-full w-0 transition-all duration-500"></div>
-              </div>
-            </div>
-
-            <!-- System RAM -->
-            <div>
-              <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                <span>SYSTEM RAM:</span>
-                <span id="ohRamText" class="text-slate-200">-- GB (--%)</span>
-              </div>
-              <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
-                <div id="ohRamBar" class="bg-cyan-500 h-full w-0 transition-all duration-500"></div>
-              </div>
-            </div>
           </div>
 
           <!-- Modell-Integration -->
@@ -448,10 +408,6 @@
               </div>
             </div>
             <div class="flex flex-col items-end space-y-1">
-              <div class="text-[10px] text-amber-400 font-mono bg-amber-950/40 border border-amber-800/40 px-2 py-0.5 rounded cursor-pointer select-none"
-                   onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)" title="Tailscale IP aufdecken">
-                <span class="ip-text" data-full="{{ fox_ip }}" data-masked="100.***.155.70">{{ fox_ip }}</span>
-              </div>
               <div id="foxDelegationBadge" class="px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center space-x-1 bg-slate-900 border border-slate-700 text-slate-400">
                 <span id="foxDelegationDot" class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                 <span id="foxDelegationText">DELEGATION: IDLE</span>
@@ -466,50 +422,23 @@
             <span id="foxActiveTaskName" class="truncate text-slate-100 font-semibold"></span>
           </div>
 
-          <!-- Hardware-Metriken (Progress-Bars, Symmetrisch zu OH) -->
-          <div class="space-y-2.5 text-xs font-mono mb-3">
-            <!-- Aux Compute Slot -->
-            <div>
-              <div class="flex justify-between text-[11px] mb-1">
-                <span class="text-amber-400 font-semibold">AUX COMPUTE / TS LINK:</span>
-                <span id="foxComputeText" class="text-slate-300">ACTIVE // 11434</span>
-              </div>
-              <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
-                <div id="foxComputeBar" class="bg-gradient-to-r from-amber-600 to-amber-400 h-full w-full opacity-60 transition-all duration-500"></div>
+          <!-- Duales Modell-Display (Fox: Fast-Path VRAM & Deep-Path RAM) -->
+          <div class="mb-3 space-y-1.5 font-mono">
+            <div class="p-2 bg-slate-900/60 rounded border border-amber-500/30 flex items-center justify-between text-[11px]">
+              <span class="text-slate-400 shrink-0">SLOT 1 (VRAM):</span>
+              <div class="flex items-center space-x-1.5 min-w-0">
+                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                <span id="foxSlot1Model" class="font-bold text-cyan-300">qwen:vram</span>
+                <span class="text-[9px] px-1 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">FAST-PATH</span>
               </div>
             </div>
-
-            <!-- CPU Load -->
-            <div>
-              <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                <span>CPU LOAD:</span>
-                <span id="foxLoadText" class="text-slate-200">--</span>
+            <div class="p-2 bg-slate-900/60 rounded border border-amber-500/30 flex items-center justify-between text-[11px]">
+              <span class="text-slate-400 shrink-0">SLOT 2 (RAM):</span>
+              <div class="flex items-center space-x-1.5 min-w-0">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                <span id="foxSlot2Model" class="font-bold text-amber-300">darkidol:ram</span>
+                <span class="text-[9px] px-1 py-0.2 rounded bg-amber-950 text-amber-400 border border-amber-800">DEEP-PATH</span>
               </div>
-              <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
-                <div id="foxCpuBar" class="bg-amber-500/80 h-full w-0 transition-all duration-500"></div>
-              </div>
-            </div>
-
-            <!-- System RAM -->
-            <div>
-              <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                <span>SYSTEM RAM:</span>
-                <span id="foxRamText" class="text-slate-200">-- GB (--%)</span>
-              </div>
-              <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
-                <div id="foxRamBar" class="bg-amber-500 h-full w-0 transition-all duration-500"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Modell-Integration -->
-          <div class="mb-3 p-2 bg-slate-900/60 rounded border border-slate-800 flex items-center justify-between text-[11px] font-mono gap-2">
-            <span class="text-slate-400 shrink-0">OLLAMA ENGINE (FOX):</span>
-            <div class="flex items-center space-x-1.5 min-w-0">
-              <select id="foxModelSelect" onchange="switchNodeModel('fox', this.value)" class="bg-slate-950 text-amber-300 border border-amber-500/40 rounded px-1.5 py-0.5 text-[11px] font-mono focus:outline-none focus:border-amber-400 truncate max-w-[180px] cursor-pointer">
-                <option value="{{ fox_model }}">{{ fox_model }}</option>
-              </select>
-              <button onclick="loadNodeModels('fox', true)" title="Fox Modelle neu laden" class="text-slate-500 hover:text-amber-300 transition text-[11px] p-0.5">⟳</button>
             </div>
           </div>
 
@@ -3613,19 +3542,35 @@
           } else if (data.active_model) {
             updateTacticalAgentModelUI(data.active_model);
           }
-          document.getElementById('headerOhDot').className = "w-2 h-2 rounded-full bg-emerald-400";
+          // Safe Metric & Status Helpers
+          function getServiceBadgeStyle(status) {
+            const s = String(status || '').toLowerCase().trim();
+            if (['active', 'running', 'ready', 'online', 'ok'].includes(s)) {
+              return 'bg-emerald-950 text-emerald-400 border border-emerald-800';
+            } else if (['standby', 'idle', 'waiting', 'activating', 'deactivating', 'unknown', 'paused'].includes(s)) {
+              return 'bg-amber-950 text-amber-400 border border-amber-800';
+            } else {
+              return 'bg-rose-950 text-rose-400 border border-rose-800';
+            }
+          }
+
+          const hOhDot = document.getElementById('headerOhDot');
+          if (hOhDot) hOhDot.className = "w-2 h-2 rounded-full bg-emerald-400";
           
-          // GPU
+          // GPU (Safe check)
           if (oh.gpu) {
             const usedGb = (oh.gpu.vram_used / (1024**3)).toFixed(1);
             const totGb = (oh.gpu.vram_total / (1024**3)).toFixed(1);
-            document.getElementById('ohVramText').textContent = `${usedGb} / ${totGb} GB (${oh.gpu.vram_percent}%)`;
-            document.getElementById('ohVramBar').style.width = `${Math.min(100, oh.gpu.vram_percent)}%`;
+            const vText = document.getElementById('ohVramText');
+            if (vText) vText.textContent = `${usedGb} / ${totGb} GB (${oh.gpu.vram_percent}%)`;
+            const vBar = document.getElementById('ohVramBar');
+            if (vBar) vBar.style.width = `${Math.min(100, oh.gpu.vram_percent)}%`;
           }
 
-          // Load & RAM
+          // Load & RAM (Safe check)
           if (oh.load) {
-            document.getElementById('ohLoadText').textContent = oh.load.map(n => n.toFixed(2)).join(', ');
+            const lText = document.getElementById('ohLoadText');
+            if (lText) lText.textContent = oh.load.map(n => n.toFixed(2)).join(', ');
             const load1 = oh.load[0] || 0;
             const cpuPercent = Math.min(100, Math.round((load1 / 12) * 100));
             const cpuBar = document.getElementById('ohCpuBar');
@@ -3633,17 +3578,19 @@
           }
           if (oh.ram) {
             const ramUsedGb = (oh.ram.used / (1024**3)).toFixed(1);
-            document.getElementById('ohRamText').textContent = `${ramUsedGb} GB (${oh.ram.percent}%)`;
-            document.getElementById('ohRamBar').style.width = `${oh.ram.percent}%`;
+            const rText = document.getElementById('ohRamText');
+            if (rText) rText.textContent = `${ramUsedGb} GB (${oh.ram.percent}%)`;
+            const rBar = document.getElementById('ohRamBar');
+            if (rBar) rBar.style.width = `${oh.ram.percent}%`;
           }
 
-          // Services
+          // Services (Outer Heaven)
           if (oh.services) {
             for (const [svc, status] of Object.entries(oh.services)) {
               const el = document.getElementById(`svc_${svc}`);
               if (el) {
                 el.textContent = status.toUpperCase();
-                el.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${status === 'active' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'}`;
+                el.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${getServiceBadgeStyle(status)}`;
               }
             }
           }
@@ -3665,15 +3612,16 @@
           const foxDot = document.getElementById('foxStatusDot');
           const headerFoxDot = document.getElementById('headerFoxDot');
           if (fox.online) {
-            foxDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse";
-            headerFoxDot.className = "w-2 h-2 rounded-full bg-emerald-400";
+            if (foxDot) foxDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse";
+            if (headerFoxDot) headerFoxDot.className = "w-2 h-2 rounded-full bg-emerald-400";
           } else {
-            foxDot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
-            headerFoxDot.className = "w-2 h-2 rounded-full bg-rose-500";
+            if (foxDot) foxDot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
+            if (headerFoxDot) headerFoxDot.className = "w-2 h-2 rounded-full bg-rose-500";
           }
 
           if (fox.load) {
-            document.getElementById('foxLoadText').textContent = fox.load.map(n => n.toFixed(2)).join(', ');
+            const flText = document.getElementById('foxLoadText');
+            if (flText) flText.textContent = fox.load.map(n => n.toFixed(2)).join(', ');
             const load1 = fox.load[0] || 0;
             const cpuPercent = Math.min(100, Math.round((load1 / 4) * 100));
             const cpuBar = document.getElementById('foxCpuBar');
@@ -3681,8 +3629,10 @@
           }
           if (fox.ram) {
             const ramUsedGb = (fox.ram.used / (1024**3)).toFixed(1);
-            document.getElementById('foxRamText').textContent = `${ramUsedGb} GB (${fox.ram.percent}%)`;
-            document.getElementById('foxRamBar').style.width = `${fox.ram.percent}%`;
+            const frText = document.getElementById('foxRamText');
+            if (frText) frText.textContent = `${ramUsedGb} GB (${fox.ram.percent}%)`;
+            const frBar = document.getElementById('foxRamBar');
+            if (frBar) frBar.style.width = `${fox.ram.percent}%`;
           }
 
           const computeBar = document.getElementById('foxComputeBar');
@@ -3699,27 +3649,34 @@
             }
           }
 
-          // Services
+          // Services (Fox)
           if (fox.services) {
             const gwEl = document.getElementById('svc_hermes-gateway');
             if (gwEl) {
               const st = fox.services['hermes-gateway'] || 'unknown';
               gwEl.textContent = st.toUpperCase();
-              gwEl.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${st === 'active' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'}`;
+              gwEl.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${getServiceBadgeStyle(st)}`;
             }
 
             const ollamaEl = document.getElementById('svc_fox_ollama');
             if (ollamaEl) {
               const st = fox.services['ollama'] || 'unknown';
               ollamaEl.textContent = st.toUpperCase();
-              ollamaEl.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${st === 'active' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'}`;
+              ollamaEl.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${getServiceBadgeStyle(st)}`;
             }
 
             const proxyEl = document.getElementById('svc_ollama-tailscale-proxy');
             if (proxyEl) {
               const st = fox.services['ollama-tailscale-proxy'] || 'unknown';
               proxyEl.textContent = st.toUpperCase();
-              proxyEl.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${st === 'active' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'}`;
+              proxyEl.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${getServiceBadgeStyle(st)}`;
+            }
+
+            const syncEl = document.getElementById('svc_fox_sync');
+            if (syncEl) {
+              const st = fox.services['fox_sync'] || (fox.online ? 'standby' : 'inactive');
+              syncEl.textContent = st.toUpperCase();
+              syncEl.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${getServiceBadgeStyle(st)}`;
             }
           }
 

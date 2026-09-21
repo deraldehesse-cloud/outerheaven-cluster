@@ -39,9 +39,7 @@ FOX_WORKER_HOSTS = [
 
 ROUTING_TARGETS = [
     {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "lexi-llama-3-8b-uncensored_q4_k_m:latest", "desc": "Outer Heaven Local - Lexi Llama 3 8B Uncensored"},
-    {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "darkidol-8b:latest", "desc": "Outer Heaven Local - DarkIdol 8B Uncensored"},
-    {"hosts": FOX_WORKER_HOSTS, "model": "darkidol-8b:latest", "desc": "Fox Worker Fallback - DarkIdol 8B"},
-    {"hosts": FOX_WORKER_HOSTS, "model": "hermes:latest", "desc": "Fox Worker Fallback - Hermes 3.6B"}
+    {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "darkidol-8b:latest", "desc": "Outer Heaven Local - DarkIdol 8B Uncensored"}
 ]
 
 DEFAULT_OPTIONS = {
@@ -51,7 +49,7 @@ DEFAULT_OPTIONS = {
     "repeat_penalty": 1.18,
     "num_predict": 350,
     "num_ctx": 4096,
-    "stop": ["<|im_end|>", "<|endoftext|>", "User:", "Assistant:", "\nUser:", "\nAssistant:"]
+    "stop": ["<|im_end|>", "<|end_of_text|>", "<|eot_id|>", "<turn|>", "<|turn|>", "\nUser:", "\nBig Boss:", "Big Boss:", "\n[", "[Spontaneous"]
 }
 
 

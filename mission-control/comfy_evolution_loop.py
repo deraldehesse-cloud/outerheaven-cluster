@@ -341,7 +341,7 @@ def analyze_image_vlm(
             "options": {"temperature": 0.2, "num_predict": 250}
         }
         try:
-            target_url = DEFAULT_FOX_OLLAMA_URL if "moondream" in vision_model.lower() else ollama_url
+            target_url = ollama_url or DEFAULT_OLLAMA_URL
             gen_url = target_url.rstrip("/") + "/api/generate"
             res = http_post_json(gen_url, payload, timeout=120)
             desc = res.get("response", "").strip()

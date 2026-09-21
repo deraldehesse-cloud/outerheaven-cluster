@@ -142,19 +142,56 @@ def is_corrupted_text(text: str) -> Tuple[bool, str]:
     return False, ""
 
 
+TRUNCATE_MARKERS = [
+    "\nUser:", "\nBig Boss:", "Big Boss:",
+    "\nSebastian:", "Sebastian:",
+    "\n[", "[Spontaneous",
+    "<turn|>", "<|turn|>", "<|im_end|>", "<|end_of_text|>", "<|eot_id|>"
+]
+
+BRACKET_START_REGEX = re.compile(r"^\[(?:Spontaneous|Context|System|OOC|Thought|Scene)[^\]]*\]:?\s*", re.IGNORECASE)
+FOREIGN_ROLE_START_REGEX = re.compile(r"^(?:User|Big Boss|Sebastian):", re.IGNORECASE)
+
+
 def sanitize_history_data(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
     """
-    Filters corrupted messages out of a history message list.
+    Filters corrupted messages out of a history message list and truncates rogue markers.
     """
     cleaned: List[Dict[str, Any]] = []
     removed_count = 0
 
     for msg in messages:
         content = msg.get("content", "")
+        role = msg.get("role", "")
+
         corrupted, reason = is_corrupted_text(content)
         if corrupted:
             removed_count += 1
             continue
+
+        if role == "assistant" and isinstance(content, str):
+            # Check if entire content is foreign role or bracket trigger
+            stripped = content.strip()
+            if FOREIGN_ROLE_START_REGEX.search(stripped) or (stripped.startswith("[") and stripped.endswith("]") and BRACKET_START_REGEX.search(stripped)):
+                removed_count += 1
+                continue
+
+            # Apply truncate markers
+            earliest_idx = -1
+            for marker in TRUNCATE_MARKERS:
+                idx = content.find(marker)
+                if idx != -1:
+                    if earliest_idx == -1 or idx < earliest_idx:
+                        earliest_idx = idx
+
+            if earliest_idx != -1:
+                content = content[:earliest_idx].rstrip()
+                if not content.strip():
+                    removed_count += 1
+                    continue
+                msg = dict(msg)
+                msg["content"] = content
+
         cleaned.append(msg)
 
     return cleaned, removed_count
@@ -171,16 +208,16 @@ def atomic_save_json(file_path: Union[Path, str], data: Any) -> bool:
         tmp.replace(p)
         return True
     except Exception:
-        return False
         if 'tmp' in locals() and tmp.exists():
             try:
                 tmp.unlink()
             except OSError:
                 pass
+        return False
 
 
 def sanitize_history_file(path: Path = HISTORY_PATH) -> int:
-    """Scans and cleans history.json."""
+    """Scans and cleans history.json, creating a backup before saving."""
     if not path.is_file():
         return 0
 
@@ -196,6 +233,13 @@ def sanitize_history_file(path: Path = HISTORY_PATH) -> int:
     if removed > 0:
         data["messages"] = cleaned_messages
         data["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        # Backup before writing
+        bak = path.with_suffix(".json.bak")
+        try:
+            import shutil
+            shutil.copy2(path, bak)
+        except Exception as be:
+            print(f"[Sanitizer] Backup-Fehler vor Save: {be}")
         atomic_save_json(path, data)
         print(f"[Sanitizer] ✔ {removed} korrumpierte Nachricht(en) aus {path.name} entfernt.")
 
