@@ -191,6 +191,20 @@ def build_comfy_workflow(
     return {"prompt": workflow}
 
 
+def flush_local_ollama_vram(ollama_url: str = DEFAULT_OLLAMA_URL):
+    """Signals local Ollama to immediately unload models from Arc A770 VRAM."""
+    try:
+        req = urllib.request.Request(
+            f"{ollama_url.rstrip('/')}/api/generate",
+            data=json.dumps({"model": DEFAULT_LLM_MODEL, "keep_alive": 0}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=3):
+            pass
+    except Exception:
+        pass
+
+
 def render_comfy_single(
     prompt: str,
     negative_prompt: str,
@@ -204,7 +218,7 @@ def render_comfy_single(
     save_dest: Optional[Path] = None,
     timeout: float = 60.0
 ) -> Tuple[bool, Optional[str], float]:
-    """Renders a single image and copies it to save_dest. Returns (success, filepath, elapsed)."""
+    """Renders a single image with strict GPU Render Lock and copies it to save_dest. Returns (success, filepath, elapsed)."""
     t0 = time.time()
     url_prompt = f"http://{host}/prompt"
     wf = build_comfy_workflow(
@@ -218,54 +232,73 @@ def render_comfy_single(
         height=height,
         prefix="EvoBatch"
     )
-    try:
-        resp = http_post_json(url_prompt, wf, timeout=10)
-        prompt_id = resp.get("prompt_id")
-        if not prompt_id:
-            return False, None, 0.0
-    except Exception as e:
-        print(f"[ComfyUI] Dispatch Fehler: {e}", file=sys.stderr)
-        return False, None, 0.0
 
-    # Poll history until complete
-    poll_start = time.time()
-    hist_url = f"http://{host}/history/{prompt_id}"
-    filename = None
-    subfolder = ""
-    while (time.time() - poll_start) < timeout:
+    try:
+        from gpu_render_lock import gpu_render_scope, PRIORITY_HIGH
+        has_lock_module = True
+    except ImportError:
+        has_lock_module = False
+
+    def _execute_render():
+        flush_local_ollama_vram()
         try:
-            req = urllib.request.Request(hist_url)
-            with urllib.request.urlopen(req, timeout=5) as r:
-                data = json.loads(r.read().decode("utf-8"))
-                if prompt_id in data:
-                    outputs = data[prompt_id].get("outputs", {})
-                    for node_id, node_out in outputs.items():
-                        images = node_out.get("images", [])
-                        if images:
-                            filename = images[0].get("filename")
-                            subfolder = images[0].get("subfolder", "")
+            resp = http_post_json(url_prompt, wf, timeout=10)
+            prompt_id = resp.get("prompt_id")
+            if not prompt_id:
+                return False, None, 0.0
+        except Exception as e:
+            print(f"[ComfyUI] Dispatch Fehler: {e}", file=sys.stderr)
+            return False, None, 0.0
+
+        # Poll history until complete
+        poll_start = time.time()
+        hist_url = f"http://{host}/history/{prompt_id}"
+        filename = None
+        subfolder = ""
+        while (time.time() - poll_start) < timeout:
+            try:
+                req = urllib.request.Request(hist_url)
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    data = json.loads(r.read().decode("utf-8"))
+                    if prompt_id in data:
+                        outputs = data[prompt_id].get("outputs", {})
+                        for node_id, node_out in outputs.items():
+                            images = node_out.get("images", [])
+                            if images:
+                                filename = images[0].get("filename")
+                                subfolder = images[0].get("subfolder", "")
+                                break
+                        if filename:
                             break
-                    if filename:
-                        break
-        except Exception:
-            pass
-        time.sleep(0.3)
+            except Exception:
+                pass
+            time.sleep(0.3)
 
-    if not filename:
-        return False, None, round(time.time() - t0, 2)
+        if not filename:
+            return False, None, round(time.time() - t0, 2)
 
-    # Download from ComfyUI view API
-    view_url = f"http://{host}/view?filename={filename}&subfolder={subfolder}&type=output"
-    dest_path = save_dest or Path("/tmp") / filename
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
+        # Download from ComfyUI view API
+        view_url = f"http://{host}/view?filename={filename}&subfolder={subfolder}&type=output"
+        dest_path = save_dest or Path("/tmp") / filename
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    try:
-        urllib.request.urlretrieve(view_url, str(dest_path))
-        elapsed = round(time.time() - t0, 2)
-        return True, str(dest_path), elapsed
-    except Exception as e:
-        print(f"[ComfyUI] Download Fehler: {e}", file=sys.stderr)
-        return False, None, round(time.time() - t0, 2)
+        try:
+            urllib.request.urlretrieve(view_url, str(dest_path))
+            elapsed = round(time.time() - t0, 2)
+            return True, str(dest_path), elapsed
+        except Exception as e:
+            print(f"[ComfyUI] Download Fehler: {e}", file=sys.stderr)
+            return False, None, round(time.time() - t0, 2)
+
+    if has_lock_module:
+        try:
+            with gpu_render_scope(priority=PRIORITY_HIGH, task_name="evolution_render", timeout=timeout):
+                return _execute_render()
+        except Exception as err:
+            print(f"[GPULock] Lock-Fehler bei Evolution Render: {err}", file=sys.stderr)
+            return False, None, round(time.time() - t0, 2)
+    else:
+        return _execute_render()
 
 
 # ==============================================================================

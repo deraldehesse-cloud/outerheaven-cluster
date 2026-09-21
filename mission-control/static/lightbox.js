@@ -230,15 +230,26 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: currentFilename, target_project: targetProject })
       });
-      const moveData = await moveRes.json();
+      let moveData;
+      try {
+        moveData = await moveRes.json();
+      } catch (jsonErr) {
+        const textErr = await moveRes.text();
+        alert(`Serverfehler (HTTP ${moveRes.status}): ${textErr || jsonErr.message}`);
+        return;
+      }
+
       if (moveRes.ok && moveData.success) {
-        alert(`✔ Bild erfolgreich nach ${targetProject} verschoben!`);
+        alert(`✔ Bild '${currentFilename}' erfolgreich nach '${targetProject}' verschoben!`);
         const safeId = `gallery-card-${currentFilename.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
         const card = document.getElementById(safeId);
         if (card) card.remove();
+        if (typeof loadGallery === 'function') {
+          loadGallery();
+        }
         window.navigateLightbox(1);
       } else {
-        alert(`Fehler beim Verschieben: ${moveData.error || 'Serverfehler'}`);
+        alert(`Fehler beim Verschieben: ${moveData.error || ('HTTP ' + moveRes.status)}`);
       }
     } catch (e) {
       alert(`Netzwerkfehler: ${e.message}`);

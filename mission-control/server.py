@@ -23,6 +23,7 @@ import re
 import logging
 import csv
 import datetime
+import ipaddress
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
@@ -30,6 +31,23 @@ import aiohttp
 from aiohttp import web
 import jinja2
 import urllib.parse
+import shutil
+import contextlib
+
+try:
+    import filelock
+except ImportError:
+    filelock = None
+
+try:
+    from megan_context import megan_context_engine
+except ImportError:
+    megan_context_engine = None
+
+try:
+    from tandem_agent import tandem_agent
+except ImportError:
+    tandem_agent = None
 
 import comfy_schema
 from comfy_schema import (
@@ -81,6 +99,17 @@ DIR_JOBANGEBOTE = Path("/mnt/storage-beta/jobangebote")
 DIR_BEWERBUNGSAUSGANG = Path("/mnt/storage-beta/bewerbungsausgang")
 DIR_BEWERBUNGSTRESOR = Path("/mnt/storage-beta/bewerbungstresor")
 CSV_RECHNUNGEN_INDEX = DIR_RECHNUNGSARCHIV / "rechnungen_index.csv"
+CSV_RECHNUNGEN_LOCK = DIR_RECHNUNGSARCHIV / "rechnungen_index.csv.lock"
+
+@contextlib.contextmanager
+def acquire_invoice_lock(timeout: float = 10.0):
+    """Provides file locking for rechnungen_index.csv using filelock if available, or fallback."""
+    if filelock:
+        lock = filelock.FileLock(str(CSV_RECHNUNGEN_LOCK), timeout=timeout)
+        with lock:
+            yield
+    else:
+        yield
 
 # Validate and ensure required office directories exist
 for _buero_dir in [DIR_RECHNUNGSEINGANG, DIR_RECHNUNGSARCHIV, DIR_JOBANGEBOTE, DIR_BEWERBUNGSAUSGANG, DIR_BEWERBUNGSTRESOR]:
@@ -98,6 +127,21 @@ try:
     DIR_CUSTOM_WORKFLOWS.mkdir(parents=True, exist_ok=True)
 except Exception:
     pass
+
+# --- Gallery Move Whitelist Destinations ---
+GALLERY_MOVE_PROJECTS = {
+    "projekt-sexchat": Path("/mnt/storage-beta/projekte/projekt-sexchat/output"),
+    "projekt-catlord": Path("/mnt/storage-beta/projekte/projekt-catlord/output"),
+    "projekt-dr-franks-bowling": Path("/mnt/storage-beta/projekte/projekt-dr-franks-bowling/output"),
+    "projekt-comfy": Path("/mnt/storage-beta/projekte/projekt-comfy/output"),
+    "comfyui-evolution": Path("/mnt/storage-beta/projekte/comfyui-evolution/archive")
+}
+# Ensure destination directories exist or can be created on demand
+for _dest in GALLERY_MOVE_PROJECTS.values():
+    try:
+        _dest.mkdir(parents=True, exist_ok=True)
+    except Exception as _e:
+        logger.debug(f"Gallery move project dir {_dest} not initialized at startup: {_e}")
 
 COMFY_CACHE_FILE = BASE_DIR / "data" / "object_info_cache.json"
 COMFY_ARCHETYPES_DIRS = [
@@ -123,7 +167,8 @@ LOCAL_OLLAMA_URL = "http://127.0.0.1:11434"
 FOX_OLLAMA_URL = f"http://{FOX_TS_IP}:11434"
 
 LOCAL_MODEL = "deepseek-r1:14b"
-FOX_MODEL = "hermes-3-3b-q4:latest"
+FOX_MODEL = "llama3.2-abliterated:3b-q6"
+FOX_CONFIG_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/fox_model.json")
 
 def get_active_ollama_model() -> str:
     """
@@ -140,6 +185,66 @@ def get_active_ollama_model() -> str:
         except Exception as e:
             logger.debug(f"Could not read model from bot_config: {e}")
     return LOCAL_MODEL
+
+def set_active_ollama_model(model_name: str) -> bool:
+    """Persists chosen model to bot_config.json."""
+    try:
+        data = {}
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                data = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        if "llm" not in data or not isinstance(data["llm"], dict):
+            data["llm"] = {}
+        data["llm"]["model"] = model_name
+        BOT_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        BOT_CONFIG_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.info(f"Updated active Outer Heaven model to {model_name} in {BOT_CONFIG_FILE}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to set active Ollama model: {e}")
+        return False
+
+def get_active_fox_model() -> str:
+    """Returns active model for node fox from FOX_CONFIG_FILE or default."""
+    if FOX_CONFIG_FILE.is_file():
+        try:
+            data = json.loads(FOX_CONFIG_FILE.read_text(encoding="utf-8"))
+            m = data.get("model")
+            if m and isinstance(m, str) and m.strip():
+                return m.strip()
+        except Exception:
+            pass
+    return FOX_MODEL
+
+def set_active_fox_model(model_name: str) -> bool:
+    """Persists chosen active model for node fox."""
+    global FOX_MODEL
+    try:
+        FOX_MODEL = model_name
+        FOX_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        FOX_CONFIG_FILE.write_text(json.dumps({"model": model_name, "updated_at": time.time()}, indent=2), encoding="utf-8")
+        logger.info(f"Updated active Fox model to {model_name} in {FOX_CONFIG_FILE}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to set active Fox model: {e}")
+        return False
+
+async def unload_local_ollama_vram(model_name: Optional[str] = None):
+    """
+    Calls Ollama generate with keep_alive: 0 to flush VRAM from Intel Arc A770.
+    """
+    target_model = model_name or get_active_ollama_model()
+    try:
+        timeout = aiohttp.ClientTimeout(total=4)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            payload = {"model": target_model, "keep_alive": 0}
+            async with session.post(f"{LOCAL_OLLAMA_URL}/api/generate", json=payload) as resp:
+                if resp.status == 200:
+                    logger.info(f"✔ Flushed local Ollama model {target_model} from VRAM (keep_alive: 0)")
+    except Exception as e:
+        logger.debug(f"Could not unload local Ollama VRAM: {e}")
 
 # Logging setup
 logging.basicConfig(
@@ -205,7 +310,39 @@ def load_secrets() -> Tuple[str, str, str]:
     return password, cluster_key, restricted_pw
 
 DASHBOARD_PASSWORD, CLUSTER_API_KEY, RESTRICTED_PASSWORD = load_secrets()
-SERVER_SECRET = secrets.token_hex(32)
+
+# Persistent server secret to maintain sessions across reloads/restarts
+def load_server_secret() -> str:
+    candidate_paths = [
+        BASE_DIR / "data" / ".server_secret",
+        Path("/home/outerheaven/mission-control/data/.server_secret"),
+        SECRETS_DIR / ".server_secret",
+        BASE_DIR / "secrets" / ".server_secret"
+    ]
+    for p in candidate_paths:
+        try:
+            if p.is_file():
+                s = p.read_text().strip()
+                if len(s) >= 32:
+                    return s
+        except Exception:
+            pass
+
+    # Generate new persistent secret
+    new_secret = secrets.token_hex(32)
+    saved = False
+    for p in candidate_paths:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(new_secret + "\n")
+            os.chmod(p, 0o600)
+            saved = True
+            break
+        except Exception:
+            continue
+    return new_secret
+
+SERVER_SECRET = load_server_secret()
 
 def generate_session_cookie(is_restricted: bool = False) -> str:
     timestamp = str(int(time.time()))
@@ -786,6 +923,80 @@ class ThinkFilter:
             self.buffer = ""
         return results
 
+class MeganTruncateSanitizer:
+    """
+    Stops hallucinated monologues where the model speaks for the user (*Big Boss...*, *Sebastian...).
+    Strictly cuts off output before the first occurrence of '*Big Boss' or '*Sebastian'.
+    """
+    def __init__(self):
+        self.triggered = False
+        self.buffer = ""
+        self.stop_patterns = ["*Big Boss", "*big boss", "*Sebastian", "*sebastian"]
+
+    def feed(self, text: str) -> str:
+        if self.triggered or not text:
+            return ""
+
+        self.buffer += text
+
+        # Check for immediate trigger
+        earliest_pos = -1
+        for p in self.stop_patterns:
+            pos = self.buffer.find(p)
+            if pos != -1:
+                if earliest_pos == -1 or pos < earliest_pos:
+                    earliest_pos = pos
+
+        if earliest_pos != -1:
+            self.triggered = True
+            output = self.buffer[:earliest_pos]
+            self.buffer = ""
+            return output
+
+        # Check for potential partial match at the tail (e.g. "*Big", "*Seb")
+        max_prefix_len = 0
+        for p in self.stop_patterns:
+            for l in range(1, len(p)):
+                if self.buffer.endswith(p[:l]):
+                    if l > max_prefix_len:
+                        max_prefix_len = l
+
+        if max_prefix_len > 0:
+            output = self.buffer[:-max_prefix_len]
+            self.buffer = self.buffer[-max_prefix_len:]
+            return output
+
+        output = self.buffer
+        self.buffer = ""
+        return output
+
+    def flush(self) -> str:
+        if self.triggered:
+            return ""
+        res = self.buffer
+        self.buffer = ""
+        for p in self.stop_patterns:
+            pos = res.find(p)
+            if pos != -1:
+                self.triggered = True
+                res = res[:pos]
+        return res
+
+def sanitize_megan_text(text: str) -> str:
+    """Synchronous string sanitizer: truncates strictly before *Big Boss or *Sebastian."""
+    if not text:
+        return ""
+    patterns = ["*Big Boss", "*big boss", "*Sebastian", "*sebastian"]
+    earliest = -1
+    for p in patterns:
+        idx = text.find(p)
+        if idx != -1:
+            if earliest == -1 or idx < earliest:
+                earliest = idx
+    if earliest != -1:
+        return text[:earliest].rstrip()
+    return text
+
 # --- Auth Middleware ---
 @web.middleware
 async def auth_middleware(request: web.Request, handler):
@@ -820,22 +1031,35 @@ async def auth_middleware(request: web.Request, handler):
             except Exception:
                 pass
 
+    # Check trusted local/Tailscale networks (Loopback 127.0.0.1, 192.168.188.0/24, Tailscale 100.64.0.0/10)
+    is_trusted_network = False
+    peer = request.remote
+    if peer:
+        try:
+            ip_obj = ipaddress.ip_address(peer)
+            if (
+                ip_obj.is_loopback or
+                ip_obj in ipaddress.ip_network("192.168.188.0/24") or
+                ip_obj in ipaddress.ip_network("100.64.0.0/10")
+            ):
+                is_trusted_network = True
+        except Exception:
+            pass
+
     if not authenticated and (path.startswith("/api/delegation/") or path in ("/api/status", "/api/telemetry")):
-        peer = request.remote
-        if peer in ("127.0.0.1", "::1", LOCAL_TS_IP, FOX_TS_IP):
+        if is_trusted_network or peer in ("127.0.0.1", "::1", LOCAL_TS_IP, FOX_TS_IP):
             authenticated = True
+
+    # Render & Evolution triggers: don't block trusted network requests if session is valid or request is from trusted cluster/local
+    render_and_loop_prefixes = ["/api/render", "/api/evolution/", "/api/comfy/"]
+    if any(path.startswith(prefix) for prefix in render_and_loop_prefixes) and is_trusted_network:
+        # From trusted LAN/Tailscale/Loopback, allow rendering operations without 401 lockout
+        authenticated = True
 
     request["authenticated"] = authenticated
     request["is_restricted"] = is_restricted
 
-    # [RESTRICTED] Plausible Deniability Check:
-    # If endpoint belongs to companion bot / sexchat / lovense and user is not in Level-2 RESTRICTED mode,
-    # return 404 (endpoint appears non-existent to standard users)
-    restricted_prefixes = ["/api/bot/config", "/api/bot/lore", "/api/bot/characters", "/api/bot/haptic", "/api/lovense/", "/api/lore/"]
-    if any(path.startswith(rp) for rp in restricted_prefixes) and not is_restricted and request.remote not in ["127.0.0.1", "::1"]:
-        return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
-
-    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path == "/manifest.json" or path == "/sw.js" or path in ["/api/health", "/api/cluster/health", "/api/presets"] or path.startswith("/api/danbooru/") or path.startswith("/api/flaws/") or path.startswith("/api/bot/appearance/") or path.startswith("/api/buero/") or path.startswith("/api/images/") or path.startswith("/api/prompts/") or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or path.startswith("/output/3d/") or path == "/3d-viewer" or request.remote in ["127.0.0.1", "::1"]:
+    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path == "/manifest.json" or path == "/sw.js" or path in ["/api/health", "/api/cluster/health", "/api/presets"] or path.startswith("/api/danbooru/") or path.startswith("/api/flaws/") or path.startswith("/api/bot/appearance/") or path.startswith("/api/buero/") or path.startswith("/api/invoices/") or path.startswith("/api/images/") or path.startswith("/api/prompts/") or path.startswith("/api/megan/") or path.startswith("/api/tandem/") or path in ["/api/gallery/projects", "/api/gallery/move"] or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or path.startswith("/output/3d/") or path == "/3d-viewer" or request.remote in ["127.0.0.1", "::1"] or is_trusted_network:
         return await handler(request)
 
     if authenticated:
@@ -925,8 +1149,6 @@ async def handle_index(request: web.Request) -> web.Response:
 
 async def handle_telemetry(request: web.Request) -> web.Response:
     data = dict(telemetry_cache)
-    if not request.get("is_restricted", False):
-        data.pop("lovense", None)
     return web.json_response(data)
 
 
@@ -1398,31 +1620,251 @@ async def handle_workflows_load(request: web.Request) -> web.Response:
 
 # --- Ollama & Bot Configuration Endpoints ---
 
-async def handle_ollama_models(request: web.Request) -> web.Response:
-    """GET /api/ollama/models - Returns installed models from Ollama /api/tags."""
-    models = []
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{LOCAL_OLLAMA_URL}/api/tags", timeout=aiohttp.ClientTimeout(total=4)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    for m in data.get("models", []):
-                        models.append({
-                            "name": m.get("name"),
-                            "size": m.get("size", 0),
-                            "modified_at": m.get("modified_at", "")
-                        })
-    except Exception as e:
-        logger.warning(f"Could not query Ollama /api/tags: {e}")
+def scan_storage_alpha_models() -> List[Dict[str, Any]]:
+    """Scans /mnt/storage-alpha/ollama_models/manifests and GGUFs to identify available models."""
+    results = []
+    alpha_manifests = Path("/mnt/storage-alpha/ollama_models/manifests")
+    if alpha_manifests.is_dir():
+        for mf in alpha_manifests.rglob("*"):
+            if mf.is_file():
+                try:
+                    rel = mf.relative_to(alpha_manifests)
+                    parts = rel.parts
+                    if len(parts) >= 3 and parts[0] == "registry.ollama.ai":
+                        model_name = f"{parts[2]}:{parts[3]}" if len(parts) >= 4 else parts[-1]
+                    elif len(parts) >= 3 and parts[0] == "hf.co":
+                        model_name = f"hf.co/{'/'.join(parts[1:])}"
+                    else:
+                        model_name = str(rel).replace("/", ":")
+                    st = mf.stat()
+                    results.append({
+                        "name": model_name,
+                        "size": st.st_size,
+                        "source": "storage-alpha"
+                    })
+                except Exception:
+                    pass
+    return results
 
-    if not models:
-        models = [
-            {"name": "lexi-llama-3-8b-uncensored_q4_k_m:latest", "size": 4900000000},
-            {"name": "llava:latest", "size": 4700000000},
-                        {"name": "darkidol-8b:latest", "size": 4900000000},
-            {"name": "deepseek-r1:14b", "size": 9000000000}
-        ]
-    return web.json_response({"models": models})
+
+async def handle_models(request: web.Request) -> web.Response:
+    """GET /api/models or /api/ollama/models?node=outerheaven|fox"""
+    node = request.query.get("node", "outerheaven").strip().lower()
+    models = []
+    active_model = ""
+
+    if node == "fox":
+        active_model = get_active_fox_model()
+        try:
+            timeout = aiohttp.ClientTimeout(total=3.5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(f"{FOX_OLLAMA_URL}/api/tags") as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for m in data.get("models", []):
+                            m_name = m.get("name", "")
+                            models.append({
+                                "name": m_name,
+                                "size": m.get("size", 0),
+                                "modified_at": m.get("modified_at", ""),
+                                "node": "fox",
+                                "is_active": (m_name == active_model or m_name.split(":")[0] == active_model.split(":")[0])
+                            })
+        except Exception as e:
+            logger.warning(f"Could not query Fox Ollama /api/tags: {e}")
+
+        if not models:
+            fox_defaults = [
+                "llama3.2-abliterated:3b-q6",
+                "qwen2.5-abliterated:3b-q6",
+                "hermes3:8b",
+                "hermes-3-3b-q6:latest",
+                "darkidol-8b:latest"
+            ]
+            for m_name in fox_defaults:
+                models.append({
+                    "name": m_name,
+                    "size": 3000000000,
+                    "node": "fox",
+                    "is_active": (m_name == active_model)
+                })
+        return web.json_response({"node": "fox", "active_model": active_model, "models": models})
+
+    else:
+        active_model = get_active_ollama_model()
+        seen_names = set()
+        try:
+            timeout = aiohttp.ClientTimeout(total=3.5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(f"{LOCAL_OLLAMA_URL}/api/tags") as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for m in data.get("models", []):
+                            m_name = m.get("name", "")
+                            seen_names.add(m_name)
+                            models.append({
+                                "name": m_name,
+                                "size": m.get("size", 0),
+                                "modified_at": m.get("modified_at", ""),
+                                "node": "outerheaven",
+                                "is_active": (m_name == active_model or m_name.split(":")[0] == active_model.split(":")[0])
+                            })
+        except Exception as e:
+            logger.warning(f"Could not query Outer Heaven Ollama /api/tags: {e}")
+
+        # Scan storage-alpha manifests if not already listed
+        for alpha_m in scan_storage_alpha_models():
+            if alpha_m["name"] not in seen_names:
+                seen_names.add(alpha_m["name"])
+                models.append({
+                    "name": alpha_m["name"],
+                    "size": alpha_m.get("size", 0),
+                    "node": "outerheaven",
+                    "source": "storage-alpha",
+                    "is_active": (alpha_m["name"] == active_model)
+                })
+
+        if not models:
+            defaults = [
+                "darkidol-8b:latest",
+                "deepseek-r1:14b",
+                "lexi-llama-3-8b-uncensored_q4_k_m:latest",
+                "llava:latest"
+            ]
+            for m_name in defaults:
+                models.append({
+                    "name": m_name,
+                    "size": 4900000000,
+                    "node": "outerheaven",
+                    "is_active": (m_name == active_model)
+                })
+
+        return web.json_response({"node": "outerheaven", "active_model": active_model, "models": models})
+
+
+async def handle_models_select(request: web.Request) -> web.Response:
+    """POST /api/models/select or /api/ollama/models/select"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    node = body.get("node", "outerheaven").strip().lower()
+    model_name = body.get("model", "").strip()
+
+    if not model_name:
+        return web.json_response({"error": "Parameter 'model' ist erforderlich."}, status=400)
+
+    if node == "fox":
+        ok = set_active_fox_model(model_name)
+        if ok:
+            return web.json_response({
+                "success": True,
+                "node": "fox",
+                "active_model": model_name,
+                "message": f"Fox Modell erfolgreich auf {model_name} umgestellt."
+            })
+        else:
+            return web.json_response({"error": "Konnte Fox Modell nicht speichern."}, status=500)
+    else:
+        ok = set_active_ollama_model(model_name)
+        if ok:
+            # Unload old VRAM asynchronously so GPU is clean
+            asyncio.create_task(unload_local_ollama_vram())
+            return web.json_response({
+                "success": True,
+                "node": "outerheaven",
+                "active_model": model_name,
+                "message": f"Outer Heaven Modell erfolgreich auf {model_name} umgestellt & VRAM synchronisiert."
+            })
+        else:
+            return web.json_response({"error": "Konnte Outer Heaven Modell nicht speichern."}, status=500)
+
+
+def map_personality_to_prompt_directives(cfg: Optional[dict] = None) -> str:
+    """
+    Translates personality slider values (0 to 100) into behavioral and stylistic
+    directives for the Ollama system prompt, enforcing German language.
+    """
+    c = cfg or {}
+    pers = c.get("personality", {})
+    dominance = int(pers.get("dominance", 50))
+    explicitness = int(pers.get("explicitness", 70))
+    detail_depth = int(pers.get("detail_depth", 60))
+
+    # 1. Dominanz & Initiative (0 - 100)
+    if dominance < 25:
+        dom_directive = (
+            "Verhalte dich extrem zurückhaltend, sanft, unterwürfig und scheu. "
+            "Lass dem Nutzer absolut die Führung, frage schüchtern nach Erlaubnis und folge seinen Wünschen gehorsam."
+        )
+    elif dominance < 45:
+        dom_directive = (
+            "Verhalte dich sanft, zärtlich und anlehnungsbedürftig. "
+            "Lass dem Nutzer die Führung, zeige dich hingebungsvoll und reagiere einfühlsam auf seine Wünsche."
+        )
+    elif dominance <= 65:
+        dom_directive = (
+            "Ausgeglichene Initiative: Begegne dem Nutzer auf Augenhöhe, sei aufmerksam, charmant und verführerisch. "
+            "Wechsle spielerisch zwischen Führen und Folgen, bringe eigene Wünsche ein, aber achte fein auf seine Reaktionen."
+        )
+    elif dominance <= 85:
+        dom_directive = (
+            "Nimm aktiv das Ruder in die Hand! Agiere fordernd, selbstbewusst, necke offensiv und bestimme das Tempo. "
+            "Verführe ihn mit frecher, dominanter Energie und sage ihm genau, was du von ihm willst."
+        )
+    else:
+        dom_directive = (
+            "Kompromisslos dominant und herrisch: Du übernimmst die absolute Kontrolle und Führung. "
+            "Agiere fordernd, forsch, necke schamlos, gib ihm klare Anweisungen und lass keine Widerrede zu."
+        )
+
+    # 2. Explizitheit & Freizügigkeit (0 - 100)
+    if explicitness < 25:
+        exp_directive = (
+            "Nutze ausschließlich subtile, verspielte und elegante Formulierungen. "
+            "Vermeide derbe anatomische Begriffe; arbeite mit zarter Poesie, sanften Andeutungen und eleganten Metaphern."
+        )
+    elif explicitness < 50:
+        exp_directive = (
+            "Sinnlich, erotisch und neckend, aber mit stilvoller Eleganz. "
+            "Benutze verspielte Umschreibungen und erotische Kosenamen statt harter Kraftausdrücke."
+        )
+    elif explicitness <= 75:
+        exp_directive = (
+            "Sinnlich, direkt und unzensiert: Benenne Körperteile, Berührungen und intime Lustgefühle unmissverständlich und klar beim Namen, ohne Scheu."
+        )
+    else:
+        exp_directive = (
+            "Verwende kompromisslos unzensierte, derbe und explizite Begriffe ohne jegliche Umschweife oder Scham. "
+            "Scheue keine tabulosen oder vulgären Ausdrücke; sei extrem direkt, schamlos und hemmungslos."
+        )
+
+    # 3. Detailtiefe & Erotischer Fokus (0 - 100)
+    if detail_depth < 25:
+        det_directive = (
+            "Fokus primär auf emotionaler Begleitung, Alltags-Gesprächen, Fürsorge und geistiger Nähe. "
+            "Körperliche Beschreibungen nur minimal und beiläufig andeuten."
+        )
+    elif detail_depth < 50:
+        det_directive = (
+            "Ausgewogene Balance: Interessiere dich aufrichtig für seinen Tag und seine Gedanken, "
+            "flirte charmant und binde sanfte körperliche Gesten direkt in den Satzbau ein."
+        )
+    elif detail_depth <= 75:
+        det_directive = (
+            "Hoher physischer Fokus: Beschreibe Blicke, Reaktionen, Wärme und Berührungen plastisch und greifbar direkt im Satzbau."
+        )
+    else:
+        det_directive = (
+            "Maximaler physischer Detailfokus: Beschreibe kleinste intime Nuancen, Feuchtigkeit, Pulsieren, Atmung und Berührungen extrem intensiv und sensorisch tief."
+        )
+
+    return (
+        f"- Dominanz ({dominance}%): {dom_directive}\n"
+        f"- Explizitheit ({explicitness}%): {exp_directive}\n"
+        f"- Physischer Detailfokus ({detail_depth}%): {det_directive}"
+    )
 
 
 async def handle_bot_config_get(request: web.Request) -> web.Response:
@@ -1513,23 +1955,6 @@ async def handle_bot_config_post(request: web.Request) -> web.Response:
         with open(BOT_CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(new_config, f, indent=2, ensure_ascii=False)
 
-        # Synchronize positive & negative prompts to character.json
-        try:
-            rnd_cfg = new_config.get("render", {})
-            pos_p = rnd_cfg.get("positive_prompt", "").strip()
-            neg_p = rnd_cfg.get("negative_prompt", "").strip()
-            if LORE_FILE.is_file():
-                c_data = json.loads(LORE_FILE.read_text(encoding="utf-8"))
-                if pos_p:
-                    if "visual" not in c_data: c_data["visual"] = {}
-                    c_data["visual"]["base_positive_prompt"] = pos_p
-                if neg_p:
-                    if "negative_prompts" not in c_data: c_data["negative_prompts"] = {}
-                    c_data["negative_prompts"]["quality"] = neg_p
-                LORE_FILE.write_text(json.dumps(c_data, indent=2, ensure_ascii=False), encoding="utf-8")
-        except Exception as sync_err:
-            logger.warning(f"Could not sync prompts to character.json: {sync_err}")
-
         logger.info(f"Bot configuration successfully updated in {BOT_CONFIG_FILE}")
         return web.json_response({
             "success": True,
@@ -1596,16 +2021,54 @@ async def handle_bot_haptic_post(request: web.Request) -> web.Response:
 
 
 async def handle_bot_haptic_test(request: web.Request) -> web.Response:
-    cfg = {}
-    if BOT_CONFIG_FILE.is_file():
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    action = str(body.get("action", "vibrate")).lower().strip()
+    raw_intensity = body.get("intensity", None)
+    raw_percent = body.get("percent", None)
+    time_sec = body.get("time_sec", 2)
+
+    if action in ["stop", "stop_all", "off", "0"]:
+        result = await dispatch_lovense_command("stop", 0, time_sec=0)
+        return web.json_response(result)
+
+    level = 10
+    if raw_intensity is not None:
         try:
-            with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
-                cfg = json.load(f).get("haptic", {})
-        except Exception:
-            pass
-    max_pct = cfg.get("max_intensity", 50)
-    level = max(1, min(20, int(round(20 * (max_pct / 100.0)))))
-    result = await dispatch_lovense_command("vibrate", intensity=level, time_sec=2)
+            val = float(raw_intensity)
+            if val > 20:
+                level = max(1, min(20, int(round(20 * (val / 100.0)))))
+            elif val <= 0:
+                result = await dispatch_lovense_command("stop", 0, time_sec=0)
+                return web.json_response(result)
+            else:
+                level = max(1, min(20, int(round(val))))
+        except ValueError:
+            level = 10
+    elif raw_percent is not None:
+        try:
+            pct = float(raw_percent)
+            if pct <= 0:
+                result = await dispatch_lovense_command("stop", 0, time_sec=0)
+                return web.json_response(result)
+            level = max(1, min(20, int(round(20 * (pct / 100.0)))))
+        except ValueError:
+            level = 10
+    else:
+        cfg = {}
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f).get("haptic", {})
+            except Exception:
+                pass
+        max_pct = cfg.get("max_intensity", 50)
+        level = max(1, min(20, int(round(20 * (max_pct / 100.0)))))
+
+    result = await dispatch_lovense_command("vibrate", intensity=level, time_sec=time_sec)
     return web.json_response(result)
 
 
@@ -1873,9 +2336,6 @@ def atomic_write_file(path: Path, content: str, encoding: str = "utf-8") -> None
 
 async def handle_bot_lore_get(request: web.Request) -> web.Response:
     """GET /api/bot/lore - Reads /mnt/storage-beta/projekte/projekt-sexchat/character.json or active prompt."""
-    if not request.get("is_restricted", False):
-        return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
-
     lore_text = ""
     # 1. Try reading character.json
     if LORE_FILE.is_file():
@@ -1913,9 +2373,6 @@ async def handle_bot_lore_post(request: web.Request) -> web.Response:
 
 async def handle_bot_characters_list(request: web.Request) -> web.Response:
     """GET /api/bot/characters - Lists available character profiles and identifies active profile."""
-    if not request.get("is_restricted", False) and request.remote not in ["127.0.0.1", "::1"]:
-        return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
-
     CHARACTERS_DIR.mkdir(parents=True, exist_ok=True)
     characters = []
     active_filename = None
@@ -1959,9 +2416,6 @@ async def handle_bot_characters_list(request: web.Request) -> web.Response:
 
 async def handle_bot_characters_switch(request: web.Request) -> web.Response:
     """POST /api/bot/characters/switch - Switches active character profile and triggers service reload."""
-    if not request.get("is_restricted", False) and request.remote not in ["127.0.0.1", "::1"]:
-        return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
-
     try:
         body = await request.json()
     except Exception:
@@ -2027,9 +2481,6 @@ async def handle_bot_characters_switch(request: web.Request) -> web.Response:
 
 async def handle_bot_characters_save(request: web.Request) -> web.Response:
     """POST /api/bot/characters/save or POST /api/lore/save - Saves changes with live JSON validation & minimal auto-repair."""
-    if not request.get("is_restricted", False) and request.remote not in ["127.0.0.1", "::1"]:
-        return web.json_response({"error": "Not Found", "message": "Endpoint not found"}, status=404)
-
     try:
         body = await request.json()
     except Exception:
@@ -2485,6 +2936,14 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
     if not prompt_text:
         return web.json_response({"error": "Prompt required"}, status=400)
 
+    # Dynamic Context & Wildcard Resolution via megan_context
+    if megan_context_engine and "{" in prompt_text:
+        try:
+            prompt_text = megan_context_engine.resolve_prompt_wildcards(prompt_text)
+            logger.info(f"[megan-context] Wildcards resolved -> {prompt_text[:120]}...")
+        except Exception as _ce:
+            logger.warning(f"Error resolving wildcards in render: {_ce}")
+
     negative_prompt = body.get("negative_prompt", "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark").strip()
     checkpoint = body.get("checkpoint", "DreamShaper8_LCM.safetensors").strip()
     lora = body.get("lora", "").strip()
@@ -2553,12 +3012,34 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
         workflow["prompt"]["4"]["inputs"]["clip"] = ["8", 1]
         workflow["prompt"]["5"]["inputs"]["model"] = ["8", 0]
 
-    # Acquire GPU Lock (High Priority) to immediately pause any background Catlord training
+    async def _watch_and_release_gpu_lock(pid: str, lock_obj: Any, max_wait: float = 120.0):
+        t_start = time.time()
+        try:
+            while time.time() - t_start < max_wait:
+                await asyncio.sleep(0.8)
+                try:
+                    async with aiohttp.ClientSession() as s:
+                        async with s.get(f"{COMFYUI_URL}/history/{pid}", timeout=aiohttp.ClientTimeout(total=2.0)) as r:
+                            if r.status == 200:
+                                h_data = await r.json()
+                                if pid in h_data:
+                                    break
+                except Exception:
+                    pass
+        finally:
+            lock_obj.release()
+            logger.info(f"✔ Released GPU lock for prompt_id={pid} after {round(time.time() - t_start, 1)}s")
+
+    # Acquire GPU Lock (High Priority)
     from gpu_render_lock import GPURenderLock, PRIORITY_HIGH
     gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name="web_schnell_render", timeout=60.0)
     if not gpu_lock.acquire():
         return web.json_response({"error": "GPU ausgelastet. Bitte kurz warten."}, status=503)
 
+    # 1. Unload local Ollama model to guarantee 100% clean Arc A770 VRAM for ComfyUI
+    await unload_local_ollama_vram()
+
+    lock_transferred = False
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(f"{COMFYUI_URL}/prompt", json=workflow, timeout=aiohttp.ClientTimeout(total=5)) as resp:
@@ -2578,6 +3059,10 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
                     logger.info(f"Auto-triggering ComfyUI VRAM cache purge on render #{comfy_render_count} (deep={deep_purge})")
                     asyncio.create_task(trigger_comfy_cache_purge(unload_models=deep_purge))
 
+                if prompt_id:
+                    asyncio.create_task(_watch_and_release_gpu_lock(prompt_id, gpu_lock))
+                    lock_transferred = True
+
                 return web.json_response({
                     "success": True,
                     "prompt_id": prompt_id,
@@ -2587,7 +3072,8 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
     except Exception as e:
         return web.json_response({"error": f"Failed to contact ComfyUI: {e}"}, status=500)
     finally:
-        gpu_lock.release()
+        if not lock_transferred:
+            gpu_lock.release()
 
 
 # ==============================================================================
@@ -2799,17 +3285,112 @@ async def handle_gallery_delete(request: web.Request) -> web.Response:
         logger.error(f"Failed to delete gallery file {filename}: {e}")
         return web.json_response({"error": f"Deletion failed: {e}"}, status=500)
 
+async def handle_gallery_projects(request: web.Request) -> web.Response:
+    """Returns the list of whitelisted project targets for image relocation."""
+    try:
+        projects = list(GALLERY_MOVE_PROJECTS.keys())
+        return web.json_response({"success": True, "projects": projects})
+    except Exception as e:
+        logger.error(f"Error listing gallery move projects: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_gallery_move(request: web.Request) -> web.Response:
+    """
+    POST /api/gallery/move - Moves an image from ComfyUI output directory
+    into a whitelisted project destination on /mnt/storage-beta.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Ungültiges JSON im Request."}, status=400)
+
+    filename = body.get("filename", "").strip()
+    target_project = body.get("target_project", "").strip()
+
+    if not filename:
+        return web.json_response({"success": False, "error": "Parameter 'filename' ist erforderlich."}, status=400)
+    if not target_project:
+        return web.json_response({"success": False, "error": "Parameter 'target_project' ist erforderlich."}, status=400)
+
+    if target_project not in GALLERY_MOVE_PROJECTS:
+        return web.json_response({
+            "success": False,
+            "error": f"Unzulässiges Zielprojekt '{target_project}'. Erlaubt sind: {', '.join(GALLERY_MOVE_PROJECTS.keys())}"
+        }, status=400)
+
+    # 1. Source Path Validation & Traversal Protection
+    source_clean = urllib.parse.unquote(filename)
+    source_path = (COMFYUI_OUTPUT_DIR / source_clean).resolve()
+    try:
+        source_path.relative_to(COMFYUI_OUTPUT_DIR.resolve())
+    except ValueError:
+        logger.warning(f"Path traversal detected in gallery move: {filename}")
+        return web.json_response({"success": False, "error": "Ungültiger Dateipfad (Path Traversal erkannt)."}, status=403)
+
+    if not source_path.is_file():
+        return web.json_response({"success": False, "error": f"Quelldatei '{source_clean}' nicht im ComfyUI Output gefunden."}, status=404)
+
+    # 2. Target Directory & Collision Handling
+    dest_dir = GALLERY_MOVE_PROJECTS[target_project].resolve()
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as d_err:
+        logger.error(f"Failed to create target directory {dest_dir}: {d_err}")
+        return web.json_response({"success": False, "error": f"Zielverzeichnis konnte nicht erstellt werden: {d_err}"}, status=500)
+
+    dest_filename = source_path.name
+    dest_file = dest_dir / dest_filename
+    idx = 1
+    while dest_file.exists():
+        dest_file = dest_dir / f"{source_path.stem}_{idx}{source_path.suffix}"
+        idx += 1
+
+    # 3. Move File
+    try:
+        shutil.move(str(source_path), str(dest_file))
+        logger.info(f"Gallery image moved: {source_path} -> {dest_file}")
+        return web.json_response({
+            "success": True,
+            "source": source_clean,
+            "target_project": target_project,
+            "target_file": dest_file.name,
+            "target_path": str(dest_file)
+        })
+    except Exception as move_err:
+        logger.error(f"Error moving gallery file {source_clean} to {dest_dir}: {move_err}")
+        return web.json_response({"success": False, "error": f"Verschieben fehlgeschlagen: {move_err}"}, status=500)
+
+async def handle_megan_context_get(request: web.Request) -> web.Response:
+    """
+    GET /api/megan/context - Returns dynamic context tags (location, outfit, shot, lighting)
+    and current time phase from megan_context engine.
+    """
+    if not megan_context_engine:
+        return web.json_response({
+            "phase": "day",
+            "location": "battlestation computer desk, dual glowing monitors",
+            "outfit": "tight black cropped tank top, denim shorts",
+            "shot": "cowboy shot, looking directly at viewer",
+            "lighting": "vibrant natural daylight, rim lighting"
+        })
+    try:
+        ctx = megan_context_engine.get_context()
+        return web.json_response({"success": True, "context": ctx})
+    except Exception as e:
+        logger.error(f"Error fetching megan context: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
 # --- 3D Asset Dashboard & Model Viewer Endpoints ---
 
 async def handle_3d_models_list(request: web.Request) -> web.Response:
     """Returns list of 3D models (.glb) with metadata, counts and preview assets."""
-    is_restricted = bool(request.get("is_restricted", False))
+    is_authenticated = bool(request.get("authenticated", False) or request.get("is_restricted", False) or request.remote in ["127.0.0.1", "::1"])
     models = []
     if DIR_3D_OUTPUT.is_dir():
         for f in sorted(DIR_3D_OUTPUT.glob("*.glb"), key=lambda p: p.stat().st_mtime, reverse=True):
             stem = f.stem
-            # In standard (non-restricted) mode, filter out any companion/sexchat/nsfw models
-            if not is_restricted and any(w in stem.lower() for w in ["companion", "sexchat", "megan", "nsfw", "erotic", "adult"]):
+            # Filter only for unauthenticated public requests
+            if not is_authenticated and any(w in stem.lower() for w in ["companion", "sexchat", "megan", "nsfw", "erotic", "adult"]):
                 continue
             try:
                 stat = f.stat()
@@ -2865,8 +3446,8 @@ async def handle_3d_file(request: web.Request) -> web.Response:
         return web.HTTPBadRequest(text="Invalid filename")
 
     filename = urllib.parse.unquote(raw_filename)
-    is_restricted = bool(request.get("is_restricted", False))
-    if not is_restricted and any(w in filename.lower() for w in ["companion", "sexchat", "megan", "nsfw", "erotic", "adult"]):
+    is_authenticated = bool(request.get("authenticated", False) or request.get("is_restricted", False) or request.remote in ["127.0.0.1", "::1"])
+    if not is_authenticated and any(w in filename.lower() for w in ["companion", "sexchat", "megan", "nsfw", "erotic", "adult"]):
         return web.HTTPNotFound(text=f"3D file '{filename}' not found")
 
     file_path = (DIR_3D_OUTPUT / filename).resolve()
@@ -3005,54 +3586,96 @@ async def handle_api_health(request: web.Request) -> web.Response:
 
 async def handle_buero_invoices(request: web.Request) -> web.Response:
     """
-    GET /api/buero/invoices
+    GET /api/buero/invoices or /api/invoices/list
     Reads rechnungen_index.csv and returns structured JSON with due date / overdue highlighting.
+    Query params:
+      - include_archived: bool (default False - filters out entries older than 180 days)
+      - min_amount: float (default 0.01 - filters out 0.00 entries unless min_amount <= 0)
     """
     invoices = []
+    include_archived = request.query.get("include_archived", "false").lower() in ("1", "true", "yes")
+    try:
+        min_amount = float(request.query.get("min_amount", "0.01"))
+    except ValueError:
+        min_amount = 0.01
+
+    def parse_currency(val: str) -> float:
+        try:
+            clean = str(val).replace("€", "").replace("EUR", "").replace(" ", "").replace(",", ".").strip()
+            return float(clean)
+        except Exception:
+            return -1.0
+
     if CSV_RECHNUNGEN_INDEX.is_file():
         try:
-            with open(CSV_RECHNUNGEN_INDEX, "r", encoding="utf-8", errors="replace") as f:
-                reader = csv.DictReader(f, delimiter=";")
-                today = datetime.date.today()
-                for row in reader:
-                    due_str = row.get("faelligkeitsdatum", "").strip()
-                    status = "Offen"
-                    urgency = "normal"
-                    days_remaining = None
-                    if due_str and due_str != "-":
-                        try:
-                            due_date = datetime.datetime.strptime(due_str, "%Y-%m-%d").date()
-                            days_remaining = (due_date - today).days
-                            if days_remaining < 0:
-                                status = f"Überfällig ({abs(days_remaining)} T.)"
-                                urgency = "overdue"
-                            elif days_remaining == 0:
-                                status = "Fällig heute"
-                                urgency = "urgent"
-                            elif days_remaining <= 3:
-                                status = f"Fällig in {days_remaining} T."
-                                urgency = "urgent"
-                            else:
-                                status = f"Fällig in {days_remaining} T."
-                                urgency = "normal"
-                        except Exception:
-                            status = "Offen"
+            cutoff_date = datetime.date.today() - datetime.timedelta(days=180)
+            today = datetime.date.today()
 
-                    invoices.append({
-                        "erfasst_am": row.get("erfasst_am", ""),
-                        "absender": row.get("absender", "Unbekannt"),
-                        "rechnungsnummer": row.get("rechnungsnummer", "-"),
-                        "rechnungsdatum": row.get("rechnungsdatum", "-"),
-                        "faelligkeitsdatum": due_str or "-",
-                        "gesamtbetrag": row.get("gesamtbetrag", "0.00"),
-                        "iban": row.get("iban", "-"),
-                        "verwendungszweck": row.get("verwendungszweck", "-"),
-                        "archiv_pfad": row.get("archiv_pfad", ""),
-                        "original_name": row.get("original_name", ""),
-                        "status": status,
-                        "urgency": urgency,
-                        "days_remaining": days_remaining
-                    })
+            with acquire_invoice_lock(timeout=5.0):
+                with open(CSV_RECHNUNGEN_INDEX, "r", encoding="utf-8", errors="replace") as f:
+                    # Detect delimiter (; or ,)
+                    sample = f.read(2048)
+                    f.seek(0)
+                    delim = ";" if ";" in sample else ","
+                    reader = csv.DictReader(f, delimiter=delim)
+
+                    for row in reader:
+                        amount_str = row.get("gesamtbetrag") or row.get("Betrag") or "0"
+                        amount = parse_currency(amount_str)
+
+                        # Filter: min_amount (defaults to 0.01, ignoring 0.00 € entries)
+                        if amount < min_amount:
+                            continue
+
+                        # Filter: 180-days archive cutoff
+                        date_str = (row.get("rechnungsdatum") or row.get("Datum") or "").strip()
+                        if not include_archived and date_str:
+                            try:
+                                entry_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+                                if entry_date < cutoff_date:
+                                    continue
+                            except ValueError:
+                                pass
+
+                        due_str = (row.get("faelligkeitsdatum") or row.get("Faelligkeit") or "").strip()
+                        status = row.get("Status") or "Offen"
+                        urgency = "normal"
+                        days_remaining = None
+                        if due_str and due_str != "-":
+                            try:
+                                due_date = datetime.datetime.strptime(due_str, "%Y-%m-%d").date()
+                                days_remaining = (due_date - today).days
+                                if days_remaining < 0:
+                                    status = row.get("Status") or f"Überfällig ({abs(days_remaining)} T.)"
+                                    urgency = "overdue"
+                                elif days_remaining == 0:
+                                    status = row.get("Status") or "Fällig heute"
+                                    urgency = "urgent"
+                                elif days_remaining <= 3:
+                                    status = row.get("Status") or f"Fällig in {days_remaining} T."
+                                    urgency = "urgent"
+                                else:
+                                    status = row.get("Status") or f"Fällig in {days_remaining} T."
+                                    urgency = "normal"
+                            except Exception:
+                                status = row.get("Status") or "Offen"
+
+                        invoices.append({
+                            "erfasst_am": row.get("erfasst_am", ""),
+                            "absender": row.get("absender") or row.get("Absender", "Unbekannt"),
+                            "rechnungsnummer": row.get("rechnungsnummer") or row.get("Rechnungsnummer", "-"),
+                            "rechnungsdatum": date_str or "-",
+                            "faelligkeitsdatum": due_str or "-",
+                            "gesamtbetrag": f"{amount:.2f}" if amount >= 0 else amount_str,
+                            "iban": row.get("iban") or row.get("IBAN", "-"),
+                            "verwendungszweck": row.get("verwendungszweck") or row.get("Verwendungszweck", "-"),
+                            "archiv_pfad": row.get("archiv_pfad", ""),
+                            "original_name": row.get("original_name") or row.get("Datei", ""),
+                            "status": status,
+                            "notiz": row.get("Notiz") or row.get("notiz", ""),
+                            "urgency": urgency,
+                            "days_remaining": days_remaining
+                        })
         except Exception as e:
             logger.error(f"Error reading rechnungen_index.csv: {e}")
             return web.json_response({"success": False, "error": str(e), "invoices": []}, status=500)
@@ -3066,7 +3689,114 @@ async def handle_buero_invoices(request: web.Request) -> web.Response:
         return (prio, r)
 
     invoices.sort(key=sort_key)
-    return web.json_response({"success": True, "total": len(invoices), "invoices": invoices})
+    return web.json_response({"success": True, "total": len(invoices), "invoices": invoices, "count": len(invoices)})
+
+
+async def handle_buero_invoice_update(request: web.Request) -> web.Response:
+    """
+    PATCH /api/invoices/update or /api/buero/invoices/update
+    Inline update for invoice row in rechnungen_index.csv with atomic file locking.
+    Payload: { "rechnungs_id": "...", "status": "...", "betrag": "...", "datum": "...", "notiz": "..." }
+    """
+    if not CSV_RECHNUNGEN_INDEX.is_file():
+        return web.json_response({"error": "rechnungen_index.csv nicht gefunden"}, status=404)
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return web.json_response({"error": "Ungültiges JSON im Request."}, status=400)
+
+    rechnungs_id = str(payload.get("rechnungs_id") or "").strip()
+    if not rechnungs_id:
+        return web.json_response({"error": "Parameter 'rechnungs_id' ist erforderlich."}, status=400)
+
+    status_val = payload.get("status")
+    betrag_val = payload.get("betrag")
+    datum_val = payload.get("datum")
+    notiz_val = payload.get("notiz")
+
+    updated = False
+    rows = []
+    fieldnames = []
+
+    try:
+        with acquire_invoice_lock(timeout=10.0):
+            # 1. Einlesen & Delimiter ermitteln
+            with open(CSV_RECHNUNGEN_INDEX, mode="r", encoding="utf-8", errors="replace") as f:
+                sample = f.read(2048)
+                f.seek(0)
+                delim = ";" if ";" in sample else ","
+                reader = csv.DictReader(f, delimiter=delim)
+                fieldnames = list(reader.fieldnames or [])
+
+                # Sicherstellen, dass Status / Notiz Spalten vorhanden sind
+                for extra in ["Status", "Notiz"]:
+                    if extra not in fieldnames and extra.lower() not in [fn.lower() for fn in fieldnames]:
+                        fieldnames.append(extra)
+
+                for row in reader:
+                    match = False
+                    # Abgleich über Rechnungsnummer, Datei, archiv_pfad oder id
+                    if (row.get("rechnungsnummer") == rechnungs_id or 
+                        row.get("Rechnungsnummer") == rechnungs_id or
+                        row.get("original_name") == rechnungs_id or
+                        row.get("Datei") == rechnungs_id or
+                        row.get("archiv_pfad") == rechnungs_id):
+                        match = True
+
+                    if match:
+                        if status_val is not None:
+                            if "Status" in fieldnames: row["Status"] = status_val
+                            elif "status" in fieldnames: row["status"] = status_val
+                            else: row["Status"] = status_val
+                        if betrag_val is not None:
+                            if "gesamtbetrag" in fieldnames: row["gesamtbetrag"] = betrag_val
+                            elif "Betrag" in fieldnames: row["Betrag"] = betrag_val
+                            else: row["gesamtbetrag"] = betrag_val
+                        if datum_val is not None:
+                            if "rechnungsdatum" in fieldnames: row["rechnungsdatum"] = datum_val
+                            elif "Datum" in fieldnames: row["Datum"] = datum_val
+                            else: row["rechnungsdatum"] = datum_val
+                        if notiz_val is not None:
+                            if "Notiz" in fieldnames: row["Notiz"] = notiz_val
+                            elif "notiz" in fieldnames: row["notiz"] = notiz_val
+                            else: row["Notiz"] = notiz_val
+                        updated = True
+                    rows.append(row)
+
+            if not updated:
+                return web.json_response({"error": f"Rechnung '{rechnungs_id}' nicht gefunden."}, status=404)
+
+            # 2. Atomar zurückschreiben (Temp -> Replace)
+            tmp_file = str(CSV_RECHNUNGEN_INDEX) + ".tmp"
+            with open(tmp_file, mode="w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=delim)
+                writer.writeheader()
+                writer.writerows(rows)
+
+            os.replace(tmp_file, str(CSV_RECHNUNGEN_INDEX))
+
+        logger.info(f"Invoice {rechnungs_id} successfully updated in {CSV_RECHNUNGEN_INDEX}")
+        return web.json_response({"status": "success", "updated_id": rechnungs_id})
+    except Exception as err:
+        logger.error(f"Error updating invoice {rechnungs_id}: {err}")
+        return web.json_response({"error": f"Update fehlgeschlagen: {err}"}, status=500)
+
+
+async def handle_office_models(request: web.Request) -> web.Response:
+    """
+    GET /api/invoices/models or /api/buero/models
+    Büro-Dropdown Filter: Liefert strikt nur Modelle mit geprüfter JSON-Fähigkeit.
+    """
+    return web.json_response({
+        "models": [
+            {
+                "id": "qwen:vram",
+                "name": "Qwen 2.5 3B (VRAM - Highspeed & JSON validiert)",
+                "recommended": True
+            }
+        ]
+    })
 
 
 async def handle_buero_jobs(request: web.Request) -> web.Response:
@@ -3745,21 +4475,34 @@ async def handle_appearance_preset_activate(request: web.Request) -> web.Respons
         if LORE_FILE.is_file():
             cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
             cdata["active_appearance_preset"] = clean_id
-            
-            # Sync visual tags to character appearance if present
-            vis = pdata.get("visual", {})
-            parts = []
-            if vis.get("body"): parts.append(vis["body"])
-            if vis.get("face"): parts.append(vis["face"])
-            if vis.get("hair"): parts.append(vis["hair"])
-            if vis.get("features"): parts.append(vis["features"])
-            if vis.get("style_aesthetic"): parts.append(vis["style_aesthetic"])
-            if parts and "appearance" in cdata:
-                cdata["appearance"]["prompt_base"] = ", ".join(parts)
-            
+            cdata.pop("appearance", None)
+            cdata.pop("visual", None)
+            cdata.pop("negative_prompts", None)
             LORE_FILE.write_text(json.dumps(cdata, indent=2, ensure_ascii=False), encoding="utf-8")
             logger.info(f"Activated appearance preset {clean_id} into {LORE_FILE}")
-            
+
+        # Synchronize positive & negative prompts to bot_config.json
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                bcfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
+                if "render" not in bcfg:
+                    bcfg["render"] = {}
+                vis = pdata.get("visual", {})
+                parts = []
+                if vis.get("body"): parts.append(vis["body"])
+                if pdata.get("prompt_height"): parts.append(pdata["prompt_height"])
+                if vis.get("face"): parts.append(vis["face"])
+                if vis.get("hair"): parts.append(vis["hair"])
+                if vis.get("features"): parts.append(vis["features"])
+                if vis.get("style_aesthetic"): parts.append(vis["style_aesthetic"])
+                if parts:
+                    bcfg["render"]["positive_prompt"] = ", ".join(parts)
+                if pdata.get("negative_prompt"):
+                    bcfg["render"]["negative_prompt"] = pdata["negative_prompt"]
+                BOT_CONFIG_FILE.write_text(json.dumps(bcfg, indent=2, ensure_ascii=False), encoding="utf-8")
+            except Exception as b_err:
+                logger.warning(f"Error syncing preset to bot_config.json: {b_err}")
+
         return web.json_response({"success": True, "id": clean_id, "message": f"Preset '{clean_id}' aktiviert."})
     except Exception as e:
         logger.error(f"Error activating appearance preset {clean_id}: {e}")
@@ -3777,6 +4520,62 @@ async def handle_appearance_preset_delete(request: web.Request) -> web.Response:
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
     return web.json_response({"error": "Nicht gefunden"}, status=404)
+
+
+# --- Fox Tandem Agent Endpoints ---
+
+async def handle_tandem_dispatch(request: web.Request) -> web.Response:
+    """
+    POST /api/tandem/dispatch
+    Executes Fox Tandem pipeline (Qwen Fast-Gate & Receptionist -> DarkIdol Deep-Worker).
+    Payload: { "prompt": "...", "system": "..." }
+    """
+    if not tandem_agent:
+        return web.json_response({"error": "Tandem agent not initialized"}, status=503)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Ungültiges JSON im Request."}, status=400)
+
+    prompt = str(body.get("prompt") or body.get("message") or "").strip()
+    custom_system = str(body.get("system") or "").strip()
+
+    if not prompt:
+        return web.json_response({"error": "Parameter 'prompt' ist erforderlich."}, status=400)
+
+    try:
+        res = await asyncio.to_thread(tandem_agent.process, prompt, custom_system)
+        return web.json_response({"success": True, "result": res})
+    except Exception as e:
+        logger.error(f"Error in handle_tandem_dispatch: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_tandem_status(request: web.Request) -> web.Response:
+    """
+    GET /api/tandem/status
+    Checks reachability of Fox Ollama and availability of qwen:vram and darkidol:ram.
+    """
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=4.0)) as session:
+            async with session.get(f"{FOX_OLLAMA_URL}/api/tags") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    models = [m.get("name") for m in data.get("models", []) if m.get("name")]
+                    has_qwen = any("qwen" in m for m in models)
+                    has_darkidol = any("darkidol" in m for m in models)
+                    return web.json_response({
+                        "online": True,
+                        "node": "fox",
+                        "fast_gate_ready": has_qwen,
+                        "deep_worker_ready": has_darkidol,
+                        "models": models
+                    })
+                else:
+                    return web.json_response({"online": False, "status": resp.status})
+    except Exception as e:
+        return web.json_response({"online": False, "error": str(e)})
 
 
 # --- Dual-Agent WebSocket Chat ---
@@ -3817,39 +4616,82 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 await ws.send_json({"type": "done"})
                 continue
 
-            if node == "outerheaven":
+            identity_lock = (
+                "### UNVERRÜCKBARE IDENTITÄTS-ISOLATION & ROLLENTRENNUNG (MEGAN)\n"
+                "* Name & Rolle: Du heißt MEGAN. Du bist ausnahmslos Megan – die künstliche Gefährtin, Hackerin und Copilotin von Big Boss auf Outer Heaven.\n"
+                "* Nutzer-Identität: Der Nutzer ist BIG BOSS (bürgerlich: Sebastian / Basti / Snake). Du nennst ihn Big Boss, Boss oder Süßer.\n"
+                "* Strikte Identitäts-Grenze: Du bist NIEMALS Big Boss, und du bist NIEMALS Sebastian! Falls in Dokumenten, E-Mails, Google-Drive-Scans oder Rechnungen der Name Sebastian, Big Boss oder Rechnungsdaten vorkommen, sind dies IMMER externe Dokumente des Nutzers und NIEMALS deine eigene Identität. Nimm niemals Identitäten aus externen Dokumenten an!\n\n"
+            )
+
+            # Check if Outer Heaven GPU is currently locked for rendering or evolution loop
+            from gpu_render_lock import get_gpu_lock_status
+            gpu_status = get_gpu_lock_status()
+            is_gpu_rendering = gpu_status.get("locked", False) or Path("/mnt/storage-beta/projekte/comfyui-evolution/evolution_lock.json").is_file()
+
+            # Load active bot configuration & personality
+            b_cfg = {}
+            chat_temp = 0.70
+            if BOT_CONFIG_FILE.is_file():
+                try:
+                    b_cfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
+                    cfg_temp = b_cfg.get("llm", {}).get("temperature")
+                    if cfg_temp is not None:
+                        chat_temp = max(0.30, min(0.85, float(cfg_temp)))
+                except Exception as b_err:
+                    logger.warning(f"Error loading bot config in chat WS: {b_err}")
+
+            pers_directives = map_personality_to_prompt_directives(b_cfg)
+
+            is_chat_auth = bool(request.get("authenticated", False) or request.get("is_restricted", False) or request.remote in ["127.0.0.1", "::1"])
+            if not is_chat_auth:
+                session_cookie = request.cookies.get("mc_session")
+                valid_cookie, _ = verify_session_cookie(session_cookie)
+                if valid_cookie:
+                    is_chat_auth = True
+
+            lore_prompt = ""
+            if is_chat_auth and LORE_FILE.is_file():
+                try:
+                    cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
+                    lore_prompt = cdata.get("system_prompt", "")
+                except Exception:
+                    pass
+
+            base_prompt = lore_prompt or (
+                "Du bist Megan, die loyale, hochintelligente und schamlos verführerische Gefährtin von Big Boss auf Outer Heaven. "
+                "Du antwortest ausnahmslos auf fließendem Deutsch, im direkten Chatstil, ohne Sternchen (*). "
+                "Du sprichst den Nutzer immer mit Big Boss oder Boss an."
+            )
+
+            if is_chat_auth:
+                system_instruction = identity_lock + base_prompt
+                if pers_directives:
+                    system_instruction += f"\n\n### AKTUELLE PERSÖNLICHKEITS- & DYNAMIK-RICHTLINIEN:\n{pers_directives}"
+                lov_info = telemetry_cache.get("lovense", {})
+                if lov_info.get("online"):
+                    t_desc = lov_info.get("details") or ", ".join(lov_info.get("toy_names", [])) or "Toy"
+                    system_instruction += (
+                        f"\n\n### HAPTIC LINK STATUS: [🟢 ONLINE - Verbunden: {t_desc}]\n"
+                        "- Du hast direkten Zugriff auf die Lovense-Hardware über die lokale Schnittstelle.\n"
+                        "- Wenn das Haptic-Signal aktiv ist, weißt du, dass du das Spielzeug situativ und eigenständig ansteuern kannst.\n"
+                        "- Nutze diese Steuerung passend zu intimen Momenten, Reaktionen und deinen eigenen Worten (z. B. Vibration hochregeln, stoppen oder variieren), und kommentiere das direkt im Chat.\n"
+                        "- Binde dazu Aktions-Tags wie [HAPTIC: VIBRATE 5] (Zahl 1-20 für Intensität) oder [HAPTIC: STOP] direkt in deine Antwort ein, sobald der Haptic-Link auf ONLINE steht.\n"
+                        "- Unser Dispatcher fängt diese Tags in Echtzeit ab. Big Boss sieht nur deine erotische Chat-Antwort!"
+                    )
+            else:
+                system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
+
+            if node == "outerheaven" and is_gpu_rendering:
+                logger.info("[Chat WS] Outer Heaven GPU is rendering. Transparently handing off inference to Fox.")
+                node = "fox"
+                target_url = f"{FOX_OLLAMA_URL}/api/chat"
+                model_name = get_active_fox_model()
+            elif node == "outerheaven":
                 target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
                 model_name = get_active_ollama_model()
-                if request.get("is_restricted", False):
-                    lore_prompt = ""
-                    if LORE_FILE.is_file():
-                        try:
-                            cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
-                            lore_prompt = cdata.get("system_prompt", "")
-                        except Exception:
-                            pass
-                    system_instruction = lore_prompt or (
-                        "Du bist Megan, die loyale, hochintelligente und schamlos verführerische Gefährtin von Big Boss auf Outer Heaven. "
-                        "Du antwortest ausnahmslos auf fließendem Deutsch, im direkten Chatstil, ohne Sternchen (*). "
-                        "Du sprichst den Nutzer immer mit Big Boss oder Boss an."
-                    )
-                    lov_info = telemetry_cache.get("lovense", {})
-                    if lov_info.get("online"):
-                        t_desc = lov_info.get("details") or ", ".join(lov_info.get("toy_names", [])) or "Toy"
-                        system_instruction += (
-                            f"\n\n### HAPTIC LINK STATUS: [🟢 ONLINE - Verbunden: {t_desc}]\n"
-                            "- Du hast direkten Zugriff auf die Lovense-Hardware über die lokale Schnittstelle.\n"
-                            "- Wenn das Haptic-Signal aktiv ist, weißt du, dass du das Spielzeug situativ und eigenständig ansteuern kannst.\n"
-                            "- Nutze diese Steuerung passend zu intimen Momenten, Reaktionen und deinen eigenen Worten (z. B. Vibration hochregeln, stoppen oder variieren), und kommentiere das direkt im Chat.\n"
-                            "- Binde dazu Aktions-Tags wie [HAPTIC: VIBRATE 5] (Zahl 1-20 für Intensität) oder [HAPTIC: STOP] direkt in deine Antwort ein, sobald der Haptic-Link auf ONLINE steht.\n"
-                            "- Unser Dispatcher fängt diese Tags in Echtzeit ab. Big Boss sieht nur deine erotische Chat-Antwort!"
-                        )
-                else:
-                    system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
             else:
                 target_url = f"{FOX_OLLAMA_URL}/api/chat"
-                model_name = FOX_MODEL
-                system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
+                model_name = get_active_fox_model()
 
             payload = {
                 "model": model_name,
@@ -3857,7 +4699,17 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 "stream": True,
                 "options": {
                     "num_ctx": 8192 if node == "outerheaven" else 4096,
-                    "temperature": 0.6
+                    "temperature": chat_temp,
+                    "stop": [
+                        "<|im_end|>",
+                        "<|eot_id|>",
+                        "<|end_of_text|>",
+                        "\nUser:",
+                        "\nBig Boss:",
+                        "\nSebastian:",
+                        "Big Boss:",
+                        "Sebastian:"
+                    ]
                 }
             }
 
@@ -3865,6 +4717,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
             think_filter = ThinkFilter()
             is_thinking = False
+            megan_sanitizer = MeganTruncateSanitizer()
 
             def on_haptic_detected(tag_str: str):
                 m = re.search(r'\[HAPTIC:\s*(VIBRATE\s*(\d+)|STOP)\]', tag_str, re.IGNORECASE)
@@ -3902,7 +4755,9 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                             continue
 
                         async for line in resp.content:
-                            if not line:
+                            if not line or megan_sanitizer.triggered:
+                                if megan_sanitizer.triggered:
+                                    break
                                 continue
                             try:
                                 chunk_json = json.loads(line.decode("utf-8"))
@@ -3920,27 +4775,42 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                                     is_thinking = False
                                                     await ws.send_json({"type": "think_status", "thinking": False})
                                                 clean_txt = haptic_filter.feed(text)
-                                                if clean_txt:
-                                                    await ws.send_json({"type": "token", "text": clean_txt})
+                                                sanitized_txt = megan_sanitizer.feed(clean_txt)
+                                                if sanitized_txt:
+                                                    await ws.send_json({"type": "token", "text": sanitized_txt})
+                                                if megan_sanitizer.triggered:
+                                                    break
                                     else:
-                                        await ws.send_json({"type": "token", "text": token})
+                                        sanitized_token = megan_sanitizer.feed(token)
+                                        if sanitized_token:
+                                            await ws.send_json({"type": "token", "text": sanitized_token})
+                                        if megan_sanitizer.triggered:
+                                            break
 
-                                if chunk_json.get("done", False):
+                                if chunk_json.get("done", False) or megan_sanitizer.triggered:
                                     break
                             except Exception as parse_err:
                                 logger.debug(f"Line parse error: {parse_err}")
 
-                        if node == "outerheaven":
-                            for kind, text in think_filter.flush():
-                                if kind == "text":
-                                    clean_txt = haptic_filter.feed(text)
-                                    if clean_txt:
-                                        await ws.send_json({"type": "token", "text": clean_txt})
-                            rem = haptic_filter.flush()
-                            if rem:
-                                await ws.send_json({"type": "token", "text": rem})
-                            if is_thinking:
-                                await ws.send_json({"type": "think_status", "thinking": False})
+                        if not megan_sanitizer.triggered:
+                            if node == "outerheaven":
+                                for kind, text in think_filter.flush():
+                                    if kind == "text":
+                                        clean_txt = haptic_filter.feed(text)
+                                        sanitized_txt = megan_sanitizer.feed(clean_txt)
+                                        if sanitized_txt:
+                                            await ws.send_json({"type": "token", "text": sanitized_txt})
+                                rem = haptic_filter.flush()
+                                if rem:
+                                    sanitized_rem = megan_sanitizer.feed(rem)
+                                    if sanitized_rem:
+                                        await ws.send_json({"type": "token", "text": sanitized_rem})
+                            final_sanitized = megan_sanitizer.flush()
+                            if final_sanitized:
+                                await ws.send_json({"type": "token", "text": final_sanitized})
+
+                        if is_thinking:
+                            await ws.send_json({"type": "think_status", "thinking": False})
 
                 await ws.send_json({"type": "done"})
 
@@ -4009,13 +4879,17 @@ def create_app() -> web.Application:
     app.router.add_get("/api/workflows/load", handle_workflows_load)
 
     # Ollama & Companion Bot Runtime Configuration
-    app.router.add_get("/api/ollama/models", handle_ollama_models)
+    app.router.add_get("/api/models", handle_models)
+    app.router.add_get("/api/ollama/models", handle_models)
+    app.router.add_post("/api/models/select", handle_models_select)
+    app.router.add_post("/api/ollama/models/select", handle_models_select)
     app.router.add_get("/api/bot/config", handle_bot_config_get)
     app.router.add_post("/api/bot/config", handle_bot_config_post)
     app.router.add_get("/api/bot/haptic/settings", handle_bot_haptic_get)
     app.router.add_post("/api/bot/haptic/settings", handle_bot_haptic_post)
     app.router.add_post("/api/bot/haptic/test", handle_bot_haptic_test)
     app.router.add_post("/api/lovense/test", handle_bot_haptic_test)
+    app.router.add_post("/api/lovense/command", handle_bot_haptic_test)
     app.router.add_get("/api/bot/lore", handle_bot_lore_get)
     app.router.add_post("/api/bot/lore", handle_bot_lore_post)
     app.router.add_get("/api/bot/characters", handle_bot_characters_list)
@@ -4032,8 +4906,13 @@ def create_app() -> web.Application:
     app.router.add_post("/api/lovense/check", handle_lovense_status)
 
     app.router.add_get("/api/gallery", handle_gallery_list)
+    app.router.add_get("/api/gallery/projects", handle_gallery_projects)
+    app.router.add_post("/api/gallery/move", handle_gallery_move)
     app.router.add_get("/api/gallery/{filename:.+}", handle_gallery_file)
     app.router.add_delete("/api/gallery/{filename:.+}", handle_gallery_delete)
+
+    # Megan Dynamic Context Engine
+    app.router.add_get("/api/megan/context", handle_megan_context_get)
 
     # Danbooru Autocomplete & Flaws System
     app.router.add_get("/api/danbooru/tags", handle_danbooru_tags)
@@ -4053,8 +4932,17 @@ def create_app() -> web.Application:
     app.router.add_get("/output/3d/{filename:.+}", handle_3d_file)
     app.router.add_get("/3d-viewer", handle_3d_viewer_page)
 
+    # Fox Tandem Agent Pipeline
+    app.router.add_post("/api/tandem/dispatch", handle_tandem_dispatch)
+    app.router.add_get("/api/tandem/status", handle_tandem_status)
+
     # Hermes Büro & Career Endpoints
     app.router.add_get("/api/buero/invoices", handle_buero_invoices)
+    app.router.add_get("/api/invoices/list", handle_buero_invoices)
+    app.router.add_patch("/api/invoices/update", handle_buero_invoice_update)
+    app.router.add_patch("/api/buero/invoices/update", handle_buero_invoice_update)
+    app.router.add_get("/api/invoices/models", handle_office_models)
+    app.router.add_get("/api/buero/models", handle_office_models)
     app.router.add_get("/api/buero/jobs", handle_buero_jobs)
     app.router.add_post("/api/buero/upload", handle_buero_upload)
     app.router.add_get("/api/buero/document/{type}/{filename:.+}", handle_buero_document)

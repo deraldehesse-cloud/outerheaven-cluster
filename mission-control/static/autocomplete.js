@@ -26,7 +26,7 @@
     }
     dropdownEl = document.createElement('div');
     dropdownEl.id = 'danbooruAutocompleteDropdown';
-    dropdownEl.className = 'fixed z-[9999] hidden bg-slate-950/95 border border-cyan-500/60 rounded-lg shadow-2xl overflow-y-auto max-h-64 w-80 text-xs font-mono backdrop-blur-md divide-y divide-slate-800/80';
+    dropdownEl.className = 'fixed z-[9999] hidden bg-slate-950/95 border border-cyan-500/60 rounded-lg shadow-2xl overflow-y-auto max-h-[200px] w-80 text-xs font-mono backdrop-blur-md divide-y divide-slate-800/80 scrollbar-thin';
     document.body.appendChild(dropdownEl);
 
     // Prevent losing focus on mousedown
@@ -84,12 +84,22 @@
     if (!dropdownEl || !activeTextarea) return;
     const rect = activeTextarea.getBoundingClientRect();
 
-    // Position floating dropdown directly below active textarea, clamped to window
-    const top = rect.bottom + window.scrollY + 4;
-    const left = Math.max(10, Math.min(rect.left + window.scrollX, window.innerWidth - 340));
+    // Check distance to bottom of viewport
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const left = Math.max(10, Math.min(rect.left, window.innerWidth - 330));
 
-    dropdownEl.style.top = `${top}px`;
     dropdownEl.style.left = `${left}px`;
+    dropdownEl.style.maxHeight = '200px';
+
+    // Auto-Flip: If space below is less than 240px and there is space above, flip upwards
+    if (spaceBelow < 240 && spaceAbove > spaceBelow) {
+      dropdownEl.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+      dropdownEl.style.top = 'auto';
+    } else {
+      dropdownEl.style.top = `${rect.bottom + 4}px`;
+      dropdownEl.style.bottom = 'auto';
+    }
   }
 
   function hideDropdown() {

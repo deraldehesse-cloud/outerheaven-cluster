@@ -10,10 +10,19 @@
   <meta name="theme-color" content="#00f3ff">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Cinzel+Decorative:wght@700&display=swap" rel="stylesheet">
   <style>
     body {
       background-color: #040711;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    .font-tactical-motto {
+      font-family: 'Cinzel', 'Cinzel Decorative', 'Trajan Pro', 'Times New Roman', Georgia, serif;
+    }
+    .glow-gold-motto {
+      text-shadow: 0 0 12px rgba(251, 191, 36, 0.45), 0 0 24px rgba(251, 191, 36, 0.2);
     }
     .glow-cyan {
       box-shadow: 0 0 15px rgba(0, 243, 255, 0.15);
@@ -111,104 +120,109 @@
   </div>
 
   <!-- Top Header Navigation -->
-  <header class="border-b border-cyan-dim bg-slate-950/80 backdrop-blur sticky top-0 z-30 px-4 py-2.5">
-    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
-      <!-- Left: Tactical Insignia & Title -->
-      <div class="flex items-center space-x-3">
-        <div class="relative flex items-center justify-center">
-          <svg class="w-8 h-8 text-cyan-400 filter drop-shadow hover:text-amber-400 transition cursor-pointer" viewBox="0 0 100 100" fill="none" stroke="currentColor" title="Outer Heaven / Foxhound Insignia">
-            <polygon points="50,4 92,26 92,74 50,96 8,74 8,26" stroke="currentColor" stroke-width="2.5" fill="#040711" />
-            <polygon points="50,10 86,29 86,71 50,90 14,71 14,29" stroke="currentColor" stroke-width="1" stroke-dasharray="3,2" opacity="0.4" />
-            <!-- Skull -->
-            <path d="M32,38 C32,24 68,24 68,38 C68,46 66,54 62,58 L62,68 L55,68 L55,62 L45,62 L45,68 L38,68 L38,58 C34,54 32,46 32,38 Z" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="2" />
-            <circle cx="43" cy="42" r="4" fill="currentColor" />
-            <circle cx="57" cy="42" r="4" fill="currentColor" />
-            <line x1="28" y1="30" x2="72" y2="52" stroke="#ffb700" stroke-width="2" />
-            <line x1="22" y1="78" x2="78" y2="22" stroke="#ffb700" stroke-width="2.5" stroke-linecap="round" />
-            <line x1="45" y1="64" x2="45" y2="68" stroke="currentColor" stroke-width="1.2" />
-            <line x1="50" y1="64" x2="50" y2="68" stroke="currentColor" stroke-width="1.2" />
-            <line x1="55" y1="64" x2="55" y2="68" stroke="currentColor" stroke-width="1.2" />
-          </svg>
-          <span class="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-cyan-400 animate-ping pointer-events-none"></span>
+  <header class="border-b border-cyan-dim bg-slate-950/90 backdrop-blur sticky top-0 z-30 px-4 py-3 shadow-xl relative">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 relative">
+      
+      <!-- Left: Branding & Logo (Clean Emblem without Border/Dots & Stacked Text) -->
+      <div class="flex items-center space-x-3.5 shrink-0 select-none">
+        <img src="/static/img/cat_hound_logo.jpg" alt="Cat Hound" class="h-20 w-auto max-h-[80px] object-contain drop-shadow-[0_0_15px_rgba(6,182,212,0.3)] cursor-pointer">
+        <div class="flex flex-col justify-center">
+          <span class="text-xl font-black tracking-wider text-cyan-400 lowercase leading-tight">outerheaven</span>
+          <span class="text-xs font-bold tracking-widest text-amber-400 uppercase leading-tight mt-1">MISSION CONTROL</span>
         </div>
-        <div>
-          <div class="flex items-center space-x-2">
-            <span class="text-sm font-black tracking-widest text-cyan-400">OUTER HEAVEN</span>
-            <span class="text-slate-600 font-normal">/</span>
-            <span class="text-xs uppercase font-semibold tracking-wider text-amber-400">MISSION CONTROL</span>
+      </div>
+
+      <!-- Center: Tactical Motto (Centered in Available Space between Left Branding and Right Actions) -->
+      <div class="flex-1 flex items-center justify-center px-4 relative min-w-0">
+        <div class="relative select-none text-center inline-block">
+          <div id="btnTacticalMotto" onclick="toggleMottoTooltip(event)"
+               class="font-tactical-motto tracking-[0.25em] text-sm sm:text-base md:text-lg font-extrabold text-amber-300/90 hover:text-amber-200 transition duration-200 glow-gold-motto uppercase flex items-center justify-center space-x-2 cursor-pointer"
+               title="Klicken für lateinische Übersetzung">
+            <span class="text-amber-500/60 text-xs hidden sm:inline">❖</span>
+            <span class="truncate">NEMO NUNTIUM MALORUM AMAT</span>
+            <span class="text-amber-500/60 text-xs hidden sm:inline">❖</span>
           </div>
-          <p class="text-[10px] text-slate-500 tracking-wider">CLUSTER TACTICAL NETWORK • PWA LINK</p>
+
+          <!-- Centered Dark Tactical Tooltip: Strict Word-by-Word Translation Only (Click-Toggled) -->
+          <div id="mottoTooltipPopup" class="absolute left-1/2 -translate-x-1/2 top-full mt-3 hidden flex-col bg-slate-950 border border-amber-500/50 shadow-[0_10px_30px_rgba(0,0,0,0.9)] rounded-lg p-3 w-72 z-50 text-left font-mono backdrop-blur-md transition-all duration-200">
+            <div class="text-[10px] text-amber-400 font-bold border-b border-slate-800 pb-1.5 mb-2 flex items-center justify-between tracking-wider">
+              <span>📜 LATEINISCHES MOTTO</span>
+              <span class="text-[9px] text-slate-500">WORT-FÜR-WORT</span>
+            </div>
+            <div class="space-y-1.5 text-xs">
+              <div class="flex items-baseline space-x-2">
+                <span class="text-cyan-300 font-bold w-20 shrink-0">• Nemo:</span>
+                <span class="text-slate-200">Niemand</span>
+              </div>
+              <div class="flex items-baseline space-x-2">
+                <span class="text-cyan-300 font-bold w-20 shrink-0">• nuntium:</span>
+                <span class="text-slate-200">den Boten</span>
+              </div>
+              <div class="flex items-baseline space-x-2">
+                <span class="text-cyan-300 font-bold w-20 shrink-0">• malorum:</span>
+                <span class="text-slate-200">des Übels / der schlechten Kunde</span>
+              </div>
+              <div class="flex items-baseline space-x-2">
+                <span class="text-cyan-300 font-bold w-20 shrink-0">• amat:</span>
+                <span class="text-slate-200">liebt / schätzt</span>
+              </div>
+            </div>
+            <div class="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-slate-400 italic">
+              "Niemand liebt den Boten des Übels."
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Center: Tactical Tool Launch Bar (Desktop Direct Links) -->
-      <div class="flex items-center space-x-2 text-xs">
-        <span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider hidden lg:inline">TACTICAL DEPLOY:</span>
-        <a href="http://127.0.0.1:3000" target="_blank" rel="noopener noreferrer"
-           class="px-2.5 py-1 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-800/60 hover:border-cyan-400 text-cyan-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-cyan"
-           title="Anti-Gravity Web-Interface / Port öffnen">
-          <span>⚡ Anti-Gravity</span>
-        </a>
-        <a href="cursor://"
-           class="px-2.5 py-1 bg-slate-900/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-200 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition"
-           title="Cursor IDE auf Host öffnen (cursor://)">
-          <span>💻 Cursor / Dev</span>
-        </a>
-        <a href="http://{{ outerheaven_ip }}:8188" target="_blank" rel="noopener noreferrer"
-           class="px-2.5 py-1 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 hover:border-amber-400 text-amber-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-amber"
-           title="ComfyUI Studio auf Outer Heaven öffnen (:8188)">
-          <span>🎨 ComfyUI Studio</span>
-        </a>
-        <button type="button" id="btnHeaderMeganStudio" onclick="selectWorkspace('megan')"
-           class="px-2.5 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-pink"
-           title="Megan Studio (3-Spalten Lovense, Prompts & Lore)">
-          <span>💋 Megan Studio</span>
-        </button>
-        <button type="button" id="btnHeaderAppearance" onclick="window.openAppearanceModal ? window.openAppearanceModal() : (document.getElementById('appearancePresetModal').classList.remove('hidden'), document.getElementById('appearancePresetModal').style.display='flex')"
-           class="px-2.5 py-1 bg-purple-950/40 hover:bg-purple-900/60 border border-purple-800/60 hover:border-purple-400 text-purple-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1.5 transition glow-purple"
-           title="RPG Charakter Creator / Aussehen-Presets">
-          <span>👤 Aussehen</span>
-        </button>
-      </div>
-
-      <!-- Right: Quick Status Badges with IP Masking -->
-      <div class="flex items-center space-x-2 sm:space-x-3 text-xs">
-        <div id="badgeOhIp" class="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded cursor-pointer group hover:border-cyan-500/50 transition select-none"
-             onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)"
-             title="Hover / Klick zum Aufdecken der IP">
-          <span id="headerOhDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
-          <span class="text-slate-400 text-[11px]">OH:</span>
-          <span class="font-bold text-cyan-300 font-mono ip-text" data-full="{{ outerheaven_ip }}" data-masked="100.***.***.29">100.***.***.29</span>
-          <span class="text-[10px] text-slate-500 group-hover:text-cyan-400 transition">👁️</span>
-        </div>
-        <div id="badgeFoxIp" class="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded cursor-pointer group hover:border-amber-500/50 transition select-none"
-             onclick="toggleIpMask(this)" onmouseenter="revealIp(this)" onmouseleave="concealIp(this)"
-             title="Hover / Klick zum Aufdecken der IP">
-          <span id="headerFoxDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
-          <span class="text-slate-400 text-[11px]">FOX:</span>
-          <span class="font-bold text-amber-300 font-mono ip-text" data-full="{{ fox_ip }}" data-masked="100.***.155.70">100.***.155.70</span>
-          <span class="text-[10px] text-slate-500 group-hover:text-amber-400 transition">👁️</span>
-        </div>
-        <button type="button" id="btnGlobalRefresh" onclick="refreshAllDashboardData()"
-                class="px-2.5 py-1 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-700/60 hover:border-cyan-400 text-cyan-300 text-xs rounded transition flex items-center space-x-1.5 font-mono font-bold glow-cyan"
-                title="Live Health-Checks, Telemetrie und Büro-Daten sofort aktualisieren">
-          <svg id="refreshSpinnerIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-          </svg>
-          <span class="hidden sm:inline">REFRESH</span>
-        </button>
-        <button type="button" id="btnToggleAgentDrawer" onclick="toggleAgentDrawer()"
-                class="px-2.5 py-1 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-700/60 hover:border-cyan-400 text-cyan-300 text-xs rounded transition flex items-center space-x-1.5 font-mono font-bold glow-cyan"
-                title="Tactical Agent Konsole öffnen / schließen">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
-          <span class="hidden md:inline">CONSOLE</span>
-        </button>
-        <form action="/logout" method="post" class="inline" onsubmit="document.cookie='mc_session=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';">
-          <button type="submit" class="px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 text-xs rounded transition flex items-center space-x-1" title="Sitzung beenden / Logout">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
-            <span>LOCK</span>
+      <!-- Right: Desktop Tactical Tool Links & Control Buttons (Stacked & Flush to Right) -->
+      <div class="flex flex-col items-end space-y-2 shrink-0 self-end md:self-center z-10">
+        <!-- Top Row: Tactical Tool Launch Bar (Desktop Direct Links) -->
+        <div class="flex items-center space-x-2 text-xs">
+          <a href="http://127.0.0.1:3000" target="_blank" rel="noopener noreferrer"
+             class="px-2 py-1 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-800/60 hover:border-cyan-400 text-cyan-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1 transition glow-cyan"
+             title="Anti-Gravity Web-Interface / Port öffnen">
+            <span>⚡ Anti-Gravity</span>
+          </a>
+          <a href="cursor://"
+             class="px-2 py-1 bg-slate-900/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-200 rounded font-mono text-[11px] font-bold flex items-center space-x-1 transition"
+             title="Cursor IDE auf Host öffnen (cursor://)">
+            <span>💻 Cursor</span>
+          </a>
+          <a href="http://{{ outerheaven_ip }}:8188" target="_blank" rel="noopener noreferrer"
+             class="px-2 py-1 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 hover:border-amber-400 text-amber-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1 transition glow-amber"
+             title="ComfyUI Studio auf Outer Heaven öffnen (:8188)">
+            <span>🎨 ComfyUI</span>
+          </a>
+          <button type="button" id="btnHeaderMeganStudio" onclick="selectWorkspace('megan')"
+             class="px-2 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1 transition glow-pink"
+             title="Megan Studio (3-Spalten Lovense, Prompts & Lore)">
+            <span>💋 Megan Studio</span>
           </button>
-        </form>
+        </div>
+
+        <!-- Bottom Row: [ REFRESH ] [ CONSOLE ] [ LOCK ] Flush to Right -->
+        <div class="flex items-center space-x-2 text-xs">
+          <button type="button" id="btnGlobalRefresh" onclick="refreshAllDashboardData()"
+                  class="px-2.5 py-1 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-700/60 hover:border-cyan-400 text-cyan-300 text-xs rounded transition flex items-center space-x-1.5 font-mono font-bold glow-cyan"
+                  title="Live Health-Checks, Telemetrie und Büro-Daten sofort aktualisieren">
+            <svg id="refreshSpinnerIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            <span>REFRESH</span>
+          </button>
+          <button type="button" id="btnToggleAgentDrawer" onclick="toggleAgentDrawer()"
+                  class="px-2.5 py-1 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-700/60 hover:border-cyan-400 text-cyan-300 text-xs rounded transition flex items-center space-x-1.5 font-mono font-bold glow-cyan"
+                  title="Tactical Agent Konsole öffnen / schließen">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+            <span>CONSOLE</span>
+          </button>
+          <form action="/logout" method="post" class="inline" onsubmit="document.cookie='mc_session=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';">
+            <button type="submit" class="px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 text-xs rounded transition flex items-center space-x-1 font-mono font-bold" title="Sitzung beenden / Logout">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+              <span>LOCK</span>
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   </header>
@@ -1080,114 +1094,152 @@
                     title="RPG Charakter Creator / Aussehen-Presets öffnen">
               <span>👤</span> <span>RPG-AUSSEHEN MODAL</span>
             </button>
-            <button type="button" id="btnMeganStudioConfig" onclick="openBotSettings()"
-                    class="px-3 py-1.5 bg-pink-950/80 hover:bg-pink-900 border border-pink-600/70 text-pink-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5 shadow glow-pink"
-                    title="Companion Bot Runtime Configuration öffnen">
-              <span>⚙️</span> <span>MEGAN CONFIG</span>
-            </button>
           </div>
         </div>
 
         <!-- 3-Spalten Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 font-mono w-full">
           
-          <!-- SPALTE LINKS: Lovense-Statusanzeige, Intensitätsregler (0-20), Quick-Buttons (5, 10, 15, MAX, STOP) und Chatfenster -->
-          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-4 shadow-lg min-w-0">
+          <!-- SPALTE LINKS: Einstellungs- & Companion-Zentrale (Single Source of Truth) -->
+          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col space-y-4 shadow-lg min-w-0">
             
-            <!-- Lovense Controller Card -->
-            <div class="space-y-3 pb-3 border-b border-pink-950">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-2">
-                  <span class="w-2.5 h-2.5 rounded-full bg-pink-500 animate-pulse"></span>
-                  <h2 class="text-xs font-bold text-pink-300 uppercase tracking-wider">HAPTIC LINK / LOVENSE</h2>
-                </div>
-                <span id="meganLovenseStatusBadge" class="px-2.5 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-rose-950/80 border border-rose-700 text-rose-300">
-                  OFFLINE
-                </span>
-              </div>
-
-              <div id="meganLovenseSubtext" class="text-[10px] text-slate-500 truncate">
-                192.168.188.34:20010 • Lovense Connect
-              </div>
-
-              <!-- Intensitätsregler (0 - 20) -->
-              <div class="space-y-1.5 bg-slate-900/70 p-2.5 rounded border border-slate-800">
-                <div class="flex justify-between items-center text-xs">
-                  <span class="text-slate-400">Intensität:</span>
-                  <span id="meganLovenseIntensityLabel" class="text-pink-400 font-bold text-sm">Stufe 10 / 20 (50%)</span>
-                </div>
-                <input type="range" id="meganLovenseSlider" min="0" max="20" value="10" step="1"
-                       oninput="onMeganLovenseSliderChange(this.value)"
-                       class="w-full accent-pink-500 cursor-pointer h-2 bg-slate-800 rounded-lg">
-                <div class="flex justify-between text-[9px] text-slate-500">
-                  <span>0 (Aus)</span>
-                  <span>10 (Mittel)</span>
-                  <span>20 (MAX)</span>
-                </div>
-              </div>
-
-              <!-- Quick Buttons (5, 10, 15, MAX, STOP) -->
-              <div>
-                <div class="text-[10px] uppercase text-slate-500 font-bold mb-1.5">Quick Vibration Presets:</div>
-                <div class="grid grid-cols-5 gap-1.5 text-xs">
-                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 5)"
-                          class="py-1.5 px-1 rounded bg-pink-950/50 hover:bg-pink-900 border border-pink-800/60 text-pink-300 font-bold text-center transition hover:border-pink-500"
-                          title="Stufe 5 (Leicht)">
-                    5
-                  </button>
-                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 10)"
-                          class="py-1.5 px-1 rounded bg-pink-950/50 hover:bg-pink-900 border border-pink-800/60 text-pink-300 font-bold text-center transition hover:border-pink-500"
-                          title="Stufe 10 (Mittel)">
-                    10
-                  </button>
-                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 15)"
-                          class="py-1.5 px-1 rounded bg-pink-950/50 hover:bg-pink-900 border border-pink-800/60 text-pink-300 font-bold text-center transition hover:border-pink-500"
-                          title="Stufe 15 (Stark)">
-                    15
-                  </button>
-                  <button type="button" onclick="sendMeganLovenseCommand('vibrate', 20)"
-                          class="py-1.5 px-1 rounded bg-gradient-to-r from-pink-700 to-rose-700 hover:from-pink-600 hover:to-rose-600 text-white font-extrabold text-center transition shadow"
-                          title="Stufe 20 (MAXIMAL)">
-                    MAX
-                  </button>
-                  <button type="button" onclick="sendMeganLovenseCommand('stop', 0)"
-                          class="py-1.5 px-1 rounded bg-rose-950/80 hover:bg-rose-900 border border-rose-700 text-rose-200 font-extrabold text-center transition hover:border-rose-500"
-                          title="Sofort stoppen">
-                    STOP
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Chatfenster -->
-            <div class="flex-1 flex flex-col min-h-[360px] space-y-2">
-              <div class="flex items-center justify-between pb-1 border-b border-slate-800">
+            <!-- 1. COMPANION BILD / RENDER-CONTAINER -->
+            <div class="space-y-2">
+              <div class="flex items-center justify-between pb-1.5 border-b border-pink-950">
                 <div class="flex items-center space-x-1.5 text-xs text-pink-300 font-bold">
-                  <span>💬</span> <span>MEGAN COMPANION CHAT</span>
+                  <span>🖼️</span> <span>COMPANION VORSCHAU</span>
                 </div>
-                <button type="button" onclick="clearChat()" class="text-[10px] text-slate-500 hover:text-rose-400 transition" title="Chat leeren">
-                  Leeren
-                </button>
+                <span id="meganPreviewFilename" class="text-[10px] text-slate-500 font-mono truncate max-w-[150px]">Lade...</span>
               </div>
-
-              <!-- Stream Container -->
-              <div id="meganChatMessages" class="flex-1 p-2.5 bg-slate-900/60 border border-slate-800/80 rounded-lg space-y-2.5 overflow-y-auto max-h-[380px] text-xs scrollbar-thin">
-                <div class="p-2 bg-slate-950/70 rounded border border-pink-950 text-slate-400 text-[11px]">
-                  <span class="text-pink-400 font-bold">💋 MEGAN ACTIVE:</span> Bereit für Dialoge. Haptic Trigger werden autonom mit Lovense synchronisiert.
+              <div id="meganPreviewContainer" class="relative w-full aspect-[3/4] bg-black/80 rounded-lg border border-pink-900/60 overflow-hidden flex items-center justify-center group">
+                <img id="meganPreviewImg" src="" alt="Megan Preview" class="w-full h-full object-cover hidden transition duration-300 group-hover:scale-105 cursor-pointer" onclick="if(this.src) openLightbox(this.src, document.getElementById('meganPreviewFilename')?.textContent || 'megan_render.png')">
+                <div id="meganPreviewPlaceholder" class="text-center p-4 text-slate-500 text-xs flex flex-col items-center space-y-2">
+                  <span class="text-2xl opacity-40">💋</span>
+                  <span>Kein Render verfügbar</span>
+                  <span class="text-[10px] text-slate-600">Generiere ein Bild in Spalte 2</span>
                 </div>
               </div>
-
-              <!-- Chat Input -->
-              <form id="meganChatForm" onsubmit="handleMeganChatSubmit(event)" class="flex items-center space-x-1.5 pt-1">
-                <input type="text" id="meganChatInput" autocomplete="off"
-                       placeholder="Nachricht an Megan..."
-                       class="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2.5 py-1.5 focus:border-pink-500 focus:outline-none">
-                <button type="submit" id="btnMeganChatSend"
-                        class="px-3 py-1.5 bg-pink-600 hover:bg-pink-500 text-white rounded text-xs font-bold transition flex items-center space-x-1 shadow">
-                  <span>Senden</span>
-                </button>
-              </form>
             </div>
+
+            <!-- 2. HAPTIC LINK / LOVENSE STEUERUNG (0 - 100%) -->
+            <div class="bg-slate-900/80 border border-pink-900/60 rounded-lg p-3 space-y-2.5">
+              <div class="flex items-center justify-between pb-1 border-b border-slate-800">
+                <div class="flex items-center space-x-1.5">
+                  <span class="text-xs font-bold text-pink-300 flex items-center space-x-1">
+                    <span>📡</span> <span>HAPTIC LINK / LOVENSE</span>
+                  </span>
+                </div>
+                <div class="flex items-center space-x-1.5">
+                  <span id="meganLovenseStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-950 border border-slate-800 text-slate-400">
+                    PRÜFE...
+                  </span>
+                  <button type="button" onclick="checkLovenseStatus()" class="text-[11px] text-slate-400 hover:text-pink-300 transition" title="Status aktualisieren">🔄</button>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between text-xs">
+                <span id="meganLovenseIntensityLabel" class="text-pink-300 font-mono font-bold">Intensität: 0%</span>
+                <span id="meganLovenseSubtext" class="text-[10px] text-slate-500 font-mono truncate max-w-[170px]">192.168.188.34:20010</span>
+              </div>
+
+              <!-- Schieberegler 0 - 100% -->
+              <input type="range" id="meganLovenseSlider" min="0" max="100" step="1" value="0"
+                     oninput="onMeganLovenseSliderChange(this.value)"
+                     class="w-full accent-pink-500 bg-slate-950 rounded cursor-pointer">
+
+              <!-- Quick Presets -->
+              <div class="grid grid-cols-6 gap-1 pt-1 text-[10px] font-mono font-bold">
+                <button type="button" onclick="onMeganLovenseSliderChange(20)" class="py-1 bg-slate-950 hover:bg-pink-950/80 border border-slate-800 hover:border-pink-600/70 text-slate-300 hover:text-pink-200 rounded transition text-center">20%</button>
+                <button type="button" onclick="onMeganLovenseSliderChange(40)" class="py-1 bg-slate-950 hover:bg-pink-950/80 border border-slate-800 hover:border-pink-600/70 text-slate-300 hover:text-pink-200 rounded transition text-center">40%</button>
+                <button type="button" onclick="onMeganLovenseSliderChange(50)" class="py-1 bg-slate-950 hover:bg-pink-950/80 border border-slate-800 hover:border-pink-600/70 text-slate-300 hover:text-pink-200 rounded transition text-center">50%</button>
+                <button type="button" onclick="onMeganLovenseSliderChange(75)" class="py-1 bg-slate-950 hover:bg-pink-950/80 border border-slate-800 hover:border-pink-600/70 text-slate-300 hover:text-pink-200 rounded transition text-center">75%</button>
+                <button type="button" onclick="onMeganLovenseSliderChange(100)" class="py-1 bg-pink-950/80 hover:bg-pink-900 border border-pink-600/80 text-pink-200 rounded transition text-center">MAX</button>
+                <button type="button" onclick="onMeganLovenseSliderChange(0)" class="py-1 bg-rose-950/80 hover:bg-rose-900 border border-rose-700 text-rose-300 rounded transition text-center">STOP</button>
+              </div>
+            </div>
+
+            <!-- 3. PERSÖNLICHKEITS- & DYNAMIK-REGLER (0 - 100%) -->
+            <div class="bg-slate-900/80 border border-pink-900/60 rounded-lg p-3 space-y-3">
+              <div class="flex items-center justify-between pb-1 border-b border-slate-800">
+                <div class="flex items-center space-x-1.5">
+                  <span>🎭</span> <span class="text-xs font-bold text-pink-300">PERSÖNLICHKEIT & DYNAMIK</span>
+                </div>
+                <span id="meganStudioPersNotice" class="text-[10px] font-mono text-emerald-400 hidden">✔ Gespeichert</span>
+              </div>
+
+              <!-- Dynamik (Temperatur 0.30 - 0.85) -->
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-purple-300 font-bold flex items-center space-x-1">
+                    <span>⚡</span> <span>Dynamik (Temperatur)</span>
+                  </span>
+                  <span id="meganStudioDynamicsDisplay" class="px-1.5 py-0.5 rounded bg-purple-950 border border-purple-800 text-purple-300 font-mono font-bold text-[10px]">0.70</span>
+                </div>
+                <input type="range" id="meganStudioDynamics" min="30" max="85" step="1" value="70"
+                       oninput="onMeganPersonalityChange('dynamics', this.value)"
+                       class="w-full accent-purple-400 bg-slate-950 rounded cursor-pointer">
+                <div id="meganStudioDynamicsDesc" class="text-[10px] text-purple-200/90 font-sans italic bg-black/40 p-1 rounded border border-slate-800 leading-tight">
+                  Kreativ & lebendig: Facettenreiche, lebendige Wortwahl, freche Antworten und spontane Ideen.
+                </div>
+              </div>
+
+              <!-- Dominanz & Initiative -->
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-cyan-300 font-bold flex items-center space-x-1">
+                    <span>👑</span> <span>Dominanz</span>
+                  </span>
+                  <span id="meganStudioDominanceDisplay" class="px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300 font-mono font-bold text-[10px]">50%</span>
+                </div>
+                <input type="range" id="meganStudioDominance" min="0" max="100" step="1" value="50"
+                       oninput="onMeganPersonalityChange('dominance', this.value)"
+                       class="w-full accent-cyan-400 bg-slate-950 rounded cursor-pointer">
+                <div id="meganStudioDominanceDesc" class="text-[10px] text-cyan-200/90 font-sans italic bg-black/40 p-1 rounded border border-slate-800 leading-tight">
+                  Ausgeglichen: Begegnet dir auf Augenhöhe, wechselt spielerisch zwischen Führen und Folgen.
+                </div>
+              </div>
+
+              <!-- Explizitheit & Freizügigkeit -->
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-rose-300 font-bold flex items-center space-x-1">
+                    <span>🔥</span> <span>Explizitheit</span>
+                  </span>
+                  <span id="meganStudioExplicitnessDisplay" class="px-1.5 py-0.5 rounded bg-rose-950 border border-rose-800 text-rose-300 font-mono font-bold text-[10px]">70%</span>
+                </div>
+                <input type="range" id="meganStudioExplicitness" min="0" max="100" step="1" value="70"
+                       oninput="onMeganPersonalityChange('explicitness', this.value)"
+                       class="w-full accent-rose-500 bg-slate-950 rounded cursor-pointer">
+                <div id="meganStudioExplicitnessDesc" class="text-[10px] text-rose-200/90 font-sans italic bg-black/40 p-1 rounded border border-slate-800 leading-tight">
+                  Sinnlich, direkt und unzensiert: Benennt intime Berührungen und Lustgefühle klar ohne Scheu.
+                </div>
+              </div>
+
+              <!-- Detailtiefe & Physischer Fokus -->
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-amber-300 font-bold flex items-center space-x-1">
+                    <span>🔍</span> <span>Detailtiefe</span>
+                  </span>
+                  <span id="meganStudioDetailDisplay" class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 font-mono font-bold text-[10px]">60%</span>
+                </div>
+                <input type="range" id="meganStudioDetail" min="0" max="100" step="1" value="60"
+                       oninput="onMeganPersonalityChange('detail', this.value)"
+                       class="w-full accent-amber-400 bg-slate-950 rounded cursor-pointer">
+                <div id="meganStudioDetailDesc" class="text-[10px] text-amber-200/90 font-sans italic bg-black/40 p-1 rounded border border-slate-800 leading-tight">
+                  Hoher physischer Fokus: Beschreibt Blicke, Reaktionen, Wärme und Berührungen plastisch direkt im Satz.
+                </div>
+              </div>
+
+              <!-- Speichern Button für Persönlichkeitsregler -->
+              <div class="pt-1">
+                <button type="button" id="btnSaveMeganStudioPers" onclick="saveMeganStudioPersonality()"
+                        class="w-full py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold transition flex items-center justify-center space-x-1 shadow">
+                  <span>💾</span> <span>PERSÖNLICHKEIT & DYNAMIK SPEICHERN</span>
+                </button>
+              </div>
+            </div>
+
           </div>
 
           <!-- SPALTE MITTE: ComfyUI Prompt-Studio mit Positiv-Prompt, Negativ-Prompt, Preset Laden/Speichern & Render-Button -->
@@ -1226,14 +1278,27 @@
               <!-- Positiv-Prompt Section -->
               <div class="space-y-1.5">
                 <div class="flex items-center justify-between">
-                  <label class="text-[11px] font-bold text-pink-300 flex items-center space-x-1">
-                    <span>✨</span> <span>POSITIV-PROMPT</span>
+                  <label class="text-[11px] font-bold text-pink-300 flex items-center space-x-1.5">
+                    <span>✨</span> <span>POSITIV-PROMPT (DANBOORU AUTOCOMPLETE AKTIV)</span>
                   </label>
                   <span id="meganPosCharCount" class="text-[10px] text-slate-500">0 Zeichen</span>
                 </div>
+                <!-- Wildcard & Tag Helper Buttons -->
+                <div class="flex items-center space-x-1.5 flex-wrap gap-y-1 text-[10px]">
+                  <span class="text-[10px] text-slate-500 font-mono">Vorne anfügen:</span>
+                  <button type="button" onclick="prependMeganPromptTag('masterpiece, best quality, ultra-detailed')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-amber-900/60 text-amber-300 hover:text-amber-100 rounded font-mono transition" title="Qualitäts-Tags ganz vorne im Prompt einfügen">⭐ masterpiece</button>
+                  <button type="button" onclick="prependMeganPromptTag('cinematic lighting, soft studio rim lighting')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-purple-900/60 text-purple-300 hover:text-purple-100 rounded font-mono transition" title="Lichtstimmung vorne einfügen">💡 cinematic lighting</button>
+                  <button type="button" onclick="prependMeganPromptTag('close-up portrait, looking at viewer')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-indigo-900/60 text-indigo-300 hover:text-indigo-100 rounded font-mono transition" title="Kamera-Perspektive vorne einfügen">🔍 close-up</button>
+                  <button type="button" onclick="prependMeganPromptTag('1girl, megan, solo')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-cyan-900/60 text-cyan-300 hover:text-cyan-100 rounded font-mono transition" title="Standard Danbooru Basis-Tags vorne einfügen">🏷️ 1girl, solo</button>
+                  <span class="text-[10px] text-slate-500 font-mono ml-1">Wildcards:</span>
+                  <button type="button" onclick="insertMeganPromptTag('{location}')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-pink-900/60 text-pink-300 hover:text-pink-100 rounded font-mono transition" title="Wildcard {location} an Cursor/Ende einfügen">📍 {location}</button>
+                  <button type="button" onclick="insertMeganPromptTag('{outfit}')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-pink-900/60 text-pink-300 hover:text-pink-100 rounded font-mono transition" title="Wildcard {outfit} an Cursor/Ende einfügen">👗 {outfit}</button>
+                  <button type="button" onclick="insertMeganPromptTag('{shot}')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-pink-900/60 text-pink-300 hover:text-pink-100 rounded font-mono transition" title="Wildcard {shot} an Cursor/Ende einfügen">📷 {shot}</button>
+                  <button type="button" onclick="insertMeganPromptTag('{lighting}')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-pink-900/60 text-pink-300 hover:text-pink-100 rounded font-mono transition" title="Wildcard {lighting} an Cursor/Ende einfügen">💡 {lighting}</button>
+                </div>
                 <textarea id="meganPositivePrompt" rows="5"
                           oninput="document.getElementById('meganPosCharCount').textContent=this.value.length + ' Zeichen'"
-                          placeholder="Positiver Bild-Prompt (z. B. masterwork, highly detailed portrait of megan...)"
+                          placeholder="Positiver Bild-Prompt (z. B. 1girl, megan, solo, masterwork, highly detailed portrait...)"
                           class="w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-xs text-slate-200 focus:border-pink-500 focus:outline-none resize-y leading-relaxed font-mono"></textarea>
                 
                 <!-- Positiv Preset Controls -->
@@ -1425,14 +1490,6 @@
           <span class="text-xs font-bold tracking-wider text-cyan-300">AGENT CONSOLE</span>
         </div>
         <div class="flex items-center space-x-1.5">
-          {% if is_restricted %}
-          <button type="button" id="btnOpenBotSettings" onclick="openBotSettings()"
-                  class="px-2.5 py-1 rounded bg-pink-950/80 hover:bg-pink-900 border border-pink-600/70 text-pink-300 text-xs font-bold transition flex items-center space-x-1 shadow"
-                  title="Megan Companion Bot - Runtime Configuration & Lore Editor">
-            <span>💋</span>
-            <span class="text-[10px] tracking-wider font-mono">MEGAN // CONFIG</span>
-          </button>
-          {% endif %}
           <button type="button" onclick="toggleAgentDrawer()"
                   class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white text-xs transition"
                   title="Konsole einklappen">
@@ -1450,16 +1507,6 @@
           <button id="btnNodeFox" onclick="setChatNode('fox')" class="px-2.5 py-1 rounded font-bold transition text-slate-400 hover:text-slate-200 border border-transparent">
             FOX // Hermes-3
           </button>
-          {% if is_restricted %}
-          <button id="btnNodeMegan" onclick="openBotSettings()" class="px-2 py-1 rounded font-bold transition text-pink-400 hover:text-pink-200 border border-pink-900/60 hover:border-pink-600/60 bg-pink-950/40 flex items-center space-x-1" title="Megan Companion Bot Einstellungen & Lore">
-            <span>💋</span>
-            <span>MEGAN</span>
-          </button>
-          <button type="button" id="btnAppearancePresets" onclick="openAppearanceModal()" class="px-2 py-1 rounded font-bold transition text-pink-300 hover:text-pink-100 border border-pink-900/60 hover:border-pink-500/80 bg-pink-950/40 flex items-center space-x-1 shadow" title="Megan's Aussehen-Presets & physische Lore öffnen">
-            <span>👤</span>
-            <span>AUSSEHEN</span>
-          </button>
-          {% endif %}
         </div>
         <div class="flex items-center space-x-2">
           <!-- TTS Toggle Switch -->
@@ -1473,43 +1520,6 @@
           </button>
         </div>
       </div>
-
-      {% if is_restricted %}
-      <!-- Haptic Link Status Bar in Agent Drawer -->
-      <div id="agentDrawerHapticBar" class="px-2.5 py-1.5 bg-black/70 border-b border-slate-800/80 flex items-center justify-between text-xs font-mono gap-1.5 select-none">
-        <div class="flex items-center space-x-1.5 shrink-0">
-          <span class="text-slate-400 font-bold flex items-center space-x-1 text-[11px]" title="Haptic Link / Lovense Hardware">
-            <span>⚡</span> <span class="hidden sm:inline text-slate-300">HAPTIC</span>
-          </span>
-          <span id="agentDrawerHapticBadge" class="px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center space-x-1 bg-rose-950/80 border border-rose-700 text-rose-300 transition-all duration-300">
-            <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-            <span>🔴 OFFLINE</span>
-          </span>
-        </div>
-        <div class="flex items-center space-x-1.5 shrink-0 text-[10px]">
-          <!-- Checkbox: Bot-Autonomie -->
-          <label class="flex items-center space-x-1 cursor-pointer hover:text-pink-300 text-slate-300 transition" title="Megan darf Hardware autonom ansteuern">
-            <input type="checkbox" id="lovenseBotAutoEnabled" checked onchange="saveHapticSettings()" class="rounded bg-black border-slate-700 text-pink-500 focus:ring-0 focus:ring-offset-0 w-3 h-3">
-            <span class="font-bold">Bot-Auto</span>
-          </label>
-          <span class="text-slate-700">|</span>
-          <!-- Dropdown: Max Power -->
-          <div class="flex items-center space-x-1" title="Maximale Vibrationsstärke deckeln">
-            <span class="text-slate-500 text-[9px]">MAX:</span>
-            <select id="lovenseMaxIntensity" onchange="saveHapticSettings()" class="bg-black/90 border border-slate-700 text-pink-300 text-[10px] font-mono rounded px-1 py-0.5 focus:outline-none focus:border-pink-500">
-              <option value="25">25%</option>
-              <option value="50" selected>50%</option>
-              <option value="75">75%</option>
-              <option value="100">100%</option>
-            </select>
-          </div>
-          <!-- Test Button -->
-          <button type="button" id="btnLovenseTestPulse" onclick="triggerLovenseTestPulse()" class="px-1.5 py-0.5 bg-pink-950/80 hover:bg-pink-900 border border-pink-700/80 hover:border-pink-500 text-pink-300 hover:text-white rounded text-[10px] font-bold font-mono transition flex items-center space-x-0.5 shadow" title="2-Sekunden Test-Puls abfeuern">
-            <span>⚡</span><span>Test</span>
-          </button>
-        </div>
-      </div>
-      {% endif %}
 
       <!-- Chat Stream Area -->
       <div id="chatMessages" class="flex-1 p-3 overflow-y-auto space-y-3 scrollbar-thin text-xs">
@@ -2796,6 +2806,21 @@
 
   <!-- Client-side Application Logic -->
   <script>
+    // Ensure all /api/ fetch calls include mc_session cookie credentials
+    (function() {
+      const origFetch = window.fetch;
+      window.fetch = function(resource, init) {
+        init = init || {};
+        const url = (typeof resource === 'string') ? resource : (resource ? resource.url : '');
+        if (url && (url.startsWith('/api/') || url.startsWith('/login') || url.includes('/api/'))) {
+          if (!init.credentials) {
+            init.credentials = 'include';
+          }
+        }
+        return origFetch.call(this, resource, init);
+      };
+    })();
+
     let activeChatNode = 'outerheaven';
     let chatSocket = null;
     let chatHistory = [];
@@ -2865,6 +2890,8 @@
       if (typeof loadMeganVaultLore === 'function') loadMeganVaultLore();
       if (typeof checkLovenseStatus === 'function') checkLovenseStatus();
       if (typeof checkEvolutionStatus === 'function') checkEvolutionStatus();
+      if (typeof loadMeganPreviewImage === 'function') loadMeganPreviewImage();
+      if (typeof loadBotConfig === 'function') loadBotConfig();
     }
 
     function switchToCockpit() {
@@ -3007,6 +3034,30 @@
         updateDrawerToggleBtn(false);
       }
     }
+
+    function toggleMottoTooltip(e) {
+      if (e) e.stopPropagation();
+      const popup = document.getElementById('mottoTooltipPopup');
+      if (!popup) return;
+      if (popup.classList.contains('hidden')) {
+        popup.classList.remove('hidden');
+        popup.classList.add('flex');
+      } else {
+        popup.classList.add('hidden');
+        popup.classList.remove('flex');
+      }
+    }
+
+    document.addEventListener('click', function(e) {
+      const popup = document.getElementById('mottoTooltipPopup');
+      const btn = document.getElementById('btnTacticalMotto');
+      if (popup && !popup.classList.contains('hidden')) {
+        if (!popup.contains(e.target) && !btn.contains(e.target)) {
+          popup.classList.add('hidden');
+          popup.classList.remove('flex');
+        }
+      }
+    });
 
     function openAgentDrawer() {
       const drawer = document.getElementById('agentDrawer') || document.getElementById('agentConsole') || document.querySelector('.agent-console');
@@ -3227,7 +3278,7 @@
         currentAssistantBubble = bubble.querySelector('.assistant-content');
         chatMessages.scrollTop = chatMessages.scrollHeight;
 
-        const meganChat = document.getElementById('meganChatMessages');
+        const meganChat = document.getElementById('meganCompanionChat') || document.getElementById('meganChatMessages');
         if (meganChat) {
           const mbubble = document.createElement('div');
           mbubble.className = "flex flex-col space-y-1";
@@ -3250,7 +3301,7 @@
         chatMessages.appendChild(notif);
         chatMessages.scrollTop = chatMessages.scrollHeight;
 
-        const meganChat = document.getElementById('meganChatMessages');
+        const meganChat = document.getElementById('meganCompanionChat') || document.getElementById('meganChatMessages');
         if (meganChat) {
           const mnotif = document.createElement('div');
           mnotif.className = "px-2.5 py-1 rounded bg-pink-950/80 border border-pink-500/80 text-pink-300 text-[10px] font-mono flex items-center space-x-1 shadow-lg animate-pulse";
@@ -3265,7 +3316,7 @@
         }
         if (currentMeganAssistantBubble) {
           currentMeganAssistantBubble.textContent += msg.text;
-          const meganChat = document.getElementById('meganChatMessages');
+          const meganChat = document.getElementById('meganCompanionChat') || document.getElementById('meganChatMessages');
           if (meganChat) meganChat.scrollTop = meganChat.scrollHeight;
         }
       } else if (msg.type === 'done') {
@@ -6280,7 +6331,7 @@
     async function loadBotConfig() {
       try {
         await loadOllamaModelsForBotConfig();
-        const res = await fetch("/api/bot/config");
+        const res = await fetch("/api/bot/config", { credentials: "include" });
         if (!res.ok) return;
         const data = await res.json();
         const cfg = data.config || {};
@@ -6290,6 +6341,9 @@
         const dom = pers.dominance ?? 50;
         const exp = pers.explicitness ?? 70;
         const det = pers.detail_depth ?? 60;
+        const dynTemp = cfg.llm?.temperature ?? 0.70;
+        const dynVal = pers.dynamics ?? Math.round(dynTemp * 100);
+
         if (document.getElementById("botPersDominance")) {
           document.getElementById("botPersDominance").value = dom;
           updatePersonalitySliderUI("dominance", dom);
@@ -6301,6 +6355,25 @@
         if (document.getElementById("botPersDetail")) {
           document.getElementById("botPersDetail").value = det;
           updatePersonalitySliderUI("detail", det);
+        }
+
+        // Sync Megan Studio Spalte 1 Personality & Dynamics Sliders
+        if (document.getElementById("meganStudioDynamics")) {
+          const clampedDyn = Math.max(30, Math.min(85, dynVal));
+          document.getElementById("meganStudioDynamics").value = clampedDyn;
+          if (typeof onMeganPersonalityChange === "function") onMeganPersonalityChange("dynamics", clampedDyn, false);
+        }
+        if (document.getElementById("meganStudioDominance")) {
+          document.getElementById("meganStudioDominance").value = dom;
+          if (typeof onMeganPersonalityChange === "function") onMeganPersonalityChange("dominance", dom, false);
+        }
+        if (document.getElementById("meganStudioExplicitness")) {
+          document.getElementById("meganStudioExplicitness").value = exp;
+          if (typeof onMeganPersonalityChange === "function") onMeganPersonalityChange("explicitness", exp, false);
+        }
+        if (document.getElementById("meganStudioDetail")) {
+          document.getElementById("meganStudioDetail").value = det;
+          if (typeof onMeganPersonalityChange === "function") onMeganPersonalityChange("detail", det, false);
         }
 
         const domCustomEl = document.getElementById("botPersDominanceCustom");
@@ -7529,8 +7602,8 @@
       const text = input.value.trim();
       if (!text || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) return;
 
-      // Append to meganChatMessages
-      const meganChat = document.getElementById('meganChatMessages');
+      // Append to meganCompanionChat
+      const meganChat = document.getElementById('meganCompanionChat') || document.getElementById('meganChatMessages');
       if (meganChat) {
         const userBubble = document.createElement('div');
         userBubble.className = "flex flex-col space-y-1 items-end";
@@ -7574,34 +7647,46 @@
     }
 
     function onMeganLovenseSliderChange(val) {
-      const num = parseInt(val, 10);
+      const pct = Math.max(0, Math.min(100, parseInt(val, 10) || 0));
       const label = document.getElementById('meganLovenseIntensityLabel');
       if (label) {
-        label.textContent = `Stufe ${num} / 20 (${num * 5}%)`;
+        label.textContent = `Intensität: ${pct}%`;
       }
-      if (num === 0) {
+      const slider = document.getElementById('meganLovenseSlider');
+      if (slider && parseInt(slider.value, 10) !== pct) {
+        slider.value = pct;
+      }
+      if (pct === 0) {
         sendMeganLovenseCommand('stop', 0, false);
       } else {
-        sendMeganLovenseCommand('vibrate', num, false);
+        sendMeganLovenseCommand('vibrate', pct, false);
       }
     }
 
-    async function sendMeganLovenseCommand(action, intensity, updateSlider = true) {
-      const num = parseInt(intensity, 10);
+    async function sendMeganLovenseCommand(action, percentOrIntensity, updateSlider = true) {
+      const val = Math.max(0, Math.min(100, parseInt(percentOrIntensity, 10) || 0));
       if (updateSlider) {
         const slider = document.getElementById('meganLovenseSlider');
-        if (slider) slider.value = num;
+        if (slider) slider.value = val;
         const label = document.getElementById('meganLovenseIntensityLabel');
         if (label) {
-          label.textContent = `Stufe ${num} / 20 (${num * 5}%)`;
+          label.textContent = `Intensität: ${val}%`;
         }
       }
+
+      // Hardware level 0-20 mapping for server
+      const hwLevel = val === 0 ? 0 : Math.max(1, Math.min(20, Math.round((val / 100) * 20)));
 
       try {
         const res = await fetch('/api/bot/haptic/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: action, intensity: num, time_sec: action === 'stop' ? 0 : 2 })
+          body: JSON.stringify({
+            action: action,
+            percent: val,
+            intensity: hwLevel,
+            time_sec: action === 'stop' ? 0 : 2
+          })
         });
         const data = await res.json();
         console.log('Lovense command dispatched:', data);
@@ -7610,12 +7695,186 @@
       }
     }
 
+    // --- Megan Studio: Personality Sliders & Sync ---
+    let meganPersDebounceTimer = null;
+    function debouncedSaveMeganStudioPersonality() {
+      const notice = document.getElementById('meganStudioPersNotice');
+      if (notice) {
+        notice.textContent = "Speichern...";
+        notice.className = "text-[10px] font-mono text-amber-400";
+        notice.classList.remove("hidden");
+      }
+      clearTimeout(meganPersDebounceTimer);
+      meganPersDebounceTimer = setTimeout(() => {
+        saveMeganStudioPersonality();
+      }, 600);
+    }
+
+    function onMeganPersonalityChange(type, value, shouldDebounce = true) {
+      const val = parseInt(value, 10);
+      if (type === 'dynamics') {
+        const badge = document.getElementById('meganStudioDynamicsDisplay');
+        const desc = document.getElementById('meganStudioDynamicsDesc');
+        const temp = (val / 100).toFixed(2);
+        if (badge) badge.textContent = temp;
+        if (desc) {
+          if (val < 45) desc.textContent = `Präzise & Fokussiert (T=${temp}): Streng deterministisch, bleibt exakt an Regeln und Fakten.`;
+          else if (val <= 65) desc.textContent = `Ausgewogen (T=${temp}): Gute Balance zwischen Rollenspiel-Kreativität und textlicher Stringenz.`;
+          else if (val <= 78) desc.textContent = `Kreativ & Lebendig (T=${temp}): Facettenreiche Wortwahl, freche Antworten und spontane Ideen.`;
+          else desc.textContent = `Maximal Spontan (T=${temp}): Hohe Assoziationskraft, unvorhersehbar, poetisch und leidenschaftlich.`;
+        }
+      } else if (type === 'dominance') {
+        const badge = document.getElementById('meganStudioDominanceDisplay');
+        const desc = document.getElementById('meganStudioDominanceDesc');
+        if (badge) badge.textContent = `${val}%`;
+        if (desc) {
+          if (val < 25) desc.textContent = "Extrem sanft & zurückhaltend: Überlässt dir absolut die Führung, reagiert schüchtern und gehorsam.";
+          else if (val < 45) desc.textContent = "Sanft & zärtlich: Lässt dir die Führung, zeigt sich anhänglich, folgsam und hingebungsvoll.";
+          else if (val <= 65) desc.textContent = "Ausgeglichen: Begegnet dir auf Augenhöhe, wechselt spielerisch zwischen Führen und Folgen.";
+          else if (val <= 85) desc.textContent = "Fordernd & offensiv: Übernimmt aktiv die Initiative, neckt frech, bestimmt das Tempo.";
+          else desc.textContent = "Kompromisslos dominant: Absolute Kontrolle und herrischer Ton, gibt klare Anweisungen ohne Widerrede.";
+        }
+        const modalInput = document.getElementById('botPersDominance');
+        if (modalInput) { modalInput.value = val; updatePersonalitySliderUI('dominance', val); }
+      } else if (type === 'explicitness') {
+        const badge = document.getElementById('meganStudioExplicitnessDisplay');
+        const desc = document.getElementById('meganStudioExplicitnessDesc');
+        if (badge) badge.textContent = `${val}%`;
+        if (desc) {
+          if (val < 25) desc.textContent = "Subtil & verspielt: Keine derben Begriffe, zarte Andeutungen, Code-Wörter und poetische Metaphern.";
+          else if (val < 50) desc.textContent = "Sinnlich & elegant: Verspielte Umschreibungen und erotische Kosenamen statt Kraftausdrücken.";
+          else if (val <= 75) desc.textContent = "Sinnlich, direkt und unzensiert: Benennt intime Berührungen und Lustgefühle klar ohne Scheu.";
+          else desc.textContent = "Kompromisslos explizit & derb: Unzensierte, tabulose und hemmungslose Begriffe ohne Umschweife.";
+        }
+        const modalInput = document.getElementById('botPersExplicitness');
+        if (modalInput) { modalInput.value = val; updatePersonalitySliderUI('explicitness', val); }
+      } else if (type === 'detail') {
+        const badge = document.getElementById('meganStudioDetailDisplay');
+        const desc = document.getElementById('meganStudioDetailDesc');
+        if (badge) badge.textContent = `${val}%`;
+        if (desc) {
+          if (val < 25) desc.textContent = "Fokus auf Alltags-Chat & Fürsorge: Emotionale Begleitung und geistige Nähe stehen im Vordergrund.";
+          else if (val < 50) desc.textContent = "Ausgewogene Balance: Flirtet charmant und bindet sanfte Gesten direkt in den Satz ein.";
+          else if (val <= 75) desc.textContent = "Hoher physischer Fokus: Beschreibt Blicke, Reaktionen, Wärme und Berührungen plastisch direkt im Satz.";
+          else desc.textContent = "Maximaler physischer Detailfokus: Beschreibt kleinste intime Nuancen, Feuchtigkeit, Pulsieren und Berührungen sensorisch tief.";
+        }
+        const modalInput = document.getElementById('botPersDetail');
+        if (modalInput) { modalInput.value = val; updatePersonalitySliderUI('detail', val); }
+      }
+
+      if (shouldDebounce) {
+        debouncedSaveMeganStudioPersonality();
+      }
+    }
+
+    async function saveMeganStudioPersonality() {
+      const notice = document.getElementById('meganStudioPersNotice');
+      if (notice) {
+        notice.textContent = "Speichere...";
+        notice.className = "text-[10px] font-mono text-amber-400";
+        notice.classList.remove("hidden");
+      }
+
+      const dom = parseInt(document.getElementById('meganStudioDominance')?.value || 50, 10);
+      const exp = parseInt(document.getElementById('meganStudioExplicitness')?.value || 70, 10);
+      const det = parseInt(document.getElementById('meganStudioDetail')?.value || 60, 10);
+      const dynVal = parseInt(document.getElementById('meganStudioDynamics')?.value || 70, 10);
+      const tempVal = parseFloat((dynVal / 100).toFixed(2));
+
+      try {
+        // Fetch current config first so we preserve other fields
+        const getRes = await fetch('/api/bot/config', { credentials: 'include' });
+        let currentConfig = {};
+        if (getRes.ok) {
+          const getData = await getRes.json();
+          currentConfig = getData.config || {};
+        }
+
+        if (!currentConfig.personality) currentConfig.personality = {};
+        currentConfig.personality.dominance = dom;
+        currentConfig.personality.explicitness = exp;
+        currentConfig.personality.detail_depth = det;
+        currentConfig.personality.dynamics = dynVal;
+
+        if (!currentConfig.llm) currentConfig.llm = {};
+        currentConfig.llm.temperature = tempVal;
+
+        const res = await fetch('/api/bot/config', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config: currentConfig })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (notice) {
+            notice.textContent = "✔ Gespeichert!";
+            notice.className = "text-[10px] font-mono text-emerald-400 font-bold";
+            setTimeout(() => notice.classList.add("hidden"), 3000);
+          }
+        } else {
+          if (notice) {
+            notice.textContent = `Fehler: ${data.error || "Fehlgeschlagen"}`;
+            notice.className = "text-[10px] font-mono text-rose-400";
+          }
+        }
+      } catch (err) {
+        if (notice) {
+          notice.textContent = `Netzwerkfehler: ${err.message}`;
+          notice.className = "text-[10px] font-mono text-rose-400";
+        }
+      }
+    }
+
+    // --- Megan Studio: Companion Preview Image Loader ---
+    async function loadMeganPreviewImage() {
+      try {
+        const res = await fetch('/api/gallery', { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const imgEl = document.getElementById('meganPreviewImg');
+        const placeholder = document.getElementById('meganPreviewPlaceholder');
+        const filenameEl = document.getElementById('meganPreviewFilename');
+
+        if (data && data.images && data.images.length > 0) {
+          const latest = data.images[0];
+          if (imgEl) {
+            imgEl.src = latest.url;
+            imgEl.classList.remove('hidden');
+          }
+          if (placeholder) placeholder.classList.add('hidden');
+          if (filenameEl) filenameEl.textContent = latest.filename || 'megan_render.png';
+        } else {
+          if (imgEl) imgEl.classList.add('hidden');
+          if (placeholder) placeholder.classList.remove('hidden');
+          if (filenameEl) filenameEl.textContent = 'Keine Bilder';
+        }
+      } catch (e) {
+        console.warn('loadMeganPreviewImage error:', e);
+      }
+    }
+
+    // --- Megan Prompt Tag Helpers (Prepend & Append) ---
+    function prependMeganPromptTag(tag) {
+      const el = document.getElementById('meganPositivePrompt');
+      if (!el) return;
+      const cur = el.value.trim();
+      if (!cur) {
+        el.value = tag;
+      } else {
+        el.value = tag + ', ' + cur;
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.focus();
+    }
+    window.prependMeganPromptTag = prependMeganPromptTag;
+
     let meganPresetsCache = { positive: [], negative: [], styles: [] };
 
     async function loadMeganStudioPresets() {
-      // 1. Load Appearance Presets (character.json styles)
+      // 1. Load Appearance Presets (pure character profiles)
       try {
-        const appRes = await fetch('/api/bot/appearance/presets');
+        const appRes = await fetch('/api/bot/appearance/presets', { credentials: 'include' });
         if (appRes.ok) {
           const appData = await appRes.json();
           meganPresetsCache.styles = (appData && appData.presets) ? appData.presets : [];
@@ -7624,9 +7883,9 @@
         console.warn('Fehler beim Abrufen der Appearance-Presets:', err);
       }
 
-      // 2. Load Prompt Presets (positive / negative)
+      // 2. Load Prompt Presets (positive / negative scene presets)
       try {
-        const res = await fetch('/api/presets');
+        const res = await fetch('/api/presets', { credentials: 'include' });
         if (res.ok) {
           const data = await res.json();
           meganPresetsCache.positive = data.positive || data.presets || [];
@@ -7636,34 +7895,39 @@
         console.warn('loadMeganStudioPresets fetch error:', err);
       }
 
-      // 3. Populate Megan Style Dropdown (#meganStyleSelect)
+      // 3. Populate Megan Style Dropdown (#meganStyleSelect) strictly with Character Profiles
       const styleSel = document.getElementById('meganStyleSelect');
       if (styleSel) {
-        styleSel.innerHTML = '<option value="">📂 Stil / Aussehen auswählen...</option>';
+        styleSel.innerHTML = '<option value="">📂 Charakter-Profil auswählen...</option>';
+
+        const savedPresetId = localStorage.getItem('mc_active_character_preset');
 
         if (meganPresetsCache.styles && meganPresetsCache.styles.length > 0) {
-          const charGroup = document.createElement('optgroup');
-          charGroup.label = '👤 Charakter-Profile (Aussehen & Lore)';
+          // Identify which preset should be active:
+          // 1. Stored in localStorage if present in available styles
+          // 2. Preset marked is_active by server
+          // 3. First preset as fallback
+          let activePreset = null;
+          if (savedPresetId) {
+            activePreset = meganPresetsCache.styles.find(p => p.id === savedPresetId);
+          }
+          if (!activePreset) {
+            activePreset = meganPresetsCache.styles.find(p => p.is_active) || meganPresetsCache.styles[0];
+          }
+
           meganPresetsCache.styles.forEach(p => {
             const opt = document.createElement('option');
-            opt.value = `style:${p.id}`;
-            opt.textContent = `${p.name || p.id}${p.is_active ? ' (Aktiv)' : ''}`;
-            if (p.is_active) opt.selected = true;
-            charGroup.appendChild(opt);
+            opt.value = p.id;
+            const isAct = Boolean(activePreset && p.id === activePreset.id);
+            opt.textContent = `${p.name || p.id}${isAct ? ' (Aktiv)' : ''}`;
+            if (isAct) opt.selected = true;
+            styleSel.appendChild(opt);
           });
-          styleSel.appendChild(charGroup);
-        }
 
-        if (meganPresetsCache.positive && meganPresetsCache.positive.length > 0) {
-          const promptGroup = document.createElement('optgroup');
-          promptGroup.label = '✨ Prompt-Presets (Szenen & Ästhetik)';
-          meganPresetsCache.positive.forEach(p => {
-            const opt = document.createElement('option');
-            opt.value = `prompt:${p.id}`;
-            opt.textContent = p.name || p.id;
-            promptGroup.appendChild(opt);
-          });
-          styleSel.appendChild(promptGroup);
+          // Apply active preset so Positive and Negative prompts match the profile
+          if (activePreset) {
+            applyMeganStylePreset(activePreset.id, false);
+          }
         }
       }
 
@@ -7691,48 +7955,68 @@
       }
     }
 
-    function applyMeganStylePreset(val) {
+    function applyMeganStylePreset(val, updateServer = true) {
       if (!val) return;
+      const cleanId = val.startsWith('style:') ? val.replace('style:', '') : (val.startsWith('prompt:') ? val.replace('prompt:', '') : val);
       const posEl = document.getElementById('meganPositivePrompt');
+      const negEl = document.getElementById('meganNegativePrompt');
       const labelEl = document.getElementById('meganActiveStyleLabel');
+      const styleSel = document.getElementById('meganStyleSelect');
 
-      if (val.startsWith('style:')) {
-        const styleId = val.replace('style:', '');
-        const p = meganPresetsCache.styles.find(item => item.id === styleId);
-        if (p) {
-          if (labelEl) labelEl.textContent = p.name || p.id;
-          const vis = p.visual || {};
-          const parts = [];
-          if (vis.body) parts.push(vis.body);
-          if (p.prompt_height) parts.push(p.prompt_height);
-          if (vis.face) parts.push(vis.face);
-          if (vis.hair) parts.push(vis.hair);
-          if (vis.features) parts.push(vis.features);
-          if (vis.style_aesthetic) parts.push(vis.style_aesthetic);
-          const finalPrompt = parts.join(', ');
+      const p = meganPresetsCache.styles ? meganPresetsCache.styles.find(item => item.id === cleanId) : null;
+      if (!p) return;
 
-          if (posEl) {
-            posEl.value = finalPrompt;
-            posEl.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-        }
-      } else if (val.startsWith('prompt:')) {
-        const promptId = val.replace('prompt:', '');
-        const p = meganPresetsCache.positive.find(item => item.id === promptId);
-        if (p) {
-          if (labelEl) labelEl.textContent = p.name || p.id;
-          if (posEl) {
-            posEl.value = p.positive || p.text || '';
-            posEl.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-          if (p.negative) {
-            const negEl = document.getElementById('meganNegativePrompt');
-            if (negEl) {
-              negEl.value = p.negative;
-              negEl.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-          }
-        }
+      // 1. Persist selection to localStorage
+      try {
+        localStorage.setItem('mc_active_character_preset', cleanId);
+      } catch (e) {}
+
+      // 2. Update UI labels and selector value
+      if (labelEl) labelEl.textContent = p.name || p.id;
+      if (styleSel && styleSel.value !== cleanId) {
+        styleSel.value = cleanId;
+      }
+
+      // 3. Compute and load Positive Prompt from Profile
+      const vis = p.visual || {};
+      let finalPosPrompt = p.positive_prompt || p.base_positive_prompt || '';
+      if (!finalPosPrompt) {
+        const parts = [];
+        if (vis.body) parts.push(vis.body);
+        if (p.prompt_height) parts.push(p.prompt_height);
+        if (vis.face) parts.push(vis.face);
+        if (vis.hair) parts.push(vis.hair);
+        if (vis.features) parts.push(vis.features);
+        if (vis.style_aesthetic) parts.push(vis.style_aesthetic);
+        finalPosPrompt = parts.join(', ');
+      }
+
+      if (posEl && finalPosPrompt) {
+        posEl.value = finalPosPrompt;
+        posEl.dispatchEvent(new Event('input', { bubbles: true }));
+        const countEl = document.getElementById('meganPosCharCount');
+        if (countEl) countEl.textContent = `${finalPosPrompt.length} Zeichen`;
+      }
+
+      // 4. Compute and load Negative Prompt from Profile
+      let finalNegPrompt = p.negative_prompt || (p.negative_prompts && p.negative_prompts.quality) || '';
+      if (!finalNegPrompt) {
+        finalNegPrompt = "glasses, spectacles, worst quality, low quality, bad anatomy, bad limbs, deformed fingers, blurry, monochrome, watermark, text, signature";
+      }
+
+      if (negEl && finalNegPrompt) {
+        negEl.value = finalNegPrompt;
+        negEl.dispatchEvent(new Event('input', { bubbles: true }));
+        const negCountEl = document.getElementById('meganNegCharCount');
+        if (negCountEl) negCountEl.textContent = `${finalNegPrompt.length} Zeichen`;
+      }
+
+      // 5. Notify backend to activate preset
+      if (updateServer) {
+        fetch(`/api/bot/appearance/presets/${encodeURIComponent(cleanId)}/activate`, {
+          method: 'POST',
+          credentials: 'include'
+        }).catch(err => console.warn('Error activating appearance preset:', err));
       }
     }
 
@@ -7759,6 +8043,22 @@
         }
       }
     }
+
+    function insertMeganPromptTag(tag) {
+      const el = document.getElementById('meganPositivePrompt');
+      if (!el) return;
+      const cur = el.value.trim();
+      if (!cur) {
+        el.value = tag;
+      } else if (cur.endsWith(',')) {
+        el.value = cur + ' ' + tag;
+      } else {
+        el.value = cur + ', ' + tag;
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.focus();
+    }
+    window.insertMeganPromptTag = insertMeganPromptTag;
 
     // --- ComfyUI Prompt-Preset Speichern (Streng entkoppelt vom RPG-Aussehen-Modal) ---
     function openComfyPromptPresetModal() {
@@ -7995,6 +8295,7 @@
               }
               if (btn) btn.disabled = false;
               if (typeof loadGallery === 'function') loadGallery();
+              if (typeof loadMeganPreviewImage === 'function') loadMeganPreviewImage();
             } else if (attempts > 50) {
               clearInterval(interval);
               if (statusEl) statusEl.textContent = '⚠️ Timeout beim Warten auf Fertigstellung.';
