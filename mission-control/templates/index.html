@@ -83,6 +83,19 @@
     .codec-bar-3 { animation: codec-pulse 0.35s ease-in-out infinite 0.2s; }
     .codec-bar-4 { animation: codec-pulse 0.5s ease-in-out infinite 0.15s; }
     .codec-bar-5 { animation: codec-pulse 0.45s ease-in-out infinite 0.05s; }
+
+    /* Tactical Cluster Sync Badges */
+    .badge-idle {
+      background-color: rgba(15, 23, 42, 0.85);
+      color: #94a3b8;
+      border: 1px solid #334155;
+    }
+    .badge-active {
+      background-color: rgba(6, 78, 59, 0.45);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.6);
+      box-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+    }
   </style>
 </head>
 <body class="min-h-screen text-slate-200 flex flex-col antialiased selection:bg-cyan-500/30 selection:text-cyan-200 relative">
@@ -442,17 +455,10 @@
             </div>
           </div>
 
-          <!-- Knoten-Dienste (2x2-Grid, identische Höhe wie Outer Heaven) -->
+          <!-- Knoten-Dienste (identische Höhe wie Outer Heaven) -->
           <div class="pt-2 border-t border-slate-800/60 font-mono">
             <div class="text-[10px] uppercase text-slate-500 tracking-wider mb-1.5">Knoten-Dienste</div>
             <div class="grid grid-cols-2 gap-2 text-[11px]">
-              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
-                <span class="text-slate-300">Hermes Gateway</span>
-                <div class="flex items-center space-x-1.5">
-                  <span id="svc_hermes-gateway" class="px-1.5 py-0.2 text-[9px] rounded font-bold bg-slate-800 text-slate-400">...</span>
-                  <button onclick="controlService('fox', 'hermes-gateway', 'restart')" title="Restart Gateway" class="text-slate-500 hover:text-amber-300 transition">⟳</button>
-                </div>
-              </div>
               <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
                 <span class="text-slate-300">Ollama Daemon</span>
                 <div class="flex items-center space-x-1.5">
@@ -467,10 +473,10 @@
                   <button onclick="controlService('fox', 'ollama-tailscale-proxy', 'restart')" title="Restart Proxy" class="text-slate-500 hover:text-amber-300 transition">⟳</button>
                 </div>
               </div>
-              <div class="flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
+              <div class="col-span-2 flex items-center justify-between bg-slate-900/80 px-2 py-1.5 rounded border border-slate-800">
                 <span class="text-slate-300">Cluster Sync</span>
                 <div class="flex items-center space-x-1.5">
-                  <span id="svc_fox_sync" class="px-1.5 py-0.2 text-[9px] rounded font-bold bg-slate-800 text-emerald-400">STANDBY</span>
+                  <span id="svc_fox_sync" class="px-1.5 py-0.2 text-[9px] rounded font-bold badge-idle">STANDBY (Bereit)</span>
                 </div>
               </div>
             </div>
@@ -3651,13 +3657,6 @@
 
           // Services (Fox)
           if (fox.services) {
-            const gwEl = document.getElementById('svc_hermes-gateway');
-            if (gwEl) {
-              const st = fox.services['hermes-gateway'] || 'unknown';
-              gwEl.textContent = st.toUpperCase();
-              gwEl.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${getServiceBadgeStyle(st)}`;
-            }
-
             const ollamaEl = document.getElementById('svc_fox_ollama');
             if (ollamaEl) {
               const st = fox.services['ollama'] || 'unknown';
@@ -3674,9 +3673,16 @@
 
             const syncEl = document.getElementById('svc_fox_sync');
             if (syncEl) {
-              const st = fox.services['fox_sync'] || (fox.online ? 'standby' : 'inactive');
-              syncEl.textContent = st.toUpperCase();
-              syncEl.className = `px-1.5 py-0.2 text-[9px] rounded font-bold ${getServiceBadgeStyle(st)}`;
+              const rawSync = (fox.services && (fox.services['fox_sync'] || fox.services['cluster-sync'])) || (fox.cluster_sync ? fox.cluster_sync.status : (fox.online ? 'standby' : 'inactive'));
+              const st = (typeof rawSync === 'object' && rawSync !== null) ? (rawSync.status || 'standby') : String(rawSync).toLowerCase().trim();
+              const isSyncing = (st === 'syncing' || st === 'active');
+              if (isSyncing) {
+                syncEl.textContent = 'SYNCING (Aktiv)';
+                syncEl.className = 'px-1.5 py-0.2 text-[9px] rounded font-bold badge-active';
+              } else {
+                syncEl.textContent = 'STANDBY (Bereit)';
+                syncEl.className = 'px-1.5 py-0.2 text-[9px] rounded font-bold badge-idle';
+              }
             }
           }
 

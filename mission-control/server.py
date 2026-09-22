@@ -25,7 +25,7 @@ import csv
 import datetime
 import ipaddress
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Set
 
 import aiohttp
 from aiohttp import web
@@ -254,7 +254,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mission-control")
 
-# --- Load Secrets ---
+# --- Load Secrets & Password Management ---
+DEFAULT_DASHBOARD_PASSWORD = os.environ.get("DEFAULT_DASHBOARD_PASSWORD", "outerheaven2026")
+PRIMARY_PW_FILE = Path("/home/outerheaven/mission-control/secrets/dashboard_password.txt")
+
 def load_secrets() -> Tuple[str, str, str]:
     secrets_dir = SECRETS_DIR
     if not secrets_dir.is_dir():
@@ -265,22 +268,40 @@ def load_secrets() -> Tuple[str, str, str]:
         except Exception:
             pass
 
-    pw_file = secrets_dir / "dashboard_password.txt"
-    key_file = secrets_dir / "cluster_api.key"
-    restricted_file = secrets_dir / "restricted_password.txt"
-
+    # 1. Master Dashboard Passwort persistent laden
     password = ""
-    if pw_file.is_file():
-        password = pw_file.read_text().strip()
-    else:
-        logger.warning(f"Password file {pw_file} not found, generating temporary")
-        password = "OH-" + secrets.token_urlsafe(16)
-        try:
-            pw_file.parent.mkdir(parents=True, exist_ok=True)
-            pw_file.write_text(password + "\n")
-            os.chmod(pw_file, 0o600)
-        except Exception as e:
-            logger.warning(f"Could not persist temporary password to disk: {e}")
+    candidate_pw_files = [
+        PRIMARY_PW_FILE,
+        BASE_DIR / "secrets" / "dashboard_password.txt",
+        secrets_dir / "dashboard_password.txt"
+    ]
+    for cand in candidate_pw_files:
+        if cand.is_file():
+            content = cand.read_text().strip()
+            if content:
+                password = content
+                break
+
+    if not password:
+        logger.warning(
+            f"Passwort-Datei nicht gefunden (geprüft: {PRIMARY_PW_FILE}). "
+            f"Verwende konfigurierbaren Standard-Fallback (DEFAULT_DASHBOARD_PASSWORD)."
+        )
+        password = DEFAULT_DASHBOARD_PASSWORD
+        for cand in [PRIMARY_PW_FILE, BASE_DIR / "secrets" / "dashboard_password.txt"]:
+            try:
+                cand.parent.mkdir(parents=True, exist_ok=True)
+                cand.write_text(password + "\n")
+                os.chmod(cand, 0o600)
+                logger.info(f"Standardpasswort persistent in {cand} gespeichert.")
+                break
+            except Exception as e:
+                logger.debug(f"Konnte Standardpasswort nicht in {cand} persistieren: {e}")
+
+    # 2. Cluster API Key laden
+    key_file = secrets_dir / "cluster_api.key"
+    if not key_file.is_file() and (BASE_DIR / "secrets" / "cluster_api.key").is_file():
+        key_file = BASE_DIR / "secrets" / "cluster_api.key"
 
     cluster_key = ""
     if key_file.is_file():
@@ -294,6 +315,11 @@ def load_secrets() -> Tuple[str, str, str]:
             os.chmod(key_file, 0o600)
         except Exception as e:
             logger.warning(f"Could not persist temporary cluster key to disk: {e}")
+
+    # 3. Restricted Password laden
+    restricted_file = secrets_dir / "restricted_password.txt"
+    if not restricted_file.is_file() and (BASE_DIR / "secrets" / "restricted_password.txt").is_file():
+        restricted_file = BASE_DIR / "secrets" / "restricted_password.txt"
 
     restricted_pw = os.environ.get("RESTRICTED_PASSWORD", "")
     if not restricted_pw and restricted_file.is_file():
@@ -310,6 +336,72 @@ def load_secrets() -> Tuple[str, str, str]:
     return password, cluster_key, restricted_pw
 
 DASHBOARD_PASSWORD, CLUSTER_API_KEY, RESTRICTED_PASSWORD = load_secrets()
+
+# --- Trusted IP Whitelist for Mission Control Access ---
+TRUSTED_IPS: Set[str] = {
+    # Cluster / Rechner
+    "100.88.191.31",    # bigboss Laptop
+    "100.93.184.87",    # fox EliteDesk
+    "100.116.38.29",   # outerheaven Z620
+    "100.127.247.117",  # deraldehesse
+    # Eigene Mobilgeräte
+    "100.86.115.107",   # poco-x8-pro
+    "100.107.42.22",    # redmi-note-10-pro
+    "100.86.154.72",    # redmi-note-12-1
+    # Lokaler Loopback
+    "127.0.0.1",
+    "::1",
+}
+
+# Lokale Subnetze (z. B. LAN 192.168.*, 10.*, 127.*)
+TRUSTED_LOCAL_SUBNETS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("10.0.0.0/8"),
+]
+
+def get_client_ip(request: web.Request) -> str:
+    """
+    Ermittelt die tatsächliche Client-IP aus X-Forwarded-For, X-Real-IP
+    oder request.remote (Fallback).
+    """
+    xff = request.headers.get("X-Forwarded-For", "").strip()
+    if xff:
+        client_ip = xff.split(",")[0].strip()
+        if client_ip:
+            return client_ip
+
+    x_real_ip = request.headers.get("X-Real-IP", "").strip()
+    if x_real_ip:
+        return x_real_ip
+
+    return request.remote or ""
+
+def is_ip_whitelisted(ip_str: str) -> bool:
+    """
+    Prüft, ob eine Client-IP in TRUSTED_IPS enthalten ist oder zu
+    einem erlaubten lokalen Subnetz gehört.
+    WICHTIG: Tailscale-IPs (100.*) müssen explizit in TRUSTED_IPS aufgeführt sein.
+    Nicht-gelistete IPs wie 100.95.109.3 (robert-latitude) werden abgelehnt!
+    """
+    if not ip_str:
+        return False
+
+    if ip_str in TRUSTED_IPS:
+        return True
+
+    try:
+        ip_obj = ipaddress.ip_address(ip_str)
+        if ip_obj.is_loopback:
+            return True
+        for net in TRUSTED_LOCAL_SUBNETS:
+            if ip_obj in net:
+                return True
+    except ValueError:
+        pass
+
+    return False
 
 # Persistent server secret to maintain sessions across reloads/restarts
 def load_server_secret() -> str:
@@ -421,9 +513,9 @@ telemetry_cache = {
         "load": [0.0, 0.0, 0.0],
         "ram": {"total": 0, "used": 0, "free": 0, "percent": 0.0},
         "services": {
-            "hermes-gateway": "unknown",
             "ollama": "unknown",
-            "ollama-tailscale-proxy": "unknown"
+            "ollama-tailscale-proxy": "unknown",
+            "fox_sync": "standby"
         },
         "models": []
     },
@@ -657,14 +749,15 @@ async def get_fox_telemetry(session: aiohttp.ClientSession) -> Dict[str, Any]:
     load = [0.0, 0.0, 0.0]
     ram = {"total": 0, "used": 0, "free": 0, "percent": 0.0}
     services = {
-        "hermes-gateway": "unknown",
         "ollama": "active" if ollama_ok else "inactive",
-        "ollama-tailscale-proxy": "active" if ollama_ok else "unknown"
+        "ollama-tailscale-proxy": "active" if ollama_ok else "unknown",
+        "fox_sync": "standby"
     }
     online = False
+    fox_sync_active = False
 
     try:
-        cmd = "ssh -o BatchMode=yes -o ConnectTimeout=2 fox 'cat /proc/loadavg; echo "---"; free -b; echo "---"; systemctl --user is-active hermes-gateway.service; systemctl --user is-active ollama-tailscale-proxy.service; systemctl is-active ollama.service'"
+        cmd = "ssh -o BatchMode=yes -o ConnectTimeout=2 fox 'cat /proc/loadavg; echo \"---\"; free -b; echo \"---\"; systemctl --user is-active ollama-tailscale-proxy.service; systemctl is-active ollama.service; echo \"---\"; pgrep -x rsync >/dev/null && echo syncing || echo standby'"
         proc = await asyncio.create_subprocess_shell(
             cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
         )
@@ -693,19 +786,44 @@ async def get_fox_telemetry(session: aiohttp.ClientSession) -> Dict[str, Any]:
             if len(blocks) >= 3:
                 svc_lines = blocks[2].strip().split(chr(10))
                 if len(svc_lines) >= 1 and svc_lines[0]:
-                    services["hermes-gateway"] = svc_lines[0].strip()
+                    services["ollama-tailscale-proxy"] = svc_lines[0].strip()
                 if len(svc_lines) >= 2 and svc_lines[1]:
-                    services["ollama-tailscale-proxy"] = svc_lines[1].strip()
-                if len(svc_lines) >= 3 and svc_lines[2]:
-                    sys_ollama = svc_lines[2].strip()
+                    sys_ollama = svc_lines[1].strip()
                     if sys_ollama in ["active", "activating"]:
                         services["ollama"] = "active"
                     elif ollama_ok:
                         services["ollama"] = "active"
                     else:
                         services["ollama"] = sys_ollama
+            if len(blocks) >= 4:
+                sync_out = blocks[3].strip().lower()
+                if "syncing" in sync_out:
+                    fox_sync_active = True
     except Exception as e:
         logger.debug(f"Fox telemetry error: {e}")
+
+    # Check if rsync is active across the cluster (Fox or Outer Heaven)
+    is_syncing = fox_sync_active
+    if not is_syncing:
+        try:
+            proc_rs = await asyncio.create_subprocess_exec(
+                "pgrep", "-x", "rsync",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+            )
+            out_rs, _ = await proc_rs.communicate()
+            if proc_rs.returncode == 0 and out_rs.strip():
+                is_syncing = True
+        except Exception:
+            pass
+
+    sync_status = "syncing" if is_syncing else "standby"
+    sync_label = "SYNCING (Aktiv)" if is_syncing else "STANDBY (Bereit)"
+    sync_class = "badge-active" if is_syncing else "badge-idle"
+
+    services["fox_sync"] = sync_status
+    services["cluster-sync"] = sync_status
+    services["fox_sync_label"] = sync_label
+    services["fox_sync_class"] = sync_class
 
     if ollama_ok:
         services["ollama"] = "active"
@@ -719,6 +837,11 @@ async def get_fox_telemetry(session: aiohttp.ClientSession) -> Dict[str, Any]:
         "load": load,
         "ram": ram,
         "services": services,
+        "cluster_sync": {
+            "status": sync_status,
+            "label": sync_label,
+            "css_class": sync_class
+        },
         "models": models
     }
 
@@ -1072,18 +1195,30 @@ async def auth_middleware(request: web.Request, handler):
 
     authenticated = False
     is_restricted = False
+    ip_whitelisted = False
 
-    session_cookie = request.cookies.get("mc_session")
-    valid_cookie, cookie_restricted = verify_session_cookie(session_cookie)
-    if valid_cookie:
+    # 1. IP-Erkennung & Whitelist-Prüfung (Bypass aktiv für bekannte Cluster-Nodes & Mobilgeräte)
+    client_ip = get_client_ip(request)
+    if is_ip_whitelisted(client_ip):
         authenticated = True
-        is_restricted = cookie_restricted
+        is_restricted = False
+        ip_whitelisted = True
 
+    # 2. Wenn nicht durch IP-Whitelist autorisiert: Session-Cookie prüfen
+    if not authenticated:
+        session_cookie = request.cookies.get("mc_session")
+        valid_cookie, cookie_restricted = verify_session_cookie(session_cookie)
+        if valid_cookie:
+            authenticated = True
+            is_restricted = cookie_restricted
+
+    # 3. Prüfung auf Cluster API Key (für Inter-Node Automation)
     cluster_hdr = request.headers.get("X-Cluster-Key", "")
     if cluster_hdr and hmac.compare_digest(cluster_hdr, CLUSTER_API_KEY):
         authenticated = True
         is_restricted = True
 
+    # 4. Prüfung auf HTTP Basic Auth
     if not authenticated:
         auth_hdr = request.headers.get("Authorization", "")
         if auth_hdr.startswith("Basic "):
@@ -1099,43 +1234,31 @@ async def auth_middleware(request: web.Request, handler):
             except Exception:
                 pass
 
-    # Check trusted local/Tailscale networks (Loopback 127.0.0.1, 192.168.188.0/24, Tailscale 100.64.0.0/10)
-    is_trusted_network = False
-    peer = request.remote
-    if peer:
-        try:
-            ip_obj = ipaddress.ip_address(peer)
-            if (
-                ip_obj.is_loopback or
-                ip_obj in ipaddress.ip_network("192.168.188.0/24") or
-                ip_obj in ipaddress.ip_network("100.64.0.0/10")
-            ):
-                is_trusted_network = True
-        except Exception:
-            pass
-
-    if not authenticated and (path.startswith("/api/delegation/") or path in ("/api/status", "/api/telemetry")):
-        if is_trusted_network or peer in ("127.0.0.1", "::1", LOCAL_TS_IP, FOX_TS_IP):
-            authenticated = True
-
-    # Render & Evolution triggers: don't block trusted network requests if session is valid or request is from trusted cluster/local
-    render_and_loop_prefixes = ["/api/render", "/api/evolution/", "/api/comfy/"]
-    if any(path.startswith(prefix) for prefix in render_and_loop_prefixes) and is_trusted_network:
-        # From trusted LAN/Tailscale/Loopback, allow rendering operations without 401 lockout
-        authenticated = True
-
     request["authenticated"] = authenticated
     request["is_restricted"] = is_restricted
+    request["ip_whitelisted"] = ip_whitelisted
+    request["client_ip"] = client_ip
 
-    if path in ["/login", "/login/submit"] or path.startswith("/static/") or path.startswith("/outputs/") or path == "/manifest.json" or path == "/sw.js" or path in ["/api/health", "/api/cluster/health", "/api/presets"] or path.startswith("/api/danbooru/") or path.startswith("/api/flaws/") or path.startswith("/api/bot/appearance/") or path.startswith("/api/buero/") or path.startswith("/api/invoices/") or path.startswith("/api/images/") or path.startswith("/api/prompts/") or path.startswith("/api/megan/") or path.startswith("/api/tandem/") or path in ["/api/gallery/projects", "/api/gallery/move"] or (path.startswith("/api/gallery") and request.method == "GET") or (path.startswith("/api/3d") and request.method == "GET") or path.startswith("/output/3d/") or path == "/3d-viewer" or request.remote in ["127.0.0.1", "::1"] or is_trusted_network:
+    # Unbeschränkte Routen: Statische Assets (/static/...), PWA-Dateien und Login-Endpunkte
+    PUBLIC_PATHS = {"/login", "/login/submit", "/manifest.json", "/sw.js", "/favicon.ico"}
+    if path in PUBLIC_PATHS or path.startswith("/static/"):
         return await handler(request)
 
+    # Wenn authentifiziert (entweder durch IP-Whitelist, Session-Cookie oder Basic Auth): Durchlassen
     if authenticated:
         return await handler(request)
 
+    # Wenn NICHT authentifiziert:
+    # A) Für API- und WebSocket-Routen: HTTP 401 Unauthorized zurückgeben
     if path.startswith("/api/") or path.startswith("/ws/"):
-        return web.json_response({"error": "Unauthorized", "message": "Valid session cookie, Basic Auth or X-Cluster-Key required"}, status=401)
-    
+        logger.warning(f"[Auth] 401 Unauthorized auf {path} von nicht-autorisierter IP: {client_ip}")
+        return web.json_response(
+            {"error": "Unauthorized", "message": "Gültige Session, Master-Passwort oder autorisierte IP erforderlich"},
+            status=401
+        )
+
+    # B) Für alle Web-Views (/ und Unterseiten): Redirect nach /login ausführen
+    logger.info(f"[Auth] Nicht-autorisierter Zugriff von {client_ip} auf {path} -> Redirect nach /login")
     raise web.HTTPFound("/login")
 
 # --- Request Handlers ---
@@ -1143,7 +1266,7 @@ async def auth_middleware(request: web.Request, handler):
 async def handle_login_page(request: web.Request) -> web.Response:
     session_cookie = request.cookies.get("mc_session")
     valid_cookie, _ = verify_session_cookie(session_cookie)
-    if valid_cookie:
+    if valid_cookie or request.get("authenticated", False):
         raise web.HTTPFound("/")
     
     template = jinja_env.get_template("login.html")
@@ -1319,7 +1442,10 @@ async def handle_status(request: web.Request) -> web.Response:
         "fox": {
             "online": fox_telemetry.get("online", False),
             "rebooting": fox_telemetry.get("rebooting", False),
-            "load": fox_telemetry.get("load", [])
+            "load": fox_telemetry.get("load", []),
+            "sync": fox_telemetry.get("services", {}).get("fox_sync", "standby"),
+            "sync_label": fox_telemetry.get("services", {}).get("fox_sync_label", "STANDBY (Bereit)"),
+            "sync_class": fox_telemetry.get("services", {}).get("fox_sync_class", "badge-idle")
         }
     }
     return web.json_response(status_payload)
@@ -1406,7 +1532,7 @@ async def handle_service_control(request: web.Request) -> web.Response:
         return web.json_response({"error": "Invalid action"}, status=400)
 
     valid_oh_services = ["comfyui", "hermes-telegram", "ollama", "ollama-model-watcher", "cluster-queue-worker"]
-    valid_fox_services = ["hermes-gateway", "ollama", "ollama-tailscale-proxy"]
+    valid_fox_services = ["ollama", "ollama-tailscale-proxy"]
 
     if node == "outerheaven":
         if service not in valid_oh_services:
@@ -1440,7 +1566,7 @@ async def handle_service_control(request: web.Request) -> web.Response:
             # Restart ollama process on Fox (systemd automatically respawns it) and restart proxy
             ssh_cmd = "ssh -o BatchMode=yes -o ConnectTimeout=5 fox 'kill -9 $(pgrep -u fox -x ollama | head -n 1) 2>/dev/null; systemctl --user restart ollama-tailscale-proxy.service 2>/dev/null; sleep 1; systemctl is-active ollama.service'"
         else:
-            is_user_svc = service in ["hermes-gateway", "ollama-tailscale-proxy"]
+            is_user_svc = service in ["ollama-tailscale-proxy"]
             svc_prefix = "--user " if is_user_svc else ""
             ssh_cmd = f"ssh -o BatchMode=yes -o ConnectTimeout=5 fox 'systemctl {svc_prefix}{action} {service}.service'"
 
@@ -3452,7 +3578,7 @@ async def handle_megan_context_get(request: web.Request) -> web.Response:
 
 async def handle_3d_models_list(request: web.Request) -> web.Response:
     """Returns list of 3D models (.glb) with metadata, counts and preview assets."""
-    is_authenticated = bool(request.get("authenticated", False) or request.get("is_restricted", False) or request.remote in ["127.0.0.1", "::1"])
+    is_authenticated = bool(request.get("authenticated", False) or request.get("is_restricted", False) or is_ip_whitelisted(get_client_ip(request)))
     models = []
     if DIR_3D_OUTPUT.is_dir():
         for f in sorted(DIR_3D_OUTPUT.glob("*.glb"), key=lambda p: p.stat().st_mtime, reverse=True):
@@ -3514,7 +3640,7 @@ async def handle_3d_file(request: web.Request) -> web.Response:
         return web.HTTPBadRequest(text="Invalid filename")
 
     filename = urllib.parse.unquote(raw_filename)
-    is_authenticated = bool(request.get("authenticated", False) or request.get("is_restricted", False) or request.remote in ["127.0.0.1", "::1"])
+    is_authenticated = bool(request.get("authenticated", False) or request.get("is_restricted", False) or is_ip_whitelisted(get_client_ip(request)))
     if not is_authenticated and any(w in filename.lower() for w in ["companion", "sexchat", "megan", "nsfw", "erotic", "adult"]):
         return web.HTTPNotFound(text=f"3D file '{filename}' not found")
 
@@ -4710,7 +4836,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
             pers_directives = map_personality_to_prompt_directives(b_cfg)
 
-            is_chat_auth = bool(request.get("authenticated", False) or request.get("is_restricted", False) or request.remote in ["127.0.0.1", "::1"])
+            is_chat_auth = bool(request.get("authenticated", False) or request.get("is_restricted", False) or is_ip_whitelisted(get_client_ip(request)))
             if not is_chat_auth:
                 session_cookie = request.cookies.get("mc_session")
                 valid_cookie, _ = verify_session_cookie(session_cookie)
