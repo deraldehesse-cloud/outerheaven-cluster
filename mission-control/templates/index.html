@@ -2401,64 +2401,103 @@
             </span>
             <span class="text-[10px] text-pink-400/80 font-mono">Feste Attribute für Render-Tags & Lore-Generator</span>
           </div>
-          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 font-mono">
+          <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 font-mono">
             <!-- 1. Geschlecht -->
             <div>
               <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Geschlecht</label>
-              <select id="appRpgGender" class="w-full bg-black/80 border border-pink-900/70 text-pink-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
-                <option value="Weiblich">Weiblich</option>
+              <select id="appRpgGender" class="w-full bg-black/80 border border-pink-900/70 text-pink-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
+                <option value="Weiblich" selected>Weiblich</option>
                 <option value="Männlich">Männlich</option>
-                <option value="Androgyn">Androgyn</option>
+                <option value="Shemale">Shemale</option>
                 <option value="Transgender">Transgender</option>
               </select>
             </div>
-            <!-- 2. Alter / Altersspanne -->
+            <!-- 2. Alter / Spanne -->
             <div>
               <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Alter / Spanne</label>
-              <input type="text" id="appRpgAge" placeholder="z. B. 20, 24, 28" list="appRpgAgeSuggestions" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
-              <datalist id="appRpgAgeSuggestions">
-                <option value="20"></option>
-                <option value="22"></option>
-                <option value="24"></option>
-                <option value="26"></option>
-                <option value="28"></option>
-              </datalist>
+              <select id="appRpgAge" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
+                <option value="18">18 Jahre</option>
+                <option value="20">20 Jahre</option>
+                <option value="22">22 Jahre</option>
+                <option value="24" selected>24 Jahre</option>
+                <option value="26">26 Jahre</option>
+                <option value="28">28 Jahre</option>
+                <option value="30+">30+ Jahre</option>
+              </select>
             </div>
-            <!-- 3. Körpergröße (Tag) -->
+            <!-- 3. Körpergröße -->
             <div>
-              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Körpergröße (Tag)</label>
-              <input type="text" id="appPresetHeight" placeholder="z. B. 163cm tall" list="appRpgHeightSuggestions" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
-              <datalist id="appRpgHeightSuggestions">
-                <option value="158cm tall"></option>
-                <option value="163cm tall"></option>
-                <option value="168cm tall"></option>
-                <option value="173cm tall"></option>
-                <option value="178cm tall"></option>
-              </datalist>
+              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Größe</label>
+              <select id="appPresetHeight" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
+                <option value="153cm tall, petite">153 cm (Zierlich)</option>
+                <option value="158cm tall">158 cm (Klein)</option>
+                <option value="163cm tall">163 cm (Mittel)</option>
+                <option value="168cm tall">168 cm (Schlank)</option>
+                <option value="173cm tall">173 cm (Groß)</option>
+                <option value="178cm tall" selected>178 cm (Statuesk)</option>
+              </select>
             </div>
             <!-- 4. Haarfarbe -->
             <div>
               <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Haarfarbe</label>
-              <input type="text" id="appPresetHairColor" placeholder="z. B. Orange/Ginger, Schwarz..." list="appRpgHairColors" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
-              <datalist id="appRpgHairColors">
-                <option value="Orange/Ginger"></option>
-                <option value="Schwarz"></option>
-                <option value="Blond"></option>
-                <option value="Braun"></option>
-                <option value="Dunkelbraun"></option>
-              </datalist>
+              <select id="appPresetHairColor" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
+                <option value="dark brown hair" selected>Dunkelbraun</option>
+                <option value="black hair">Schwarz</option>
+                <option value="orange hair">Orange / Ginger</option>
+                <option value="blonde hair">Blond</option>
+                <option value="brown hair">Braun</option>
+                <option value="platinum blonde hair">Platinblond</option>
+                <option value="auburn hair">Kupferrot</option>
+                <option value="silver hair">Silberweiß</option>
+              </select>
             </div>
-            <!-- 5. Augenfarbe -->
+            <!-- 5. Frisur / Styling -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Frisur</label>
+              <select id="appRpgHairStyle" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
+                <option value="long layered hair, soft natural waves" selected>Lange Stufen / Wellen</option>
+                <option value="messy chic bob cut">Messy Chic Bob</option>
+                <option value="high ponytail">Pferdeschwanz</option>
+                <option value="shoulder-length straight hair">Schulterlang glatt</option>
+                <option value="short pixie cut">Kurzhaar Pixie</option>
+                <option value="long straight hair">Lange glatte Haare</option>
+                <option value="twintails">Twintails / Zöpfe</option>
+              </select>
+            </div>
+            <!-- 6. Augenfarbe -->
             <div>
               <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Augenfarbe</label>
-              <input type="text" id="appPresetEyeColor" placeholder="z. B. Grün, Blau, Bernstein..." list="appRpgEyeColors" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-2 focus:border-pink-500 focus:outline-none">
-              <datalist id="appRpgEyeColors">
-                <option value="Grün"></option>
-                <option value="Blau"></option>
-                <option value="Bernstein"></option>
-                <option value="Haselnuss"></option>
-                <option value="Grün-Blau"></option>
-              </datalist>
+              <select id="appPresetEyeColor" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
+                <option value="green-blue eyes" selected>Grün-Blau</option>
+                <option value="emerald green eyes">Smaragdgrün</option>
+                <option value="bright blue eyes">Strahlend Blau</option>
+                <option value="amber eyes">Bernstein / Amber</option>
+                <option value="hazel eyes">Haselnussbraun</option>
+                <option value="dark brown eyes">Dunkelbraun</option>
+              </select>
+            </div>
+            <!-- 7. Statur & Silhouette -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Statur</label>
+              <select id="appRpgBodyType" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
+                <option value="slender athletic build, flat toned stomach" selected>Schlank & Athletisch</option>
+                <option value="voluptuous hourglass figure, very large full natural breasts, narrow waist">Sanduhr & Vollbusig</option>
+                <option value="curvy voluptuous figure, wide hips, large breasts">Sinnlich & Kurvig</option>
+                <option value="petite fit, compact toned body, small breasts">Zierlich & Fit</option>
+                <option value="muscular female, visible abs, toned body">Muskulös & Definiert</option>
+                <option value="slender body, soft feminine curves">Schlank & Sanfte Kurven</option>
+              </select>
+            </div>
+            <!-- 8. Vibe & Ausstrahlung -->
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-pink-300 mb-1">Vibe</label>
+              <select id="appRpgVibe" class="w-full bg-black/80 border border-pink-900/70 text-slate-200 text-xs rounded p-1.5 focus:border-pink-500 focus:outline-none">
+                <option value="seductive playful smile, alluring captivating gaze" selected>Verspielt & Verführerisch</option>
+                <option value="teasing smirk, confident dominant gaze">Frech & Dominant</option>
+                <option value="sensual expression, parted lips, bedroom eyes">Sinnlich & Hingebungsvoll</option>
+                <option value="cool confident expression, intense sharp gaze">Cool & Badass</option>
+                <option value="shy blush, subtle gentle smile">Schüchtern & Errötend</option>
+              </select>
             </div>
           </div>
         </div>

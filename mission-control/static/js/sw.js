@@ -1,0 +1,1 @@
+/home/bigboss/outerheaven-cluster-repo/mission-control/static/sw.js
