@@ -1440,7 +1440,7 @@
             <span id="btnNodeOHLabel">OH // {{ local_model }}</span>
           </button>
           <button id="btnNodeFox" onclick="setChatNode('fox')" class="px-2.5 py-1 rounded font-bold transition text-slate-400 hover:text-slate-200 border border-transparent">
-            FOX // Hermes-3
+            <span id="btnNodeFoxLabel">FOX // Qwen & DarkIdol</span>
           </button>
         </div>
         <div class="flex items-center space-x-2">
@@ -1464,7 +1464,7 @@
             <span id="tacticalChatStatusTitle">TACTICAL AGENT READY</span>
           </div>
           <div id="tacticalChatStatusDesc">
-            Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">{{ local_model }}</span> auf Outer Heaven führt Inferenz auf Deutsch aus.
+            Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">{{ local_model }}</span> auf Outer Heaven führt Inferenz auf Deutsch aus. Fox (Qwen:VRAM & DarkIdol:RAM) bietet schnelle & tiefe Assistenz.
           </div>
         </div>
       </div>
@@ -3190,12 +3190,15 @@
       activeChatNode = node;
       const btnOH = document.getElementById('btnNodeOH');
       const btnFox = document.getElementById('btnNodeFox');
+      const modelDesc = document.getElementById('tacticalChatModelDesc');
       if (node === 'outerheaven') {
         btnOH.className = "px-3 py-1 rounded-md font-bold text-xs transition bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow";
         btnFox.className = "px-3 py-1 rounded-md font-bold text-xs transition text-slate-400 hover:text-slate-200 border border-transparent";
+        if (modelDesc) modelDesc.textContent = currentActiveOllamaModel;
       } else {
         btnFox.className = "px-3 py-1 rounded-md font-bold text-xs transition bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow";
         btnOH.className = "px-3 py-1 rounded-md font-bold text-xs transition text-slate-400 hover:text-slate-200 border border-transparent";
+        if (modelDesc) modelDesc.textContent = "qwen:vram (Fast-Path) & darkidol:ram (Deep-Worker)";
       }
     }
 
@@ -3560,7 +3563,7 @@
             <span id="tacticalChatStatusTitle">TACTICAL AGENT CHAT READY (Ollama: ${currentActiveOllamaModel})</span>
           </div>
           <div id="tacticalChatStatusDesc">
-            Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">${currentActiveOllamaModel}</span> auf Outer Heaven führt komplexe Überlegungen durch (Reasoning-Tags werden serverseitig gefiltert). Hermes-3 (3B) auf Fox bietet schnelle Assistenz.
+            Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">${currentActiveOllamaModel}</span> auf Outer Heaven führt komplexe Überlegungen durch (Reasoning-Tags werden serverseitig gefiltert). Fox (Qwen:VRAM & DarkIdol:RAM) bietet schnelle & tiefe Assistenz.
           </div>
         </div>
       `;

@@ -167,7 +167,7 @@ LOCAL_OLLAMA_URL = "http://127.0.0.1:11434"
 FOX_OLLAMA_URL = f"http://{FOX_TS_IP}:11434"
 
 LOCAL_MODEL = "deepseek-r1:14b"
-FOX_MODEL = "llama3.2-abliterated:3b-q6"
+FOX_MODEL = "qwen:vram"
 FOX_CONFIG_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/fox_model.json")
 
 def get_active_ollama_model() -> str:
@@ -4875,13 +4875,13 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
             else:
                 system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
 
-            if is_chat_auth or node == "outerheaven":
+            if node == "fox":
+                target_url = f"{FOX_OLLAMA_URL}/api/chat"
+                model_name = get_active_fox_model()
+            else:
                 node = "outerheaven"
                 target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
                 model_name = get_active_ollama_model()
-            else:
-                target_url = f"{FOX_OLLAMA_URL}/api/chat"
-                model_name = get_active_fox_model()
 
             payload = {
                 "model": model_name,
