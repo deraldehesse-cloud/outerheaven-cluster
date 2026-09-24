@@ -1023,6 +1023,63 @@
           </div>
         </div>
 
+        <!-- Megan Studio Web-Tools & Ingest Bar -->
+        <div class="bg-slate-900/80 border border-pink-900/60 rounded-lg p-3 space-y-2.5 font-mono shadow-md">
+          <div class="flex items-center justify-between pb-1 border-b border-slate-800">
+            <div class="flex items-center space-x-2">
+              <span class="text-sm">🌐</span>
+              <span class="text-xs font-bold text-pink-300">MEGAN AUTONOMOUS WEB-TOOLS & INGEST</span>
+              <span id="meganDockerStatusBadge" class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-600 text-emerald-300 font-bold">DOCKER: ONLINE</span>
+            </div>
+            <button type="button" onclick="toggleMeganToolsPanel()" class="text-xs text-slate-400 hover:text-pink-300 transition">
+              <span id="meganToolsToggleIcon">▼ Einblenden / Ausblenden</span>
+            </button>
+          </div>
+
+          <div id="meganToolsContent" class="space-y-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <!-- Web-Suche -->
+              <div class="bg-black/60 border border-slate-800 rounded p-2.5 space-y-2">
+                <div class="flex items-center justify-between text-[11px] text-pink-300 font-bold">
+                  <span>🔍 DuckDuckGo Web-Recherche</span>
+                  <span id="searchResultCount" class="text-[10px] text-slate-500 font-normal">0 Treffer</span>
+                </div>
+                <div class="flex items-center space-x-1.5">
+                  <input type="text" id="meganToolSearchQuery" placeholder="Recherche-Thema oder Begriff eingeben..."
+                         class="flex-1 bg-black border border-slate-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:border-pink-500 focus:outline-none"
+                         onkeydown="if(event.key==='Enter') executeMeganWebSearch()">
+                  <button type="button" id="btnMeganWebSearch" onclick="executeMeganWebSearch()"
+                          class="px-3 py-1 bg-pink-950/80 hover:bg-pink-900 border border-pink-700 text-pink-200 text-xs font-bold rounded transition">
+                    Suchen
+                  </button>
+                </div>
+                <div id="meganSearchResults" class="hidden max-h-36 overflow-y-auto space-y-1.5 text-xs text-slate-300 scrollbar-thin p-1 bg-slate-950/80 rounded border border-slate-900"></div>
+              </div>
+
+              <!-- URL / YouTube Ingest -->
+              <div class="bg-black/60 border border-slate-800 rounded p-2.5 space-y-2">
+                <div class="flex items-center justify-between text-[11px] text-pink-300 font-bold">
+                  <span>📥 Web-Scrape & YouTube/Video Ingest (yt-dlp)</span>
+                  <span id="ingestStatusLabel" class="text-[10px] text-slate-500 font-normal">Bereit</span>
+                </div>
+                <div class="flex items-center space-x-1.5">
+                  <input type="text" id="meganToolIngestUrl" placeholder="https://youtube.com/watch?v=... oder https://..."
+                         class="flex-1 bg-black border border-slate-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:border-pink-500 focus:outline-none">
+                  <button type="button" onclick="executeMeganScrapeUrl()"
+                          class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-bold rounded transition" title="Text-Inhalt der Website extrahieren">
+                    Scrape
+                  </button>
+                  <button type="button" onclick="executeMeganYtDlp()"
+                          class="px-2.5 py-1 bg-pink-950/80 hover:bg-pink-900 border border-pink-700 text-pink-200 text-xs font-bold rounded transition" title="Video nach /workspace laden">
+                    yt-dlp
+                  </button>
+                </div>
+                <div id="meganIngestResult" class="hidden max-h-36 overflow-y-auto space-y-1 text-xs text-slate-300 scrollbar-thin p-1 bg-slate-950/80 rounded border border-slate-900"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 3-Spalten Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 font-mono w-full">
           
@@ -1039,6 +1096,7 @@
               </div>
               <div id="meganPreviewContainer" class="relative w-full aspect-[3/4] bg-black/80 rounded-lg border border-pink-900/60 overflow-hidden flex items-center justify-center group">
                 <img id="meganPreviewImg" src="" alt="Megan Preview" class="w-full h-full object-cover hidden transition duration-300 group-hover:scale-105 cursor-pointer" onclick="if(this.src) openLightbox(this.src, document.getElementById('meganPreviewFilename')?.textContent || 'megan_render.png')">
+                <video id="meganPreviewVideo" src="" controls loop autoplay muted playsinline class="w-full h-full object-cover hidden"></video>
                 <div id="meganPreviewPlaceholder" class="text-center p-4 text-slate-500 text-xs flex flex-col items-center space-y-2">
                   <span class="text-2xl opacity-40">💋</span>
                   <span>Kein Render verfügbar</span>
@@ -2943,6 +3001,7 @@
       if (typeof checkLovenseStatus === 'function') checkLovenseStatus();
       if (typeof checkEvolutionStatus === 'function') checkEvolutionStatus();
       if (typeof loadMeganPreviewImage === 'function') loadMeganPreviewImage();
+      if (typeof checkMeganDockerStatus === 'function') checkMeganDockerStatus();
       if (typeof loadBotConfig === 'function') loadBotConfig();
     }
 
@@ -3465,6 +3524,104 @@
         if (card) card.innerHTML = errHtml;
         const mcard = document.getElementById(`megan-render-card-${renderId}`);
         if (mcard) mcard.innerHTML = errHtml;
+      } else if (msg.type === 'video_started') {
+        const renderId = msg.render_id;
+        const prompt = msg.prompt || 'Megan Video-Clip';
+
+        const cardHtml = `
+          <div id="render-card-${renderId}" class="p-3 rounded-lg bg-pink-950/40 border border-pink-500/50 text-pink-200 font-mono text-xs space-y-2 shadow-lg glow-pink">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2">
+                <svg class="w-4 h-4 text-pink-400 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                </svg>
+                <span class="font-bold tracking-wider text-pink-300">COMFYUI VIDEO: [VIDEO]</span>
+              </div>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-pink-900/60 border border-pink-600 text-pink-300 font-bold">ARC A770</span>
+            </div>
+            <div class="text-[11px] text-pink-100/90 italic bg-black/50 p-2 rounded border border-pink-900/60 break-words">
+              "${prompt}"
+            </div>
+            <div class="text-[10px] text-pink-400/80 flex items-center space-x-1">
+              <span>🎬</span> <span>Megan rendert Video... VRAM freigegeben • Render-Job läuft...</span>
+            </div>
+          </div>
+        `;
+
+        if (chatMessages) {
+          const wrapper = document.createElement('div');
+          wrapper.className = "flex flex-col space-y-1 my-1";
+          wrapper.innerHTML = cardHtml;
+          chatMessages.appendChild(wrapper);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        const meganChat = document.getElementById('meganCompanionChat') || document.getElementById('meganChatMessages');
+        if (meganChat) {
+          const mwrapper = document.createElement('div');
+          mwrapper.className = "flex flex-col space-y-1 my-1";
+          mwrapper.innerHTML = cardHtml.replace(`id="render-card-${renderId}"`, `id="megan-render-card-${renderId}"`);
+          meganChat.appendChild(mwrapper);
+          meganChat.scrollTop = meganChat.scrollHeight;
+        }
+      } else if (msg.type === 'video_completed') {
+        const renderId = msg.render_id;
+        const videoUrl = msg.video_url;
+        const filename = msg.filename;
+        const prompt = msg.prompt || '';
+
+        const completeHtml = `
+          <div class="flex items-center justify-between pb-1 border-b border-pink-900/50 font-mono">
+            <span class="text-xs font-bold text-pink-300 flex items-center space-x-1">
+              <span>🎬</span> <span>AUTONOMES VIDEO FERTIG</span>
+            </span>
+            <span class="text-[10px] text-slate-400">${filename}</span>
+          </div>
+          <div class="relative overflow-hidden rounded border border-pink-600/60 bg-black/80 my-1 aspect-video flex items-center justify-center">
+            <video src="${videoUrl}" controls loop autoplay muted playsinline class="w-full h-full object-contain"></video>
+          </div>
+          ${prompt ? `<div class="text-[10px] text-slate-300 italic truncate bg-black/40 px-2 py-1 rounded" title="${prompt}">"${prompt}"</div>` : ''}
+        `;
+
+        const card = document.getElementById(`render-card-${renderId}`);
+        if (card) {
+          card.innerHTML = completeHtml;
+          card.classList.remove('glow-pink');
+          card.classList.add('border-emerald-500/50');
+        }
+        const mcard = document.getElementById(`megan-render-card-${renderId}`);
+        if (mcard) {
+          mcard.innerHTML = completeHtml;
+          mcard.classList.remove('glow-pink');
+          mcard.classList.add('border-emerald-500/50');
+        }
+
+        // Live Preview in Column 1 aktualisieren
+        const previewImg = document.getElementById('meganPreviewImg');
+        const previewVid = document.getElementById('meganPreviewVideo');
+        const previewPlaceholder = document.getElementById('meganPreviewPlaceholder');
+        const previewFilename = document.getElementById('meganPreviewFilename');
+        if (previewVid) {
+          previewVid.src = videoUrl;
+          previewVid.classList.remove('hidden');
+          if (previewImg) previewImg.classList.add('hidden');
+          if (previewPlaceholder) previewPlaceholder.classList.add('hidden');
+          if (previewFilename) previewFilename.textContent = filename || 'megan_video.mp4';
+        }
+      } else if (msg.type === 'video_error') {
+        const renderId = msg.render_id;
+        const errText = msg.error || 'Video-Rendering fehlgeschlagen';
+        const errorHtml = `
+          <div class="p-2.5 rounded bg-rose-950/80 border border-rose-600/80 text-rose-300 text-xs font-mono flex items-center space-x-2">
+            <span>⚠️</span>
+            <span>ComfyUI Video fehlgeschlagen: ${errText}</span>
+          </div>
+        `;
+        const card = document.getElementById(`render-card-${renderId}`);
+        if (card) card.innerHTML = errorHtml;
+        const mcard = document.getElementById(`megan-render-card-${renderId}`);
+        if (mcard) mcard.innerHTML = errorHtml;
       } else if (msg.type === 'token') {
         if (currentAssistantBubble) {
           currentAssistantBubble.textContent += msg.text;
@@ -8010,31 +8167,240 @@
       }
     }
 
-    // --- Megan Studio: Companion Preview Image Loader ---
+    // --- Megan Studio: Companion Preview Media Loader (Image & Video) ---
     async function loadMeganPreviewImage() {
       try {
         const res = await fetch('/api/gallery', { credentials: 'include' });
         if (!res.ok) return;
         const data = await res.json();
         const imgEl = document.getElementById('meganPreviewImg');
+        const vidEl = document.getElementById('meganPreviewVideo');
         const placeholder = document.getElementById('meganPreviewPlaceholder');
         const filenameEl = document.getElementById('meganPreviewFilename');
 
         if (data && data.images && data.images.length > 0) {
           const latest = data.images[0];
-          if (imgEl) {
-            imgEl.src = latest.url;
-            imgEl.classList.remove('hidden');
+          const fn = (latest.filename || '').toLowerCase();
+          const isVideo = fn.endsWith('.mp4') || fn.endsWith('.webm') || fn.endsWith('.mkv');
+
+          if (isVideo) {
+            if (vidEl) {
+              vidEl.src = latest.url;
+              vidEl.classList.remove('hidden');
+            }
+            if (imgEl) imgEl.classList.add('hidden');
+          } else {
+            if (imgEl) {
+              imgEl.src = latest.url;
+              imgEl.classList.remove('hidden');
+            }
+            if (vidEl) vidEl.classList.add('hidden');
           }
           if (placeholder) placeholder.classList.add('hidden');
-          if (filenameEl) filenameEl.textContent = latest.filename || 'megan_render.png';
+          if (filenameEl) filenameEl.textContent = latest.filename || (isVideo ? 'megan_video.mp4' : 'megan_render.png');
         } else {
           if (imgEl) imgEl.classList.add('hidden');
+          if (vidEl) vidEl.classList.add('hidden');
           if (placeholder) placeholder.classList.remove('hidden');
-          if (filenameEl) filenameEl.textContent = 'Keine Bilder';
+          if (filenameEl) filenameEl.textContent = 'Keine Medien';
         }
       } catch (e) {
         console.warn('loadMeganPreviewImage error:', e);
+      }
+    }
+
+    // --- Megan Autonomous Web-Tools & Ingest Functions ---
+    function toggleMeganToolsPanel() {
+      const content = document.getElementById('meganToolsContent');
+      const icon = document.getElementById('meganToolsToggleIcon');
+      if (!content) return;
+      if (content.classList.contains('hidden')) {
+        content.classList.remove('hidden');
+        if (icon) icon.textContent = '▲ Einklappen';
+      } else {
+        content.classList.add('hidden');
+        if (icon) icon.textContent = '▼ Ausklappen';
+      }
+    }
+
+    async function checkMeganDockerStatus() {
+      try {
+        const badge = document.getElementById('meganDockerStatusBadge');
+        const res = await fetch('/api/megan/tools/status', { credentials: 'include' });
+        if (res.ok) {
+          const d = await res.json();
+          if (badge) {
+            badge.textContent = d.status === 'ok' ? 'DOCKER: ONLINE' : 'DOCKER: ERROR';
+            badge.className = d.status === 'ok'
+              ? 'text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-600 text-emerald-300 font-bold'
+              : 'text-[9px] px-1.5 py-0.5 rounded bg-amber-950/80 border border-amber-600 text-amber-300 font-bold';
+          }
+        }
+      } catch (e) {
+        const badge = document.getElementById('meganDockerStatusBadge');
+        if (badge) {
+          badge.textContent = 'DOCKER: OFFLINE';
+          badge.className = 'text-[9px] px-1.5 py-0.5 rounded bg-rose-950/80 border border-rose-600 text-rose-300 font-bold';
+        }
+      }
+    }
+
+    async function executeMeganWebSearch() {
+      const input = document.getElementById('meganToolSearchQuery');
+      const container = document.getElementById('meganSearchResults');
+      const btn = document.getElementById('btnMeganWebSearch');
+      const countBadge = document.getElementById('searchResultCount');
+      const query = input ? input.value.trim() : '';
+      if (!query) return;
+
+      if (btn) btn.disabled = true;
+      if (container) {
+        container.classList.remove('hidden');
+        container.innerHTML = '<div class="text-slate-400 italic p-1 animate-pulse">Recherchiere im Web...</div>';
+      }
+
+      try {
+        const res = await fetch('/api/megan/tools/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ query: query, max_results: 5 })
+        });
+        const data = await res.json();
+        if (data && data.results && data.results.length > 0) {
+          if (countBadge) countBadge.textContent = `${data.results.length} Treffer`;
+          let html = '';
+          data.results.forEach((r, idx) => {
+            html += `
+              <div class="p-1.5 bg-black/40 rounded border border-slate-800 hover:border-pink-900/60 transition space-y-0.5">
+                <div class="flex items-center justify-between">
+                  <a href="${r.href}" target="_blank" class="font-bold text-pink-300 hover:underline truncate max-w-[280px]">${r.title || r.href}</a>
+                  <button type="button" onclick="sendToolResultToMeganChat('Web-Ergebnis: ${escape(r.title)} - ${escape(r.body)}')"
+                          class="text-[9px] px-1 bg-pink-950/80 border border-pink-700 text-pink-200 rounded hover:bg-pink-900 shrink-0">
+                    + In Chat
+                  </button>
+                </div>
+                <div class="text-[10px] text-slate-400 line-clamp-2">${r.body || ''}</div>
+              </div>
+            `;
+          });
+          if (container) container.innerHTML = html;
+        } else {
+          if (countBadge) countBadge.textContent = '0 Treffer';
+          if (container) container.innerHTML = `<div class="text-slate-500 italic p-1">${data.error || 'Keine Ergebnisse gefunden.'}</div>`;
+        }
+      } catch (err) {
+        if (container) container.innerHTML = `<div class="text-rose-400 italic p-1">Fehler: ${err.message}</div>`;
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function executeMeganScrapeUrl() {
+      const input = document.getElementById('meganToolIngestUrl');
+      const container = document.getElementById('meganIngestResult');
+      const label = document.getElementById('ingestStatusLabel');
+      const url = input ? input.value.trim() : '';
+      if (!url) return;
+
+      if (label) label.textContent = 'Scraping läuft...';
+      if (container) {
+        container.classList.remove('hidden');
+        container.innerHTML = '<div class="text-slate-400 italic p-1 animate-pulse">Lade und extrahiere Webseiten-Inhalte...</div>';
+      }
+
+      try {
+        const res = await fetch('/api/megan/tools/scrape', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ url: url })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          if (label) label.textContent = 'Scraped';
+          const snippet = (data.content || '').slice(0, 300);
+          if (container) {
+            container.innerHTML = `
+              <div class="p-1.5 bg-black/40 rounded border border-slate-800 space-y-1">
+                <div class="flex items-center justify-between text-[11px] font-bold text-pink-300">
+                  <span class="truncate max-w-[260px]">${data.title || data.url}</span>
+                  <button type="button" onclick="sendToolResultToMeganChat('Website-Inhalt (${escape(data.title || data.url)}):\\n${escape(snippet)}')"
+                          class="text-[9px] px-1 bg-pink-950/80 border border-pink-700 text-pink-200 rounded hover:bg-pink-900 shrink-0">
+                    + In Chat
+                  </button>
+                </div>
+                <div class="text-[10px] text-slate-300 whitespace-pre-wrap max-h-24 overflow-y-auto">${snippet}...</div>
+              </div>
+            `;
+          }
+        } else {
+          if (label) label.textContent = 'Fehler';
+          if (container) container.innerHTML = `<div class="text-rose-400 p-1">Scrape-Fehler: ${data.error}</div>`;
+        }
+      } catch (err) {
+        if (label) label.textContent = 'Fehler';
+        if (container) container.innerHTML = `<div class="text-rose-400 p-1">Netzwerkfehler: ${err.message}</div>`;
+      }
+    }
+
+    async function executeMeganYtDlp() {
+      const input = document.getElementById('meganToolIngestUrl');
+      const container = document.getElementById('meganIngestResult');
+      const label = document.getElementById('ingestStatusLabel');
+      const url = input ? input.value.trim() : '';
+      if (!url) return;
+
+      if (label) label.textContent = 'Download läuft...';
+      if (container) {
+        container.classList.remove('hidden');
+        container.innerHTML = '<div class="text-slate-400 italic p-1 animate-pulse">Lade Medium via yt-dlp nach /workspace... (kann 15-60s dauern)</div>';
+      }
+
+      try {
+        const res = await fetch('/api/megan/tools/ytdlp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ url: url })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          if (label) label.textContent = 'Download fertig';
+          if (container) {
+            container.innerHTML = `
+              <div class="p-1.5 bg-black/40 rounded border border-emerald-900/60 space-y-1">
+                <div class="text-emerald-400 font-bold text-[11px]">✔ Download abgeschlossen</div>
+                <div class="text-[10px] text-slate-300 truncate font-mono">${data.filename}</div>
+                <div class="text-[9px] text-slate-500 font-mono">${data.title} • ${data.duration ? data.duration + 's' : ''}</div>
+                <button type="button" onclick="sendToolResultToMeganChat('Ich habe das Video ${escape(data.filename)} in meinen Workspace geladen.')"
+                        class="text-[9px] px-1.5 py-0.5 bg-pink-950/80 border border-pink-700 text-pink-200 rounded hover:bg-pink-900">
+                  + In Chat erwähnen
+                </button>
+              </div>
+            `;
+          }
+        } else {
+          if (label) label.textContent = 'Fehler';
+          if (container) container.innerHTML = `<div class="text-rose-400 p-1">yt-dlp Fehler: ${data.error}</div>`;
+        }
+      } catch (err) {
+        if (label) label.textContent = 'Fehler';
+        if (container) container.innerHTML = `<div class="text-rose-400 p-1">Netzwerkfehler: ${err.message}</div>`;
+      }
+    }
+
+    function sendToolResultToMeganChat(text) {
+      const unescaped = unescape(text);
+      const input = document.getElementById('chatInput');
+      const meganInput = document.getElementById('meganCompanionInput');
+      if (input) {
+        input.value = (input.value ? input.value + '\n' : '') + unescaped;
+        input.focus();
+      }
+      if (meganInput) {
+        meganInput.value = (meganInput.value ? meganInput.value + '\n' : '') + unescaped;
+        meganInput.focus();
       }
     }
 

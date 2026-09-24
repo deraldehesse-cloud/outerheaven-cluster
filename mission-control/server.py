@@ -1006,24 +1006,24 @@ class HapticTagFilter:
             res = re.sub(r'\[HAPTIC:[^\]]*\]', '', res, flags=re.IGNORECASE)
         return res
 
-class ImageActionFilter:
-    """Buffers text stream, strips [IMAGE: ...] and [SELFIE: ...] tags, and triggers callback when found."""
-    def __init__(self, on_image_tag=None):
+class StreamActionFilter:
+    """Buffers text stream, strips [IMAGE: ...], [SELFIE: ...], and [VIDEO: ...] tags, and triggers callback when found."""
+    def __init__(self, on_action_tag=None):
         self.buffer = ""
-        self.on_image_tag = on_image_tag
+        self.on_action_tag = on_action_tag
 
     def feed(self, text: str) -> str:
         self.buffer += text
         output = ""
         while True:
-            match = re.search(r'\[(IMAGE|SELFIE):\s*([^\]]+)\]', self.buffer, re.IGNORECASE)
+            match = re.search(r'\[(IMAGE|SELFIE|VIDEO):\s*([^\]]+)\]', self.buffer, re.IGNORECASE)
             if match:
                 start, end = match.span()
                 output += self.buffer[:start]
                 action_type = match.group(1).upper()
                 prompt_content = match.group(2).strip()
-                if self.on_image_tag:
-                    self.on_image_tag(action_type, prompt_content)
+                if self.on_action_tag:
+                    self.on_action_tag(action_type, prompt_content)
                 self.buffer = self.buffer[end:]
                 continue
 
@@ -1032,7 +1032,8 @@ class ImageActionFilter:
                 candidate = self.buffer[idx:].upper()
                 if any("[IMAGE".startswith(candidate[:i]) for i in range(2, min(len(candidate) + 1, 7))) or \
                    any("[SELFIE".startswith(candidate[:i]) for i in range(2, min(len(candidate) + 1, 8))) or \
-                   candidate.startswith("[IMAGE") or candidate.startswith("[SELFIE"):
+                   any("[VIDEO".startswith(candidate[:i]) for i in range(2, min(len(candidate) + 1, 7))) or \
+                   candidate.startswith("[IMAGE") or candidate.startswith("[SELFIE") or candidate.startswith("[VIDEO"):
                     output += self.buffer[:idx]
                     self.buffer = self.buffer[idx:]
                     break
@@ -1044,14 +1045,18 @@ class ImageActionFilter:
     def flush(self) -> str:
         res = self.buffer
         self.buffer = ""
-        match = re.search(r'\[(IMAGE|SELFIE):\s*([^\]]+)\]', res, re.IGNORECASE)
+        match = re.search(r'\[(IMAGE|SELFIE|VIDEO):\s*([^\]]+)\]', res, re.IGNORECASE)
         if match:
             action_type = match.group(1).upper()
             prompt_content = match.group(2).strip()
-            if self.on_image_tag:
-                self.on_image_tag(action_type, prompt_content)
-            res = re.sub(r'\[(IMAGE|SELFIE):[^\]]*\]', '', res, flags=re.IGNORECASE)
+            if self.on_action_tag:
+                self.on_action_tag(action_type, prompt_content)
+            res = re.sub(r'\[(IMAGE|SELFIE|VIDEO):[^\]]*\]', '', res, flags=re.IGNORECASE)
         return res
+
+# Backward compatibility alias
+ImageActionFilter = StreamActionFilter
+
 
 class ThinkFilter:
     def __init__(self):
@@ -3386,6 +3391,255 @@ async def dispatch_autonomous_comfy_render(ws: web.WebSocketResponse, prompt_con
         except Exception:
             pass
 
+async def render_comfy_video_direct(
+    prompt_text: str,
+    negative_prompt: str = "ugly, deformed, bad anatomy, blurry, static frame, watermark, oversaturated",
+    checkpoint: str = "DreamShaper8_LCM.safetensors",
+    width: int = 512,
+    height: int = 512,
+    frames: int = 16,
+    fps: int = 8,
+    steps: int = 16,
+    cfg: float = 6.0,
+    max_wait: float = 120.0
+) -> Optional[Dict[str, Any]]:
+    """
+    Executes a direct headless ComfyUI render for autonomous Megan video actions.
+    Guarantees clean VRAM allocation via GPURenderLock and temporary Ollama unloading.
+    """
+    if megan_context_engine and "{" in prompt_text:
+        try:
+            prompt_text = megan_context_engine.resolve_prompt_wildcards(prompt_text)
+        except Exception:
+            pass
+
+    seed = secrets.randbelow(999999999999)
+    prefix = f"MeganStudio_Video_{time.strftime('%Y%m%d_%H%M%S')}"
+
+    # Build workflow: EmptyLatentImage batch of frames -> KSampler -> VAEDecode -> CreateVideo -> SaveVideo
+    workflow = {
+        "prompt": {
+            "1": {
+                "class_type": "CheckpointLoaderSimple",
+                "inputs": {"ckpt_name": checkpoint}
+            },
+            "2": {
+                "class_type": "EmptyLatentImage",
+                "inputs": {"width": width, "height": height, "batch_size": frames}
+            },
+            "3": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": ["1", 1], "text": f"{prompt_text}, smooth motion, cinematic video"}
+            },
+            "4": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": ["1", 1], "text": negative_prompt}
+            },
+            "5": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["1", 0],
+                    "positive": ["3", 0],
+                    "negative": ["4", 0],
+                    "latent_image": ["2", 0],
+                    "seed": seed,
+                    "steps": steps,
+                    "cfg": cfg,
+                    "sampler_name": "euler",
+                    "scheduler": "normal",
+                    "denoise": 1.0
+                }
+            },
+            "6": {
+                "class_type": "VAEDecode",
+                "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
+            },
+            "7": {
+                "class_type": "CreateVideo",
+                "inputs": {"images": ["6", 0], "fps": float(fps)}
+            },
+            "8": {
+                "class_type": "SaveVideo",
+                "inputs": {
+                    "video": ["7", 0],
+                    "filename_prefix": prefix,
+                    "format": "auto"
+                }
+            }
+        }
+    }
+
+    from gpu_render_lock import GPURenderLock, PRIORITY_HIGH
+    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name="megan_autonomous_video", timeout=60.0)
+    if not gpu_lock.acquire():
+        logger.warning("[megan-comfy-video] GPU lock busy, cannot render autonomous video right now.")
+        return None
+
+    try:
+        await unload_local_ollama_vram()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{COMFYUI_URL}/prompt", json=workflow, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status != 200:
+                    logger.error(f"[megan-comfy-video] ComfyUI returned status {resp.status}")
+                    return None
+                data = await resp.json()
+                prompt_id = data.get("prompt_id")
+                if not prompt_id:
+                    return None
+
+            t_start = time.time()
+            while time.time() - t_start < max_wait:
+                await asyncio.sleep(1.5)
+                try:
+                    async with aiohttp.ClientSession() as s:
+                        async with s.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=aiohttp.ClientTimeout(total=3.0)) as r:
+                            if r.status == 200:
+                                h_data = await r.json()
+                                if prompt_id in h_data:
+                                    outputs = h_data[prompt_id].get("outputs", {})
+                                    for node_id, node_out in outputs.items():
+                                        if isinstance(node_out, dict):
+                                            media = node_out.get("videos") or node_out.get("gifs") or node_out.get("images") or []
+                                            if media:
+                                                item = media[0]
+                                                fn = item.get("filename")
+                                                sf = item.get("subfolder", "")
+                                                rel = f"{sf}/{fn}" if sf else fn
+                                                return {
+                                                    "filename": rel,
+                                                    "url": f"/api/gallery/{urllib.parse.quote(rel)}",
+                                                    "prompt_id": prompt_id,
+                                                    "seed": seed
+                                                }
+                except Exception:
+                    pass
+            return None
+    except Exception as e:
+        logger.error(f"[megan-comfy-video] Video render failed: {e}")
+        return None
+    finally:
+        gpu_lock.release()
+
+async def dispatch_autonomous_video(ws: web.WebSocketResponse, prompt_content: str):
+    """Dispatches headless ComfyUI video render and pushes WebSocket events to client."""
+    render_id = f"video_{int(time.time()*1000)}"
+    try:
+        clean_prompt = prompt_content.strip()
+        if not any(k in clean_prompt.lower() for k in ["megan", "1girl"]):
+            clean_prompt = f"1girl, megan, solo, {clean_prompt}"
+
+        await ws.send_json({
+            "type": "video_started",
+            "render_id": render_id,
+            "prompt": clean_prompt
+        })
+
+        res = await render_comfy_video_direct(prompt_text=clean_prompt)
+        if res and res.get("url"):
+            await ws.send_json({
+                "type": "video_completed",
+                "render_id": render_id,
+                "prompt": clean_prompt,
+                "filename": res.get("filename"),
+                "video_url": res.get("url"),
+                "seed": res.get("seed")
+            })
+        else:
+            await ws.send_json({
+                "type": "video_error",
+                "render_id": render_id,
+                "error": "Video konnte nicht rechtzeitig auf Arc A770 gerendert werden."
+            })
+    except Exception as err:
+        logger.error(f"Error in dispatch_autonomous_video: {err}")
+        try:
+            await ws.send_json({
+                "type": "video_error",
+                "render_id": render_id,
+                "error": str(err)
+            })
+        except Exception:
+            pass
+
+async def run_docker_megan_tool(action: str, payload: dict = None, timeout: int = 35) -> dict:
+    """Executes a tool inside the isolated megan-tools container via docker exec."""
+    try:
+        args = ["docker", "exec", "-i", "megan-tools", "python3", "/app/tool_runner.py", action]
+        if payload is not None:
+            args.extend(["--json", json.dumps(payload)])
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            return {"status": "error", "error": f"Tool '{action}' timed out after {timeout}s"}
+
+        if stdout:
+            try:
+                return json.loads(stdout.decode("utf-8").strip())
+            except Exception:
+                return {"status": "ok", "raw": stdout.decode("utf-8").strip()}
+        if stderr:
+            return {"status": "error", "error": stderr.decode("utf-8").strip()}
+        return {"status": "error", "error": "No output from tool"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+async def handle_megan_tool_search(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"status": "error", "error": "Invalid JSON"}, status=400)
+    query = data.get("query", "").strip()
+    if not query:
+        return web.json_response({"status": "error", "error": "Query required"}, status=400)
+    count = int(data.get("max_results", 5))
+    res = await run_docker_megan_tool("search", {"query": query, "max_results": count})
+    return web.json_response(res)
+
+async def handle_megan_tool_scrape(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"status": "error", "error": "Invalid JSON"}, status=400)
+    url = data.get("url", "").strip()
+    if not url:
+        return web.json_response({"status": "error", "error": "URL required"}, status=400)
+    chars = int(data.get("max_chars", 4000))
+    res = await run_docker_megan_tool("scrape", {"url": url, "max_chars": chars})
+    return web.json_response(res)
+
+async def handle_megan_tool_ytdlp(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"status": "error", "error": "Invalid JSON"}, status=400)
+    url = data.get("url", "").strip()
+    if not url:
+        return web.json_response({"status": "error", "error": "URL required"}, status=400)
+    audio = bool(data.get("extract_audio", False))
+    res = await run_docker_megan_tool("ytdlp", {"url": url, "extract_audio": audio}, timeout=90)
+    return web.json_response(res)
+
+async def handle_megan_tool_python(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"status": "error", "error": "Invalid JSON"}, status=400)
+    code = data.get("code", "").strip()
+    if not code:
+        return web.json_response({"status": "error", "error": "Code required"}, status=400)
+    res = await run_docker_megan_tool("python", {"code": code}, timeout=35)
+    return web.json_response(res)
+
+async def handle_megan_tool_status(request: web.Request) -> web.Response:
+    res = await run_docker_megan_tool("status", {})
+    return web.json_response(res)
+
 async def handle_comfy_render(request: web.Request) -> web.Response:
     try:
         body = await request.json()
@@ -5436,10 +5690,13 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
             haptic_filter = HapticTagFilter(on_haptic_tag=on_haptic_detected)
 
-            def on_image_detected(action_type: str, prompt_content: str):
-                asyncio.create_task(dispatch_autonomous_comfy_render(ws, prompt_content, action_type))
+            def on_action_detected(action_type: str, prompt_content: str):
+                if action_type == "VIDEO":
+                    asyncio.create_task(dispatch_autonomous_video(ws, prompt_content))
+                else:
+                    asyncio.create_task(dispatch_autonomous_comfy_render(ws, prompt_content, action_type))
 
-            image_filter = ImageActionFilter(on_image_tag=on_image_detected)
+            image_filter = StreamActionFilter(on_action_tag=on_action_detected)
 
             try:
                 timeout = aiohttp.ClientTimeout(total=180)
@@ -5673,6 +5930,13 @@ def create_app() -> web.Application:
     app.router.add_get("/api/megan/video/file/{filename}", handle_megan_video_file)
     app.router.add_get("/api/megan/autonomy", handle_megan_autonomy_get)
     app.router.add_post("/api/megan/autonomy", handle_megan_autonomy_post)
+
+    # Megan Autonomous Docker Web-Tools Endpoints
+    app.router.add_post("/api/megan/tools/search", handle_megan_tool_search)
+    app.router.add_post("/api/megan/tools/scrape", handle_megan_tool_scrape)
+    app.router.add_post("/api/megan/tools/ytdlp", handle_megan_tool_ytdlp)
+    app.router.add_post("/api/megan/tools/python", handle_megan_tool_python)
+    app.router.add_get("/api/megan/tools/status", handle_megan_tool_status)
 
     # Direct static outputs route
     app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)

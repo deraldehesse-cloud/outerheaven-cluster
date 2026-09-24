@@ -554,6 +554,27 @@ def detect_bot_roleplay_photo(reply_text: str) -> Tuple[bool, str, str]:
     return False, "", ""
 
 
+def detect_bot_roleplay_video(reply_text: str) -> Tuple[bool, str]:
+    """
+    Detects if Ollama's response contains roleplay actions or explicit tags indicating a video generation/clip.
+    e.g. [VIDEO: ...], *schickt ein Video*, *nimmt einen kurzen Clip auf*, *hier ist dein Video*
+    """
+    m = re.search(r"\[VIDEO:\s*([^\]]+)\]", reply_text, re.IGNORECASE)
+    if m:
+        return True, m.group(1).strip()
+
+    video_patterns = [
+        r"(\*|\[)(schickt|sendet|macht|nimmt|zeigt|gibt|hier ist|hier hast du|sends|records|shoots|shares|shows|here is|here's).*?(video|clip|aufnahme|videoclip).*?(\*|\])",
+        r"\[video\]",
+        r"\[clip\]",
+        r"(?:Hier ist|Hier hast du|Ich mache dir|Ich nehme dir|Ich schicke dir|Ich sende dir)\s+(?:ein|mein)?\s*(?:Video|Videoclip|Clip)"
+    ]
+    for pat in video_patterns:
+        if re.search(pat, reply_text, re.IGNORECASE):
+            return True, "1girl, megan, solo, smiling intimately at camera, candid natural video"
+    return False, ""
+
+
 # ==============================================================================
 # 3. Telegram API Communication (Text, Photo, Voice)
 # ==============================================================================
@@ -605,6 +626,39 @@ def send_telegram_photo(chat_id: int, photo_path: str, caption: str = "", reply_
                 return False
     except Exception as e:
         print(f"[Fehler] Exception beim Telegram-Fotoversand: {e}")
+        return False
+
+
+def send_telegram_video(chat_id: int, video_path: str, caption: str = "", reply_markup: Optional[Dict[str, Any]] = None) -> Any:
+    """Sends a real video file via Telegram sendVideo API. Returns message_id or True on success, False on error."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo"
+    p = Path(video_path)
+    if not p.is_file():
+        print(f"[Fehler] Zu sendende Videodatei existiert nicht: {video_path}")
+        return False
+
+    print(f"[*] Sende Video an Chat {chat_id}: {p.name} ({p.stat().st_size} Bytes)...")
+    try:
+        with open(p, "rb") as video_file:
+            files = {"video": video_file}
+            data = {"chat_id": chat_id}
+            if caption:
+                data["caption"] = caption
+                data["parse_mode"] = "Markdown"
+            if reply_markup:
+                data["reply_markup"] = json.dumps(reply_markup)
+            res = requests.post(url, data=data, files=files, timeout=120)
+            if res.status_code == 200:
+                resp_json = res.json()
+                sent_msg = resp_json.get("result", {})
+                sent_msg_id = sent_msg.get("message_id")
+                print(f"[✔] Video erfolgreich an Chat {chat_id} ausgeliefert (Msg {sent_msg_id}): {video_path}")
+                return sent_msg_id if sent_msg_id is not None else True
+            else:
+                print(f"[!] Fehler beim Senden des Videos ({res.status_code}): {res.text}")
+                return False
+    except Exception as e:
+        print(f"[Fehler] Exception beim Telegram-Videoversand: {e}")
         return False
 
 
@@ -1335,6 +1389,84 @@ def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situatio
     )
 
 
+def trigger_async_video(chat_id: int, prompt_text: str = ""):
+    """
+    Dispatches asynchronous video rendering on Outer Heaven (Arc A770)
+    and delivers the generated video clip directly to Telegram.
+    """
+    send_telegram_message(
+        chat_id,
+        "🎬 *Ich nehme einen kurzen Video-Clip für dich auf... Einen Augenblick!* ✨"
+    )
+
+    def _worker():
+        try:
+            import urllib.request
+            clean_p = prompt_text.strip() if prompt_text else "1girl, megan, solo, smiling intimately at camera, candid natural motion"
+            req_data = json.dumps({
+                "prompt": clean_p,
+                "negative_prompt": "ugly, deformed, bad anatomy, blurry, static frame, watermark",
+                "width": 512,
+                "height": 512,
+                "frames": 16,
+                "fps": 8
+            }).encode("utf-8")
+
+            # Try ComfyUI directly via localhost:8080 or localhost:8188
+            out_dirs = [
+                Path("/mnt/storage-beta/projekte/projekt-sexchat/output"),
+                Path("/home/outerheaven/ComfyUI/output"),
+                Path("/mnt/storage-beta/output")
+            ]
+            t0 = time.time()
+
+            try:
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8080/api/comfy/render",
+                    data=req_data,
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    pass
+            except Exception as req_err:
+                print(f"[*] Comfy render request sent or queued: {req_err}")
+
+            found_vid = None
+            for _ in range(30):
+                time.sleep(3)
+                for od in out_dirs:
+                    if od.is_dir():
+                        vids = list(od.glob("*.mp4")) + list(od.glob("*.webm"))
+                        if vids:
+                            vids.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+                            newest = vids[0]
+                            if newest.stat().st_mtime > t0 - 15:
+                                found_vid = newest
+                                break
+                if found_vid:
+                    break
+
+            if found_vid and found_vid.is_file():
+                caption = "🎬 *Hier ist mein Video-Clip für dich!* ✨"
+                delivered = send_telegram_video(chat_id, str(found_vid), caption=caption)
+                if delivered:
+                    memory_mgr.add_message("assistant", f"[Sends video: {found_vid.name}]", media_path=str(found_vid))
+                else:
+                    send_telegram_message(chat_id, "⚠️ *Konnte das Video leider nicht an Telegram übertragen.*")
+            else:
+                latest_photo = get_latest_rendered_photo()
+                if latest_photo and latest_photo.is_file():
+                    send_telegram_photo(chat_id, str(latest_photo), caption="🎬 *Video-Render war ausgelastet, aber hier ist ein frisches Foto für dich!*")
+                else:
+                    send_telegram_message(chat_id, "⚠️ *Das Video konnte auf der Arc A770 nicht rechtzeitig fertiggestellt werden.*")
+        except Exception as e:
+            print(f"[Fehler] trigger_async_video worker error: {e}")
+            send_telegram_message(chat_id, f"⚠️ *Fehler bei Video-Erstellung:* {e}")
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+
 # ==============================================================================
 # 5. Ollama LLM Interaction & Voice Synthesis
 # ==============================================================================
@@ -1510,11 +1642,17 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str) -> s
                 except Exception as b_err:
                     print(f"[Warnung] Lokaler Brain-Update fehlgeschlagen: {b_err}")
 
-            # Check if assistant roleplayed taking or sending a photo
-            has_photo_claim, detected_env, detected_sit = detect_bot_roleplay_photo(assistant_reply)
-            if has_photo_claim:
-                print(f"[*] Rolleplay-Foto erkannt in Ollama-Antwort -> Starte echten Render ({detected_env})...")
-                trigger_async_photo(chat_id, env_preset=detected_env, situation=detected_sit)
+            # Check if assistant roleplayed taking or sending a video
+            has_video_claim, detected_video_prompt = detect_bot_roleplay_video(assistant_reply)
+            if has_video_claim:
+                print(f"[*] Roleplay-Video erkannt in Ollama-Antwort -> Starte echten Video-Render...")
+                trigger_async_video(chat_id, prompt_text=detected_video_prompt)
+            else:
+                # Check if assistant roleplayed taking or sending a photo
+                has_photo_claim, detected_env, detected_sit = detect_bot_roleplay_photo(assistant_reply)
+                if has_photo_claim:
+                    print(f"[*] Rolleplay-Foto erkannt in Ollama-Antwort -> Starte echten Render ({detected_env})...")
+                    trigger_async_photo(chat_id, env_preset=detected_env, situation=detected_sit)
 
             # Check if Voice Mode is active
             if SESSION_STATE["voice_mode"]:
