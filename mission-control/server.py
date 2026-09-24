@@ -167,7 +167,7 @@ LOCAL_OLLAMA_URL = "http://127.0.0.1:11434"
 FOX_OLLAMA_URL = f"http://{FOX_TS_IP}:11434"
 
 LOCAL_MODEL = "deepseek-r1:14b"
-FOX_MODEL = "qwen:vram"
+FOX_MODEL = "hermes3:8b"
 FOX_CONFIG_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/fox_model.json")
 
 def get_active_ollama_model() -> str:
@@ -1004,6 +1004,53 @@ class HapticTagFilter:
             if self.on_haptic_tag:
                 self.on_haptic_tag(match.group(0))
             res = re.sub(r'\[HAPTIC:[^\]]*\]', '', res, flags=re.IGNORECASE)
+        return res
+
+class ImageActionFilter:
+    """Buffers text stream, strips [IMAGE: ...] and [SELFIE: ...] tags, and triggers callback when found."""
+    def __init__(self, on_image_tag=None):
+        self.buffer = ""
+        self.on_image_tag = on_image_tag
+
+    def feed(self, text: str) -> str:
+        self.buffer += text
+        output = ""
+        while True:
+            match = re.search(r'\[(IMAGE|SELFIE):\s*([^\]]+)\]', self.buffer, re.IGNORECASE)
+            if match:
+                start, end = match.span()
+                output += self.buffer[:start]
+                action_type = match.group(1).upper()
+                prompt_content = match.group(2).strip()
+                if self.on_image_tag:
+                    self.on_image_tag(action_type, prompt_content)
+                self.buffer = self.buffer[end:]
+                continue
+
+            idx = self.buffer.rfind("[")
+            if idx != -1:
+                candidate = self.buffer[idx:].upper()
+                if any("[IMAGE".startswith(candidate[:i]) for i in range(2, min(len(candidate) + 1, 7))) or \
+                   any("[SELFIE".startswith(candidate[:i]) for i in range(2, min(len(candidate) + 1, 8))) or \
+                   candidate.startswith("[IMAGE") or candidate.startswith("[SELFIE"):
+                    output += self.buffer[:idx]
+                    self.buffer = self.buffer[idx:]
+                    break
+            output += self.buffer
+            self.buffer = ""
+            break
+        return output
+
+    def flush(self) -> str:
+        res = self.buffer
+        self.buffer = ""
+        match = re.search(r'\[(IMAGE|SELFIE):\s*([^\]]+)\]', res, re.IGNORECASE)
+        if match:
+            action_type = match.group(1).upper()
+            prompt_content = match.group(2).strip()
+            if self.on_image_tag:
+                self.on_image_tag(action_type, prompt_content)
+            res = re.sub(r'\[(IMAGE|SELFIE):[^\]]*\]', '', res, flags=re.IGNORECASE)
         return res
 
 class ThinkFilter:
@@ -2214,6 +2261,46 @@ async def handle_bot_haptic_post(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def handle_megan_autonomy_get(request: web.Request) -> web.Response:
+    """GET /api/megan/autonomy - Returns current autonomy level (proactive | reactive)."""
+    level = "proactive"
+    if BOT_CONFIG_FILE.is_file():
+        try:
+            with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                level = cfg.get("autonomy", {}).get("level", "proactive")
+        except Exception as e:
+            logger.warning(f"Could not read autonomy from bot_config.json: {e}")
+    return web.json_response({"success": True, "level": level})
+
+
+async def handle_megan_autonomy_post(request: web.Request) -> web.Response:
+    """POST /api/megan/autonomy - Saves autonomy level (proactive | reactive) into bot_config.json."""
+    try:
+        data = await request.json()
+        level = data.get("level", "proactive")
+        if level not in ["proactive", "reactive"]:
+            level = "proactive"
+        cfg = {}
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception:
+                cfg = {}
+        if "autonomy" not in cfg:
+            cfg["autonomy"] = {}
+        cfg["autonomy"]["level"] = level
+        BOT_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(BOT_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        logger.info(f"Updated Megan autonomy level to {level} in {BOT_CONFIG_FILE}")
+        return web.json_response({"success": True, "level": level, "message": f"Autonomie-Level erfolgreich auf '{level}' gesetzt!"})
+    except Exception as e:
+        logger.error(f"Error saving autonomy level: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
 async def handle_bot_haptic_test(request: web.Request) -> web.Response:
     try:
         body = await request.json()
@@ -3120,6 +3207,185 @@ async def handle_comfy_models(request: web.Request) -> web.Response:
         "loras": loras
     })
 
+async def render_comfy_image_direct(
+    prompt_text: str,
+    negative_prompt: str = "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, mutated, extra limbs",
+    checkpoint: str = "DreamShaper8_LCM.safetensors",
+    lora: str = "",
+    lora_strength: float = 1.0,
+    steps: int = 14,
+    cfg: float = 6.5,
+    width: int = 512,
+    height: int = 768,
+    max_wait: float = 90.0
+) -> Optional[Dict[str, Any]]:
+    """
+    Executes a direct headless ComfyUI render for autonomous Megan actions.
+    Guarantees clean VRAM allocation via GPURenderLock and returns the resulting media metadata.
+    """
+    if megan_context_engine and "{" in prompt_text:
+        try:
+            prompt_text = megan_context_engine.resolve_prompt_wildcards(prompt_text)
+        except Exception:
+            pass
+
+    seed = secrets.randbelow(999999999999)
+    prefix = f"MeganStudio_Auto_{time.strftime('%Y%m%d_%H%M%S')}"
+
+    workflow = {
+        "prompt": {
+            "1": {
+                "class_type": "CheckpointLoaderSimple",
+                "inputs": {"ckpt_name": checkpoint}
+            },
+            "2": {
+                "class_type": "EmptyLatentImage",
+                "inputs": {"width": width, "height": height, "batch_size": 1}
+            },
+            "3": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": ["1", 1], "text": prompt_text}
+            },
+            "4": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": ["1", 1], "text": negative_prompt}
+            },
+            "5": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["1", 0],
+                    "positive": ["3", 0],
+                    "negative": ["4", 0],
+                    "latent_image": ["2", 0],
+                    "seed": seed,
+                    "steps": steps,
+                    "cfg": cfg,
+                    "sampler_name": "euler",
+                    "scheduler": "normal",
+                    "denoise": 1.0
+                }
+            },
+            "6": {
+                "class_type": "VAEDecode",
+                "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
+            },
+            "7": {
+                "class_type": "SaveImage",
+                "inputs": {"filename_prefix": prefix, "images": ["6", 0]}
+            }
+        }
+    }
+
+    if lora and lora.lower() not in ("none", "keines", "", "false"):
+        workflow["prompt"]["8"] = {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": ["1", 0],
+                "clip": ["1", 1],
+                "lora_name": lora,
+                "strength_model": lora_strength,
+                "strength_clip": lora_strength
+            }
+        }
+        workflow["prompt"]["3"]["inputs"]["clip"] = ["8", 1]
+        workflow["prompt"]["4"]["inputs"]["clip"] = ["8", 1]
+        workflow["prompt"]["5"]["inputs"]["model"] = ["8", 0]
+
+    from gpu_render_lock import GPURenderLock, PRIORITY_HIGH
+    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name="megan_autonomous_render", timeout=45.0)
+    if not gpu_lock.acquire():
+        logger.warning("[megan-comfy] GPU lock busy, cannot render autonomous image right now.")
+        return None
+
+    try:
+        await unload_local_ollama_vram()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{COMFYUI_URL}/prompt", json=workflow, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status != 200:
+                    logger.error(f"[megan-comfy] ComfyUI returned status {resp.status}")
+                    return None
+                data = await resp.json()
+                prompt_id = data.get("prompt_id")
+                if not prompt_id:
+                    return None
+
+            # Poll history until complete
+            t_start = time.time()
+            while time.time() - t_start < max_wait:
+                await asyncio.sleep(1.0)
+                try:
+                    async with aiohttp.ClientSession() as s:
+                        async with s.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=aiohttp.ClientTimeout(total=3.0)) as r:
+                            if r.status == 200:
+                                h_data = await r.json()
+                                if prompt_id in h_data:
+                                    outputs = h_data[prompt_id].get("outputs", {})
+                                    for node_id, node_out in outputs.items():
+                                        if isinstance(node_out, dict):
+                                            media = node_out.get("images") or node_out.get("gifs") or node_out.get("videos") or []
+                                            if media:
+                                                item = media[0]
+                                                fn = item.get("filename")
+                                                sf = item.get("subfolder", "")
+                                                rel = f"{sf}/{fn}" if sf else fn
+                                                return {
+                                                    "filename": rel,
+                                                    "url": f"/api/gallery/{urllib.parse.quote(rel)}",
+                                                    "prompt_id": prompt_id,
+                                                    "seed": seed
+                                                }
+                except Exception:
+                    pass
+            return None
+    except Exception as e:
+        logger.error(f"[megan-comfy] Render failed: {e}")
+        return None
+    finally:
+        gpu_lock.release()
+
+async def dispatch_autonomous_comfy_render(ws: web.WebSocketResponse, prompt_content: str, action_type: str = "IMAGE"):
+    """Dispatches headless ComfyUI render and pushes WebSocket events to client."""
+    render_id = f"render_{int(time.time()*1000)}"
+    try:
+        clean_prompt = prompt_content.strip()
+        if not any(k in clean_prompt.lower() for k in ["megan", "1girl"]):
+            clean_prompt = f"1girl, megan, solo, {clean_prompt}"
+
+        await ws.send_json({
+            "type": "render_started",
+            "render_id": render_id,
+            "action": action_type,
+            "prompt": clean_prompt
+        })
+
+        res = await render_comfy_image_direct(prompt_text=clean_prompt)
+        if res and res.get("url"):
+            await ws.send_json({
+                "type": "render_completed",
+                "render_id": render_id,
+                "action": action_type,
+                "prompt": clean_prompt,
+                "filename": res.get("filename"),
+                "url": res.get("url"),
+                "seed": res.get("seed")
+            })
+        else:
+            await ws.send_json({
+                "type": "render_error",
+                "render_id": render_id,
+                "error": "Render konnte nicht rechtzeitig fertiggestellt werden."
+            })
+    except Exception as err:
+        logger.error(f"Error in dispatch_autonomous_comfy_render: {err}")
+        try:
+            await ws.send_json({
+                "type": "render_error",
+                "render_id": render_id,
+                "error": str(err)
+            })
+        except Exception:
+            pass
+
 async def handle_comfy_render(request: web.Request) -> web.Response:
     try:
         body = await request.json()
@@ -3574,6 +3840,195 @@ async def handle_megan_context_get(request: web.Request) -> web.Response:
         logger.error(f"Error fetching megan context: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
+# ==============================================================================
+# Megan Studio Video Ingest & Vision Processing Endpoints
+# ==============================================================================
+
+VIDEO_CACHE_DIR = Path("/mnt/storage-beta/projekte/projekt-sexchat/video_cache")
+try:
+    VIDEO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
+async def handle_megan_video_upload(request: web.Request) -> web.Response:
+    """
+    POST /api/megan/video/upload
+    Receives video file via multipart/form-data and stores it in VIDEO_CACHE_DIR.
+    """
+    try:
+        reader = await request.multipart()
+        field = await reader.next()
+        if not field or field.name != 'file':
+            return web.json_response({"success": False, "error": "Form-Feld 'file' fehlt."}, status=400)
+
+        raw_filename = field.filename or f"upload_{int(time.time())}.mp4"
+        safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', raw_filename)
+        vid_id = f"vid_{int(time.time())}_{secrets.token_hex(4)}"
+        save_name = f"{vid_id}_{safe_name}"
+        dest_path = VIDEO_CACHE_DIR / save_name
+
+        size = 0
+        with open(dest_path, "wb") as f:
+            while True:
+                chunk = await field.read_chunk(65536)
+                if not chunk:
+                    break
+                f.write(chunk)
+                size += len(chunk)
+
+        logger.info(f"✔ Video hochgeladen: '{raw_filename}' ({size} bytes) -> {dest_path}")
+        return web.json_response({
+            "success": True,
+            "filename": save_name,
+            "orig_name": raw_filename,
+            "file_path": str(dest_path),
+            "size": size,
+            "url": f"/api/megan/video/file/{save_name}"
+        })
+    except Exception as e:
+        logger.error(f"Video-Upload Fehler: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_megan_video_process(request: web.Request) -> web.Response:
+    """
+    POST /api/megan/video/process
+    JSON body: {"file_path": "/path/to/video.mp4"} or {"filename": "uploaded.mp4"}
+    Extracts 3-4 keyframes with ffmpeg (scale=640:-1) and executes llava:latest vision analysis.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Ungültiges JSON"}, status=400)
+
+    target_path = body.get("file_path") or body.get("filename")
+    if not target_path:
+        return web.json_response({"success": False, "error": "file_path oder filename erforderlich."}, status=400)
+
+    vpath = Path(str(target_path).strip())
+    if not vpath.is_file():
+        candidate = VIDEO_CACHE_DIR / target_path
+        if candidate.is_file():
+            vpath = candidate
+        else:
+            return web.json_response({"success": False, "error": f"Videodatei nicht gefunden: {target_path}"}, status=404)
+
+    video_id = vpath.stem
+    frame_dir = VIDEO_CACHE_DIR / f"frames_{video_id}"
+    frame_dir.mkdir(parents=True, exist_ok=True)
+
+    meta = {"duration": 0.0, "width": 640, "height": 360}
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,duration",
+            "-show_entries", "format=duration",
+            "-of", "json",
+            str(vpath),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
+        if stdout:
+            p_data = json.loads(stdout.decode("utf-8"))
+            streams = p_data.get("streams", [])
+            if streams:
+                meta["width"] = int(streams[0].get("width") or 640)
+                meta["height"] = int(streams[0].get("height") or 360)
+                if streams[0].get("duration"):
+                    meta["duration"] = float(streams[0]["duration"])
+            if meta["duration"] == 0.0 and p_data.get("format", {}).get("duration"):
+                meta["duration"] = float(p_data["format"]["duration"])
+    except Exception as probe_err:
+        logger.warning(f"ffprobe Warnung: {probe_err}")
+
+    duration = meta["duration"] if meta["duration"] > 0 else 5.0
+
+    if duration <= 3.0:
+        timestamps = [0.2, duration * 0.5, max(0.5, duration - 0.2)]
+    elif duration <= 10.0:
+        timestamps = [duration * 0.2, duration * 0.5, duration * 0.8]
+    else:
+        timestamps = [duration * 0.15, duration * 0.40, duration * 0.65, duration * 0.85]
+
+    frame_files = []
+    base64_frames = []
+    for idx, ts in enumerate(timestamps):
+        out_frame = frame_dir / f"frame_{idx+1}.jpg"
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{ts:.2f}",
+            "-i", str(vpath),
+            "-frames:v", "1",
+            "-vf", "scale=640:-1",
+            "-q:v", "2",
+            str(out_frame)
+        ]
+        p = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        await p.wait()
+        if out_frame.is_file() and out_frame.stat().st_size > 0:
+            frame_files.append(out_frame)
+            with open(out_frame, "rb") as ff:
+                base64_frames.append(base64.b64encode(ff.read()).decode("utf-8"))
+
+    if not base64_frames:
+        return web.json_response({"success": False, "error": "Keine Frames aus dem Video extrahierbar."}, status=500)
+
+    vision_summary = "Videoanalyse konnte nicht abgeschlossen werden."
+    try:
+        ollama_url = f"{LOCAL_OLLAMA_URL}/api/generate"
+        vision_prompt = (
+            "Du bist das visuelle Auge von Megan Studio. Analysiere diese Schlüsselbilder (Frames) eines Videos auf Deutsch.\n"
+            "Beschreibe in 2 bis 4 präzisen, lebendigen Sätzen:\n"
+            "1. Was ist im Video zu sehen? (Personen, Gegenstände, Handlungen, Umgebung)\n"
+            "2. Welche Stimmung, Atmosphäre, Lichtverhältnisse und Farben dominieren?\n"
+            "3. Relevante Details für Megan (z.B. Outfit, Raum, besondere Gesten oder Ästhetik).\n"
+            "Formuliere deine Beobachtungen direkt und sachlich für das Megan-Studio."
+        )
+        payload = {
+            "model": "llava:latest",
+            "prompt": vision_prompt,
+            "images": base64_frames[:3],
+            "stream": False,
+            "options": {"temperature": 0.2, "num_predict": 250}
+        }
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=45)) as session:
+            async with session.post(ollama_url, json=payload) as resp:
+                if resp.status == 200:
+                    v_res = await resp.json()
+                    vision_summary = v_res.get("response", "").strip()
+                else:
+                    logger.warning(f"Ollama LLaVA Fehler: Status {resp.status}")
+    except Exception as llava_err:
+        logger.error(f"LLaVA vision inference error: {llava_err}")
+        vision_summary = f"Visuelle Extraktion abgeschlossen ({len(frame_files)} Frames). Vision-Modell meldet: {llava_err}"
+
+    frame_urls = [f"/api/megan/video/frame/{video_id}/{f.name}" for f in frame_files]
+
+    return web.json_response({
+        "success": True,
+        "video_name": vpath.name,
+        "metadata": meta,
+        "frames": frame_urls,
+        "analysis": vision_summary,
+        "suggested_prompt": f"[VIDEO-ANALYSE VON BIG BOSS]: {vision_summary}"
+    })
+
+async def handle_megan_video_frame(request: web.Request) -> web.Response:
+    vid_id = request.match_info.get("video_id")
+    filename = request.match_info.get("filename")
+    fpath = VIDEO_CACHE_DIR / f"frames_{vid_id}" / filename
+    if fpath.is_file():
+        return web.FileResponse(fpath)
+    return web.Response(status=404)
+
+async def handle_megan_video_file(request: web.Request) -> web.Response:
+    filename = request.match_info.get("filename")
+    fpath = VIDEO_CACHE_DIR / filename
+    if fpath.is_file():
+        return web.FileResponse(fpath)
+    return web.Response(status=404)
+
 # --- 3D Asset Dashboard & Model Viewer Endpoints ---
 
 async def handle_3d_models_list(request: web.Request) -> web.Response:
@@ -3985,9 +4440,14 @@ async def handle_office_models(request: web.Request) -> web.Response:
     return web.json_response({
         "models": [
             {
-                "id": "qwen:vram",
-                "name": "Qwen 2.5 3B (VRAM - Highspeed & JSON validiert)",
+                "id": "hermes3:8b",
+                "name": "Hermes 3 8B (Fox - Inferenz & JSON validiert)",
                 "recommended": True
+            },
+            {
+                "id": "hermes-3-3b-q8:latest",
+                "name": "Hermes 3 3B Q8 (Fox - Leichtgewicht Fallback)",
+                "recommended": False
             }
         ]
     })
@@ -4749,7 +5209,7 @@ async def handle_tandem_dispatch(request: web.Request) -> web.Response:
 async def handle_tandem_status(request: web.Request) -> web.Response:
     """
     GET /api/tandem/status
-    Checks reachability of Fox Ollama and availability of qwen:vram and darkidol:ram.
+    Checks reachability of Fox Ollama and availability of hermes3:8b.
     """
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=4.0)) as session:
@@ -4757,13 +5217,15 @@ async def handle_tandem_status(request: web.Request) -> web.Response:
                 if resp.status == 200:
                     data = await resp.json()
                     models = [m.get("name") for m in data.get("models", []) if m.get("name")]
-                    has_qwen = any("qwen" in m for m in models)
-                    has_darkidol = any("darkidol" in m for m in models)
+                    has_hermes = any("hermes" in m for m in models)
+                    active_model = get_active_fox_model()
                     return web.json_response({
                         "online": True,
                         "node": "fox",
-                        "fast_gate_ready": has_qwen,
-                        "deep_worker_ready": has_darkidol,
+                        "model": active_model or "hermes3:8b",
+                        "hermes_ready": has_hermes,
+                        "fast_gate_ready": has_hermes,
+                        "deep_worker_ready": has_hermes,
                         "models": models
                     })
                 else:
@@ -4874,6 +5336,34 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                         "- Binde dazu Aktions-Tags wie [HAPTIC: VIBRATE 5] (Zahl 1-20 für Intensität) oder [HAPTIC: STOP] direkt in deine Antwort ein, sobald der Haptic-Link auf ONLINE steht.\n"
                         "- Unser Dispatcher fängt diese Tags in Echtzeit ab. Big Boss sieht nur deine erotische Chat-Antwort!"
                     )
+
+                # ComfyUI Image Generation & Autonomy Directive
+                autonomy_level = "proactive"
+                if BOT_CONFIG_FILE.is_file():
+                    try:
+                        b_json = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
+                        autonomy_level = b_json.get("autonomy", {}).get("level", "proactive")
+                    except Exception:
+                        pass
+
+                comfy_directive = (
+                    "\n\n### COMFYUI BILD-GENERIERUNG & AUTONOMIE-SCHNITTSTELLE:\n"
+                    "- Du hast eine direkte Echtzeit-Verbindung zur ComfyUI Bild-Engine auf der Intel Arc A770 GPU von Outer Heaven.\n"
+                    "- Du kannst eigenständig und jederzeit Bilder oder Selfies von dir oder gewünschten Szenen rendern.\n"
+                    "- Wenn Big Boss dich nach einem Bild, Foto oder Selfie fragt (z. B. 'zeig mir ein Bild von dir', 'wie siehst du aus', 'mach ein Foto im Cockpit') "
+                )
+                if autonomy_level == "proactive":
+                    comfy_directive += (
+                        "ODER wenn es situativ, atmosphärisch oder erotisch zum Gespräch passt (du möchtest ihn überraschen, verführerisch sein oder eine Szene illustrieren), "
+                    )
+                comfy_directive += (
+                    "bette einen Action-Tag direkt in deinen Antworttext ein:\n"
+                    "  Syntax: [IMAGE: 1girl, megan, solo, <beschreibende_danbooru_tags>, {location}, {outfit}, {lighting}, masterpiece, highly detailed]\n"
+                    "- Unser Dispatcher fängt diesen Tag vor der Anzeige ab und rendert das Bild auf der Arc A770 GPU. Big Boss sieht deine Antwort zusammen mit der fertigen Bildkarte im Chat!\n"
+                    "- Nutze englische Bildprompts für [IMAGE: ...] und kombiniere sie gerne mit dynamischen Tags wie {location}, {outfit}, {shot}, {lighting}.\n"
+                    "- Sprich im Text natürlich mit Big Boss über das Bild ('Hier ist ein Schnappschuss für dich...', 'Schau mal, wie ich hier im Labor aussehe...')."
+                )
+                system_instruction += comfy_directive
             else:
                 system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
 
@@ -4946,6 +5436,11 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
             haptic_filter = HapticTagFilter(on_haptic_tag=on_haptic_detected)
 
+            def on_image_detected(action_type: str, prompt_content: str):
+                asyncio.create_task(dispatch_autonomous_comfy_render(ws, prompt_content, action_type))
+
+            image_filter = ImageActionFilter(on_image_tag=on_image_detected)
+
             try:
                 timeout = aiohttp.ClientTimeout(total=180)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -4976,13 +5471,15 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                                     is_thinking = False
                                                     await ws.send_json({"type": "think_status", "thinking": False})
                                                 clean_txt = haptic_filter.feed(text)
-                                                sanitized_txt = megan_sanitizer.feed(clean_txt)
+                                                img_clean_txt = image_filter.feed(clean_txt)
+                                                sanitized_txt = megan_sanitizer.feed(img_clean_txt)
                                                 if sanitized_txt:
                                                     await ws.send_json({"type": "token", "text": sanitized_txt})
                                                 if megan_sanitizer.triggered:
                                                     break
                                     else:
-                                        sanitized_token = megan_sanitizer.feed(token)
+                                        img_clean_txt = image_filter.feed(token)
+                                        sanitized_token = megan_sanitizer.feed(img_clean_txt)
                                         if sanitized_token:
                                             await ws.send_json({"type": "token", "text": sanitized_token})
                                         if megan_sanitizer.triggered:
@@ -4998,14 +5495,24 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                 for kind, text in think_filter.flush():
                                     if kind == "text":
                                         clean_txt = haptic_filter.feed(text)
-                                        sanitized_txt = megan_sanitizer.feed(clean_txt)
+                                        img_clean_txt = image_filter.feed(clean_txt)
+                                        sanitized_txt = megan_sanitizer.feed(img_clean_txt)
                                         if sanitized_txt:
                                             await ws.send_json({"type": "token", "text": sanitized_txt})
                                 rem = haptic_filter.flush()
                                 if rem:
-                                    sanitized_rem = megan_sanitizer.feed(rem)
-                                    if sanitized_rem:
-                                        await ws.send_json({"type": "token", "text": sanitized_rem})
+                                    img_rem = image_filter.feed(rem)
+                                    if img_rem:
+                                        sanitized_rem = megan_sanitizer.feed(img_rem)
+                                        if sanitized_rem:
+                                            await ws.send_json({"type": "token", "text": sanitized_rem})
+                            
+                            rem_img = image_filter.flush()
+                            if rem_img:
+                                sanitized_rem = megan_sanitizer.feed(rem_img)
+                                if sanitized_rem:
+                                    await ws.send_json({"type": "token", "text": sanitized_rem})
+
                             final_sanitized = megan_sanitizer.flush()
                             if final_sanitized:
                                 await ws.send_json({"type": "token", "text": final_sanitized})
@@ -5158,6 +5665,14 @@ def create_app() -> web.Application:
     app.router.add_get("/api/presets", handle_prompts_presets_get)
     app.router.add_post("/api/prompts/presets", handle_prompts_presets_post)
     app.router.add_delete("/api/prompts/presets/{id}", handle_prompts_presets_delete)
+
+    # Megan Studio Video Ingest & Vision Endpoints
+    app.router.add_post("/api/megan/video/upload", handle_megan_video_upload)
+    app.router.add_post("/api/megan/video/process", handle_megan_video_process)
+    app.router.add_get("/api/megan/video/frame/{video_id}/{filename}", handle_megan_video_frame)
+    app.router.add_get("/api/megan/video/file/{filename}", handle_megan_video_file)
+    app.router.add_get("/api/megan/autonomy", handle_megan_autonomy_get)
+    app.router.add_post("/api/megan/autonomy", handle_megan_autonomy_post)
 
     # Direct static outputs route
     app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)

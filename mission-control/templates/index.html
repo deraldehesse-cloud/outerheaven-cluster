@@ -435,23 +435,14 @@
             <span id="foxActiveTaskName" class="truncate text-slate-100 font-semibold"></span>
           </div>
 
-          <!-- Duales Modell-Display (Fox: Fast-Path VRAM & Deep-Path RAM) -->
-          <div class="mb-3 space-y-1.5 font-mono">
-            <div class="p-2 bg-slate-900/60 rounded border border-amber-500/30 flex items-center justify-between text-[11px]">
-              <span class="text-slate-400 shrink-0">SLOT 1 (VRAM):</span>
-              <div class="flex items-center space-x-1.5 min-w-0">
-                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-                <span id="foxSlot1Model" class="font-bold text-cyan-300">qwen:vram</span>
-                <span class="text-[9px] px-1 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">FAST-PATH</span>
-              </div>
-            </div>
-            <div class="p-2 bg-slate-900/60 rounded border border-amber-500/30 flex items-center justify-between text-[11px]">
-              <span class="text-slate-400 shrink-0">SLOT 2 (RAM):</span>
-              <div class="flex items-center space-x-1.5 min-w-0">
-                <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                <span id="foxSlot2Model" class="font-bold text-amber-300">darkidol:ram</span>
-                <span class="text-[9px] px-1 py-0.2 rounded bg-amber-950 text-amber-400 border border-amber-800">DEEP-PATH</span>
-              </div>
+          <!-- Modell-Integration (Fox: Single-Model Hermes) -->
+          <div class="mb-3 p-2 bg-slate-900/60 rounded border border-amber-500/30 flex items-center justify-between text-[11px] font-mono gap-2">
+            <span class="text-slate-400 shrink-0">OLLAMA MODELL:</span>
+            <div class="flex items-center space-x-1.5 min-w-0">
+              <select id="foxModelSelect" onchange="switchNodeModel('fox', this.value)" class="bg-slate-950 text-amber-300 border border-amber-500/40 rounded px-1.5 py-0.5 text-[11px] font-mono focus:outline-none focus:border-amber-400 truncate max-w-[180px] cursor-pointer">
+                <option value="{{ fox_model }}">{{ fox_model }}</option>
+              </select>
+              <button onclick="loadNodeModels('fox', true)" title="Fox Modelle neu laden" class="text-slate-500 hover:text-amber-300 transition text-[11px] p-0.5">⟳</button>
             </div>
           </div>
 
@@ -1102,6 +1093,29 @@
                 <span id="meganStudioPersNotice" class="text-[10px] font-mono text-emerald-400 hidden">✔ Gespeichert</span>
               </div>
 
+              <!-- 3a. Autonomie-Level (Proaktiv vs Reaktiv) -->
+              <div class="space-y-1.5 pb-2 border-b border-slate-800">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-pink-300 font-bold flex items-center space-x-1">
+                    <span>🤖</span> <span>Autonomie-Level</span>
+                  </span>
+                  <span id="meganAutonomyBadge" class="px-1.5 py-0.5 rounded bg-pink-950 border border-pink-700 text-pink-300 font-mono font-bold text-[10px]">PROAKTIV</span>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5 pt-0.5 text-[11px] font-mono">
+                  <button type="button" id="btnAutonomyProactive" onclick="setMeganAutonomy('proactive')"
+                          class="py-1 px-2 rounded bg-pink-900/70 border border-pink-500 text-pink-200 font-bold flex items-center justify-center space-x-1 shadow transition">
+                    <span>🟢</span> <span>Proaktiv</span>
+                  </button>
+                  <button type="button" id="btnAutonomyReactive" onclick="setMeganAutonomy('reactive')"
+                          class="py-1 px-2 rounded bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-400 font-bold flex items-center justify-center space-x-1 transition">
+                    <span>⚪</span> <span>Reaktiv</span>
+                  </button>
+                </div>
+                <div id="meganAutonomyDesc" class="text-[10px] text-pink-200/80 font-sans italic bg-black/40 p-1.5 rounded border border-slate-800 leading-tight">
+                  🟢 Proaktiv: Megan rendert situativ und unaufgefordert Bilder oder Selfies im Chat.
+                </div>
+              </div>
+
               <!-- Dynamik (Temperatur 0.30 - 0.85) -->
               <div class="space-y-1">
                 <div class="flex items-center justify-between text-xs">
@@ -1173,6 +1187,70 @@
                   <span>💾</span> <span>PERSÖNLICHKEIT & DYNAMIK SPEICHERN</span>
                 </button>
               </div>
+            </div>
+
+            <!-- 4. VIDEO-INGEST & KEYFRAME-ANALYSE (VISION LLAVA:LATEST) -->
+            <div class="bg-slate-900/80 border border-pink-900/60 rounded-lg p-3 space-y-3 shadow-lg">
+              <div class="flex items-center justify-between pb-1 border-b border-slate-800">
+                <div class="flex items-center space-x-1.5">
+                  <span>🎬</span> <span class="text-xs font-bold text-pink-300">VIDEO-INGEST & VISION</span>
+                </div>
+                <span id="meganVideoStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-950 border border-slate-800 text-slate-400">
+                  BEREIT
+                </span>
+              </div>
+
+              <!-- Upload Dropzone / File Picker -->
+              <div id="meganVideoDropzone" onclick="document.getElementById('meganVideoFileInput').click()"
+                   ondragover="event.preventDefault(); this.classList.add('border-pink-500', 'bg-pink-950/30')"
+                   ondragleave="this.classList.remove('border-pink-500', 'bg-pink-950/30')"
+                   ondrop="handleVideoDrop(event)"
+                   class="border-2 border-dashed border-slate-700 hover:border-pink-500 rounded-lg p-3 text-center cursor-pointer transition bg-black/40 group">
+                <input type="file" id="meganVideoFileInput" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" class="hidden" onchange="handleVideoFileSelect(this.files)">
+                <div class="flex flex-col items-center space-y-1 text-slate-400 group-hover:text-pink-300 transition">
+                  <span class="text-xl">📁</span>
+                  <span class="text-xs font-bold">Video hier ablegen oder klicken</span>
+                  <span class="text-[10px] text-slate-500 font-mono">MP4, WebM, MOV, MKV</span>
+                </div>
+              </div>
+
+              <!-- Local Cluster Path Input -->
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-[10px] text-slate-400">
+                  <span>Cluster-Pfad zu Videodatei:</span>
+                </div>
+                <div class="flex items-center space-x-1.5">
+                  <input type="text" id="meganVideoPathInput" placeholder="/mnt/storage-beta/... oder /mnt/cluster-workspace/..."
+                         class="flex-1 bg-black border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 font-mono focus:border-pink-500 focus:outline-none">
+                  <button type="button" onclick="startVideoAnalysisFromPath()"
+                          class="px-2.5 py-1 bg-pink-950/80 hover:bg-pink-900 border border-pink-700 text-pink-200 rounded text-xs font-bold transition shrink-0">
+                    🎬 Analysieren
+                  </button>
+                </div>
+              </div>
+
+              <!-- Video Player & Keyframe Previews (Hidden until loaded) -->
+              <div id="meganVideoPlayerContainer" class="hidden space-y-2 pt-1 border-t border-slate-800">
+                <video id="meganVideoPlayer" controls class="w-full rounded bg-black max-h-40 object-contain border border-slate-800"></video>
+                <div class="text-[10px] text-slate-400 font-bold">Extrahierte Keyframes:</div>
+                <div id="meganKeyframesGrid" class="grid grid-cols-4 gap-1.5">
+                  <!-- Injected Keyframe Thumbnails -->
+                </div>
+              </div>
+
+              <!-- Vision Analysis Textbox & Send to Megan -->
+              <div id="meganVisionResultContainer" class="hidden space-y-2 pt-1 border-t border-slate-800">
+                <div class="flex items-center justify-between text-[10px]">
+                  <span class="text-pink-300 font-bold">👁️ Vision-Analyse (llava:latest):</span>
+                  <span id="meganVisionFrameCount" class="text-slate-500 font-mono">4 Frames</span>
+                </div>
+                <div id="meganVisionText" class="p-2 bg-black/60 border border-slate-800 rounded text-xs text-slate-200 font-mono whitespace-pre-wrap max-h-36 overflow-y-auto scrollbar-thin"></div>
+                <button type="button" onclick="sendVideoAnalysisToChat()"
+                        class="w-full py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white rounded text-xs font-bold transition flex items-center justify-center space-x-1.5 shadow">
+                  <span>💬</span> <span>An Megan im Chat senden</span>
+                </button>
+              </div>
+
             </div>
 
           </div>
@@ -1440,7 +1518,7 @@
             <span id="btnNodeOHLabel">OH // {{ local_model }}</span>
           </button>
           <button id="btnNodeFox" onclick="setChatNode('fox')" class="px-2.5 py-1 rounded font-bold transition text-slate-400 hover:text-slate-200 border border-transparent">
-            <span id="btnNodeFoxLabel">FOX // Qwen & DarkIdol</span>
+            <span id="btnNodeFoxLabel">FOX // Hermes-3</span>
           </button>
         </div>
         <div class="flex items-center space-x-2">
@@ -3198,7 +3276,7 @@
       } else {
         btnFox.className = "px-3 py-1 rounded-md font-bold text-xs transition bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow";
         btnOH.className = "px-3 py-1 rounded-md font-bold text-xs transition text-slate-400 hover:text-slate-200 border border-transparent";
-        if (modelDesc) modelDesc.textContent = "qwen:vram (Fast-Path) & darkidol:ram (Deep-Worker)";
+        if (modelDesc) modelDesc.textContent = "hermes3:8b (Hermes Inferenz & Tasks)";
       }
     }
 
@@ -3286,6 +3364,107 @@
           meganChat.appendChild(mnotif);
           meganChat.scrollTop = meganChat.scrollHeight;
         }
+      } else if (msg.type === 'render_started') {
+        const renderId = msg.render_id;
+        const prompt = msg.prompt || 'Megan Bildgenerierung';
+        const actionType = msg.action_type || 'IMAGE';
+
+        const cardHtml = `
+          <div id="render-card-${renderId}" class="p-3 rounded-lg bg-pink-950/40 border border-pink-500/50 text-pink-200 font-mono text-xs space-y-2 shadow-lg glow-pink">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2">
+                <svg class="w-4 h-4 text-pink-400 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                </svg>
+                <span class="font-bold tracking-wider text-pink-300">COMFYUI AUTONOM: [${actionType}]</span>
+              </div>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-pink-900/60 border border-pink-600 text-pink-300 font-bold">ARC A770</span>
+            </div>
+            <div class="text-[11px] text-pink-100/90 italic bg-black/50 p-2 rounded border border-pink-900/60 break-words">
+              "${prompt}"
+            </div>
+            <div class="text-[10px] text-pink-400/80 flex items-center space-x-1">
+              <span>⚡</span> <span>VRAM freigegeben • Render-Job läuft...</span>
+            </div>
+          </div>
+        `;
+
+        if (chatMessages) {
+          const wrapper = document.createElement('div');
+          wrapper.className = "flex flex-col space-y-1 my-1";
+          wrapper.innerHTML = cardHtml;
+          chatMessages.appendChild(wrapper);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        const meganChat = document.getElementById('meganCompanionChat') || document.getElementById('meganChatMessages');
+        if (meganChat) {
+          const mwrapper = document.createElement('div');
+          mwrapper.className = "flex flex-col space-y-1 my-1";
+          mwrapper.innerHTML = cardHtml.replace(`id="render-card-${renderId}"`, `id="megan-render-card-${renderId}"`);
+          meganChat.appendChild(mwrapper);
+          meganChat.scrollTop = meganChat.scrollHeight;
+        }
+      } else if (msg.type === 'render_completed') {
+        const renderId = msg.render_id;
+        const imageUrl = msg.image_url;
+        const filename = msg.filename;
+        const prompt = msg.prompt || '';
+
+        const completeHtml = `
+          <div class="flex items-center justify-between pb-1 border-b border-pink-900/50">
+            <span class="text-xs font-bold text-pink-300 flex items-center space-x-1">
+              <span>✨</span> <span>AUTONOMER RENDER FERTIG</span>
+            </span>
+            <span class="text-[10px] text-slate-400 font-mono">${filename}</span>
+          </div>
+          <div class="relative group cursor-pointer overflow-hidden rounded border border-pink-600/60 bg-black/60 aspect-[3/4] max-h-72 flex items-center justify-center my-1" onclick="openLightbox('${imageUrl}', '${filename}')">
+            <img src="${imageUrl}" alt="Megan Render" class="w-full h-full object-cover transition duration-300 group-hover:scale-105">
+            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-bold font-mono">
+              🔍 Vergrößern
+            </div>
+          </div>
+          ${prompt ? `<div class="text-[10px] text-slate-300 italic truncate bg-black/40 px-2 py-1 rounded" title="${prompt}">"${prompt}"</div>` : ''}
+        `;
+
+        const card = document.getElementById(`render-card-${renderId}`);
+        if (card) {
+          card.innerHTML = completeHtml;
+          card.classList.remove('glow-pink');
+          card.classList.add('border-emerald-500/50');
+        }
+        const mcard = document.getElementById(`megan-render-card-${renderId}`);
+        if (mcard) {
+          mcard.innerHTML = completeHtml;
+          mcard.classList.remove('glow-pink');
+          mcard.classList.add('border-emerald-500/50');
+        }
+
+        // Live Preview in Column 1 aktualisieren
+        const previewImg = document.getElementById('meganPreviewImg');
+        const previewPlaceholder = document.getElementById('meganPreviewPlaceholder');
+        const previewFilename = document.getElementById('meganPreviewFilename');
+        if (previewImg) {
+          previewImg.src = imageUrl;
+          previewImg.classList.remove('hidden');
+        }
+        if (previewPlaceholder) previewPlaceholder.classList.add('hidden');
+        if (previewFilename) previewFilename.textContent = filename;
+
+      } else if (msg.type === 'render_error') {
+        const renderId = msg.render_id;
+        const errText = msg.error || 'Unbekannter Fehler';
+        const errHtml = `
+          <div class="p-2.5 rounded bg-rose-950/80 border border-rose-600/80 text-rose-300 text-xs font-mono flex items-center space-x-2">
+            <span>⚠️</span>
+            <span>ComfyUI Render fehlgeschlagen: ${errText}</span>
+          </div>
+        `;
+        const card = document.getElementById(`render-card-${renderId}`);
+        if (card) card.innerHTML = errHtml;
+        const mcard = document.getElementById(`megan-render-card-${renderId}`);
+        if (mcard) mcard.innerHTML = errHtml;
       } else if (msg.type === 'token') {
         if (currentAssistantBubble) {
           currentAssistantBubble.textContent += msg.text;
@@ -3563,7 +3742,7 @@
             <span id="tacticalChatStatusTitle">TACTICAL AGENT CHAT READY (Ollama: ${currentActiveOllamaModel})</span>
           </div>
           <div id="tacticalChatStatusDesc">
-            Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">${currentActiveOllamaModel}</span> auf Outer Heaven führt komplexe Überlegungen durch (Reasoning-Tags werden serverseitig gefiltert). Fox (Qwen:VRAM & DarkIdol:RAM) bietet schnelle & tiefe Assistenz.
+            Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">${currentActiveOllamaModel}</span> auf Outer Heaven führt komplexe Überlegungen durch (Reasoning-Tags werden serverseitig gefiltert). Fox (hermes3:8b) bietet konsolidierte Assistenz & Workflows.
           </div>
         </div>
       `;
@@ -8396,11 +8575,226 @@
       }
     }
 
+    // --- Megan Autonomie-Level Management ---
+    async function loadMeganAutonomy() {
+      try {
+        const res = await fetch('/api/megan/autonomy');
+        if (!res.ok) return;
+        const data = await res.json();
+        updateAutonomyUI(data.level || 'proactive');
+      } catch (e) {
+        console.warn('loadMeganAutonomy error:', e);
+      }
+    }
+
+    function updateAutonomyUI(level) {
+      const isProactive = (level === 'proactive');
+      const badge = document.getElementById('meganAutonomyBadge');
+      const btnPro = document.getElementById('btnAutonomyProactive');
+      const btnRea = document.getElementById('btnAutonomyReactive');
+      const desc = document.getElementById('meganAutonomyDesc');
+
+      if (badge) {
+        badge.textContent = isProactive ? 'PROAKTIV' : 'REAKTIV';
+        badge.className = isProactive 
+          ? 'px-1.5 py-0.5 rounded bg-pink-950 border border-pink-700 text-pink-300 font-mono font-bold text-[10px]'
+          : 'px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400 font-mono font-bold text-[10px]';
+      }
+      if (btnPro) {
+        btnPro.className = isProactive
+          ? 'py-1 px-2 rounded bg-pink-900/70 border border-pink-500 text-pink-200 font-bold flex items-center justify-center space-x-1 shadow transition'
+          : 'py-1 px-2 rounded bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-400 font-bold flex items-center justify-center space-x-1 transition';
+      }
+      if (btnRea) {
+        btnRea.className = !isProactive
+          ? 'py-1 px-2 rounded bg-slate-800 border border-slate-500 text-slate-200 font-bold flex items-center justify-center space-x-1 shadow transition'
+          : 'py-1 px-2 rounded bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-400 font-bold flex items-center justify-center space-x-1 transition';
+      }
+      if (desc) {
+        desc.textContent = isProactive
+          ? '🟢 Proaktiv: Megan rendert situativ und unaufgefordert Bilder oder Selfies im Chat.'
+          : '⚪ Reaktiv: Megan rendert Bilder nur bei direkter Bitte oder Anweisung im Chat.';
+      }
+    }
+
+    async function setMeganAutonomy(level) {
+      updateAutonomyUI(level);
+      try {
+        const res = await fetch('/api/megan/autonomy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ level })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch (err) {
+        console.warn('setMeganAutonomy error:', err);
+      }
+    }
+
+    // --- Megan Video Ingest & Vision Analysis ---
+    let currentVideoAnalysisResult = "";
+
+    function handleVideoDrop(e) {
+      e.preventDefault();
+      e.currentTarget.classList.remove('border-pink-500', 'bg-pink-950/30');
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        uploadAndAnalyzeVideoFile(e.dataTransfer.files[0]);
+      }
+    }
+
+    function handleVideoFileSelect(files) {
+      if (files && files.length > 0) {
+        uploadAndAnalyzeVideoFile(files[0]);
+      }
+    }
+
+    async function uploadAndAnalyzeVideoFile(file) {
+      const statusBadge = document.getElementById('meganVideoStatusBadge');
+      if (statusBadge) {
+        statusBadge.textContent = "UPLOADE...";
+        statusBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-cyan-950 border border-cyan-700 text-cyan-300 animate-pulse";
+      }
+
+      const formData = new FormData();
+      formData.append("video", file);
+
+      try {
+        const res = await fetch('/api/megan/video/upload', {
+          method: 'POST',
+          body: formData
+        });
+        if (!res.ok) throw new Error(`Upload HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.success && data.video_path) {
+          const pathInput = document.getElementById('meganVideoPathInput');
+          if (pathInput) pathInput.value = data.video_path;
+          await analyzeMeganVideo(data.video_path, data.video_url);
+        } else {
+          throw new Error(data.error || "Upload fehlgeschlagen");
+        }
+      } catch (err) {
+        console.error("Video-Upload Fehler:", err);
+        if (statusBadge) {
+          statusBadge.textContent = "FEHLER";
+          statusBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-rose-950 border border-rose-700 text-rose-300";
+        }
+        alert("Video Upload Fehler: " + err.message);
+      }
+    }
+
+    async function startVideoAnalysisFromPath() {
+      const pathInput = document.getElementById('meganVideoPathInput');
+      const videoPath = pathInput ? pathInput.value.trim() : "";
+      if (!videoPath) {
+        alert("Bitte gib einen lokalen Cluster-Pfad zu einer Videodatei an.");
+        return;
+      }
+      await analyzeMeganVideo(videoPath);
+    }
+
+    async function analyzeMeganVideo(videoPath, videoUrl = null) {
+      const statusBadge = document.getElementById('meganVideoStatusBadge');
+      const playerContainer = document.getElementById('meganVideoPlayerContainer');
+      const player = document.getElementById('meganVideoPlayer');
+      const resultContainer = document.getElementById('meganVisionResultContainer');
+      const visionText = document.getElementById('meganVisionText');
+      const keyframesGrid = document.getElementById('meganKeyframesGrid');
+      const frameCount = document.getElementById('meganVisionFrameCount');
+
+      if (statusBadge) {
+        statusBadge.textContent = "ANALYSIERE...";
+        statusBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-pink-950 border border-pink-700 text-pink-300 animate-pulse";
+      }
+
+      // Show video player
+      if (playerContainer && player) {
+        playerContainer.classList.remove('hidden');
+        if (videoUrl) {
+          player.src = videoUrl;
+        } else {
+          const filename = videoPath.split('/').pop();
+          player.src = `/api/megan/video/file/${encodeURIComponent(filename)}`;
+        }
+      }
+
+      try {
+        const res = await fetch('/api/megan/video/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ video_path: videoPath })
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || "Analyse fehlgeschlagen");
+        }
+
+        // Render keyframes thumbnails
+        if (keyframesGrid && data.keyframe_urls) {
+          keyframesGrid.innerHTML = "";
+          data.keyframe_urls.forEach((kfUrl, idx) => {
+            const img = document.createElement('img');
+            img.src = kfUrl;
+            img.alt = `Keyframe ${idx + 1}`;
+            img.className = "w-full aspect-video object-cover rounded border border-pink-900/60 cursor-pointer hover:border-pink-500 transition";
+            img.onclick = () => openLightbox(kfUrl, `Keyframe ${idx + 1}`);
+            keyframesGrid.appendChild(img);
+          });
+        }
+
+        // Populate Vision description
+        currentVideoAnalysisResult = data.description || "Keine visuelle Beschreibung verfügbar.";
+        if (visionText) visionText.textContent = currentVideoAnalysisResult;
+        if (frameCount && data.keyframes) frameCount.textContent = `${data.keyframes.length} Frames`;
+        if (resultContainer) resultContainer.classList.remove('hidden');
+
+        if (statusBadge) {
+          statusBadge.textContent = "BEREIT";
+          statusBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-950 border border-emerald-700 text-emerald-300";
+        }
+      } catch (err) {
+        console.error("Video-Analyse Fehler:", err);
+        if (statusBadge) {
+          statusBadge.textContent = "FEHLER";
+          statusBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-rose-950 border border-rose-700 text-rose-300";
+        }
+        alert("Video-Analyse fehlgeschlagen: " + err.message);
+      }
+    }
+
+    function sendVideoAnalysisToChat() {
+      if (!currentVideoAnalysisResult) {
+        alert("Keine Video-Analyse vorhanden.");
+        return;
+      }
+      const prompt = `Big Boss hat dir ein Video zur Ansicht vorgelegt. Hier ist die visuelle Analyse der extrahierten Frames:\n"${currentVideoAnalysisResult}"\nBitte sag mir deine persönliche Einschätzung und reagiere im Chat darauf!`;
+      
+      const meganInput = document.getElementById('meganChatInput');
+      const meganSend = document.getElementById('btnMeganChatSend');
+      if (meganInput) {
+        meganInput.value = prompt;
+        if (meganSend) {
+          meganSend.click();
+        }
+      } else {
+        const chatInput = document.getElementById('chatInput');
+        const sendBtn = document.getElementById('sendBtn');
+        if (chatInput) {
+          chatInput.value = prompt;
+          if (sendBtn) sendBtn.click();
+        }
+      }
+    }
+
     // Initialize Cluster Models & Fox status on load
     loadNodeModels('outerheaven');
     loadNodeModels('fox');
     checkFoxNodeStatus();
     loadDashboardAppearanceStyles();
+    loadMeganAutonomy();
     checkEvolutionStatus();
 
     updateCatlordTrainerStatus();
