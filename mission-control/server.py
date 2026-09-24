@@ -353,12 +353,13 @@ TRUSTED_IPS: Set[str] = {
     "::1",
 }
 
-# Lokale Subnetze (z. B. LAN 192.168.*, 10.*, 127.*)
+# Lokale Subnetze (z. B. LAN 192.168.*, 10.*, 127.*, Docker Bridge 172.16-31.*)
 TRUSTED_LOCAL_SUBNETS = [
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("::1/128"),
     ipaddress.ip_network("192.168.0.0/16"),
     ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
 ]
 
 def get_client_ip(request: web.Request) -> str:
@@ -3640,6 +3641,208 @@ async def handle_megan_tool_status(request: web.Request) -> web.Response:
     res = await run_docker_megan_tool("status", {})
     return web.json_response(res)
 
+async def handle_megan_tool_generate_image(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"status": "error", "error": "Invalid JSON"}, status=400)
+    prompt = data.get("prompt", "").strip()
+    if not prompt:
+        return web.json_response({"status": "error", "error": "Prompt required"}, status=400)
+    aspect_ratio = data.get("aspect_ratio", "portrait")
+    style_preset = data.get("style_preset", "")
+    res = await run_docker_megan_tool(
+        "generate_image",
+        {"prompt": prompt, "aspect_ratio": aspect_ratio, "style_preset": style_preset},
+        timeout=140
+    )
+    return web.json_response(res)
+
+async def handle_megan_tool_brain(request: web.Request) -> web.Response:
+    if request.method == "POST":
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"status": "error", "error": "Invalid JSON"}, status=400)
+        key = data.get("key", "").strip()
+        value = data.get("value")
+        if not key or value is None:
+            return web.json_response({"status": "error", "error": "Both key and value required"}, status=400)
+        res = await run_docker_megan_tool("learn", {"key": key, "value": value}, timeout=20)
+        return web.json_response(res)
+    else:
+        res = await run_docker_megan_tool("brain", {}, timeout=20)
+        return web.json_response(res)
+
+async def handle_comfy_render_direct(request: web.Request) -> web.Response:
+    """
+    Synchronous / Direct ComfyUI Render Endpoint with GPURenderLock.
+    Awaits image generation and returns result JSON with filename, filepath, url.
+    Accepts: prompt (str), aspect_ratio (str: portrait, landscape, square), style_preset (optional), negative_prompt (optional)
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"status": "error", "error": "Invalid JSON"}, status=400)
+
+    prompt_text = body.get("prompt", "").strip()
+    if not prompt_text:
+        return web.json_response({"status": "error", "error": "Prompt required"}, status=400)
+
+    aspect_ratio = body.get("aspect_ratio", "portrait").lower()
+    width, height = 512, 768
+    if "landscape" in aspect_ratio:
+        width, height = 768, 512
+    elif "square" in aspect_ratio:
+        width, height = 512, 512
+
+    # Dynamic Context & Wildcard Resolution via megan_context
+    if megan_context_engine and "{" in prompt_text:
+        try:
+            prompt_text = megan_context_engine.resolve_prompt_wildcards(prompt_text)
+            logger.info(f"[megan-context] Wildcards resolved in direct render -> {prompt_text[:120]}...")
+        except Exception as _ce:
+            logger.warning(f"Error resolving wildcards in direct render: {_ce}")
+
+    negative_prompt = body.get(
+        "negative_prompt",
+        "ugly, deformed, bad anatomy, bad hands, missing fingers, blurry, low quality, artifacts, text, watermark, monochrome, censor"
+    ).strip()
+
+    checkpoint = body.get("checkpoint", "DreamShaper8_LCM.safetensors").strip()
+    seed = int(body.get("seed", secrets.randbelow(999999999999)))
+
+    is_lcm = "lcm" in checkpoint.lower()
+    if is_lcm:
+        steps = int(body.get("steps", 8))
+        cfg = float(body.get("cfg", 2.0))
+    else:
+        steps = int(body.get("steps", 20))
+        cfg = float(body.get("cfg", 6.0))
+
+    workflow = {
+        "prompt": {
+            "1": {
+                "class_type": "CheckpointLoaderSimple",
+                "inputs": {"ckpt_name": checkpoint}
+            },
+            "2": {
+                "class_type": "EmptyLatentImage",
+                "inputs": {"width": width, "height": height, "batch_size": 1}
+            },
+            "3": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": ["1", 1], "text": prompt_text}
+            },
+            "4": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": ["1", 1], "text": negative_prompt}
+            },
+            "5": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["1", 0],
+                    "positive": ["3", 0],
+                    "negative": ["4", 0],
+                    "latent_image": ["2", 0],
+                    "seed": seed,
+                    "steps": steps,
+                    "cfg": cfg,
+                    "sampler_name": "euler",
+                    "scheduler": "normal" if is_lcm else "karras",
+                    "denoise": 1.0
+                }
+            },
+            "6": {
+                "class_type": "VAEDecode",
+                "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
+            },
+            "7": {
+                "class_type": "SaveImage",
+                "inputs": {"filename_prefix": f"Megan_Direct_{time.strftime('%Y%m%d_%H%M%S')}", "images": ["6", 0]}
+            }
+        }
+    }
+
+    # Acquire GPU Lock (High Priority)
+    from gpu_render_lock import GPURenderLock, PRIORITY_HIGH
+    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name="megan_direct_render", timeout=60.0)
+    if not gpu_lock.acquire():
+        return web.json_response({"status": "error", "error": "GPU ausgelastet. Bitte kurz warten."}, status=503)
+
+    try:
+        await unload_local_ollama_vram()
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{COMFYUI_URL}/prompt", json=workflow, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    return web.json_response({"status": "error", "error": f"ComfyUI error: {text}"}, status=502)
+                res_data = await resp.json()
+                prompt_id = res_data.get("prompt_id")
+
+        if not prompt_id:
+            return web.json_response({"status": "error", "error": "Keine prompt_id von ComfyUI erhalten"}, status=500)
+
+        # Poll history until finished (max 120s)
+        t_start = time.time()
+        timeout = 120.0
+        result_filename = None
+        result_subfolder = ""
+
+        while time.time() - t_start < timeout:
+            await asyncio.sleep(0.8)
+            try:
+                async with aiohttp.ClientSession() as s:
+                    async with s.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=aiohttp.ClientTimeout(total=3)) as r:
+                        if r.status == 200:
+                            h_data = await r.json()
+                            if prompt_id in h_data:
+                                outputs = h_data[prompt_id].get("outputs", {})
+                                for nid, n_out in outputs.items():
+                                    imgs = n_out.get("images") or []
+                                    if imgs:
+                                        result_filename = imgs[0].get("filename")
+                                        result_subfolder = imgs[0].get("subfolder", "")
+                                        break
+                                if result_filename:
+                                    break
+            except Exception:
+                pass
+
+        if not result_filename:
+            return web.json_response({"status": "error", "error": "Render-Timeout überschritten"}, status=504)
+
+        rel_path = f"{result_subfolder}/{result_filename}" if result_subfolder else result_filename
+        full_filepath = str(COMFYUI_OUTPUT_DIR / rel_path)
+        url = f"/api/gallery/{urllib.parse.quote(rel_path)}"
+
+        # Mirror copy to projekt-sexchat output directory if writable
+        try:
+            sexchat_out = Path("/mnt/storage-beta/projekte/projekt-sexchat/output")
+            if sexchat_out.is_dir():
+                dest_file = sexchat_out / result_filename
+                shutil.copy2(full_filepath, dest_file)
+        except Exception:
+            pass
+
+        return web.json_response({
+            "status": "ok",
+            "success": True,
+            "prompt_id": prompt_id,
+            "filename": rel_path,
+            "filepath": full_filepath,
+            "url": url,
+            "elapsed_seconds": round(time.time() - t_start, 2)
+        })
+
+    except Exception as e:
+        logger.error(f"Fehler in handle_comfy_render_direct: {e}")
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+    finally:
+        gpu_lock.release()
+
+
 async def handle_comfy_render(request: web.Request) -> web.Response:
     try:
         body = await request.json()
@@ -5931,12 +6134,18 @@ def create_app() -> web.Application:
     app.router.add_get("/api/megan/autonomy", handle_megan_autonomy_get)
     app.router.add_post("/api/megan/autonomy", handle_megan_autonomy_post)
 
+    # ComfyUI Direct Synchronous Render Endpoint (GPURenderLock enforced)
+    app.router.add_post("/api/render/direct", handle_comfy_render_direct)
+
     # Megan Autonomous Docker Web-Tools Endpoints
     app.router.add_post("/api/megan/tools/search", handle_megan_tool_search)
     app.router.add_post("/api/megan/tools/scrape", handle_megan_tool_scrape)
     app.router.add_post("/api/megan/tools/ytdlp", handle_megan_tool_ytdlp)
     app.router.add_post("/api/megan/tools/python", handle_megan_tool_python)
     app.router.add_get("/api/megan/tools/status", handle_megan_tool_status)
+    app.router.add_post("/api/megan/tools/generate_image", handle_megan_tool_generate_image)
+    app.router.add_get("/api/megan/tools/brain", handle_megan_tool_brain)
+    app.router.add_post("/api/megan/tools/brain", handle_megan_tool_brain)
 
     # Direct static outputs route
     app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)
@@ -5980,6 +6189,16 @@ async def main():
     except Exception as e:
         logger.error(f"Failed to bind Tailscale IP {LOCAL_TS_IP}:{PORT}: {e}")
         sys.exit(1)
+
+    # Docker Bridge Binding (Port 8080) for megan-tools container access
+    docker_ip = "172.17.0.1"
+    try:
+        site_docker = web.TCPSite(runner, docker_ip, PORT)
+        await site_docker.start()
+        sites.append(site_docker)
+        logger.info(f"Docker bridge binding active: http://{docker_ip}:{PORT}")
+    except Exception as e:
+        logger.warning(f"Could not bind Docker IP {docker_ip}:{PORT}: {e}")
 
     # SSL / HTTPS Binding (Port 8443) for Web Speech API & Microphone security context
     ssl_ctx = None

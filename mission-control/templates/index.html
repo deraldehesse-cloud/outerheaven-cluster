@@ -1076,6 +1076,47 @@
                 </div>
                 <div id="meganIngestResult" class="hidden max-h-36 overflow-y-auto space-y-1 text-xs text-slate-300 scrollbar-thin p-1 bg-slate-950/80 rounded border border-slate-900"></div>
               </div>
+              <!-- Autonome ComfyUI Bild-Generierung (Docker Tool Runner) -->
+              <div class="col-span-1 md:col-span-2 bg-black/60 border border-pink-900/60 rounded p-2.5 space-y-2">
+                <div class="flex items-center justify-between text-[11px] text-pink-300 font-bold">
+                  <span class="flex items-center space-x-1.5">
+                    <span>🎨</span> <span>Autonome Bild-Generierung (ComfyUI via megan-tools)</span>
+                  </span>
+                  <div class="flex items-center space-x-2">
+                    <span id="meganImageBrainBadge" class="text-[9px] px-1.5 py-0.5 rounded bg-pink-950/80 border border-pink-700 text-pink-300">.brain: AKTIV</span>
+                    <span id="meganImageStatusLabel" class="text-[10px] text-slate-500 font-normal">Bereit</span>
+                  </div>
+                </div>
+                <div class="space-y-2">
+                  <div class="flex items-center space-x-1.5">
+                    <input type="text" id="meganToolImagePrompt" placeholder="ComfyUI Prompt eingeben, z.B. 1girl, megan, solo, cockpit, warm lighting..."
+                           class="flex-1 bg-black border border-slate-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:border-pink-500 focus:outline-none"
+                           onkeydown="if(event.key==='Enter') executeMeganGenerateImage()">
+                  </div>
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center space-x-2 text-[10px] text-slate-400">
+                      <span>Format:</span>
+                      <select id="meganToolImageAspect" class="bg-slate-950 border border-slate-700 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none">
+                        <option value="portrait" selected>Hochformat (512x768)</option>
+                        <option value="landscape">Querformat (768x512)</option>
+                        <option value="square">Quadratisch (512x512)</option>
+                      </select>
+                      <span>Stil:</span>
+                      <select id="meganToolImageStyle" class="bg-slate-950 border border-slate-700 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none">
+                        <option value="" selected>Automatisch (.brain)</option>
+                        <option value="photorealistic">Photorealistic 8k</option>
+                        <option value="cinematic">Cinematic Lighting</option>
+                        <option value="anime">Anime / Manga</option>
+                      </select>
+                    </div>
+                    <button type="button" id="btnMeganGenerateImage" onclick="executeMeganGenerateImage()"
+                            class="px-3.5 py-1 bg-gradient-to-r from-pink-800 to-purple-800 hover:from-pink-700 hover:to-purple-700 border border-pink-600 text-pink-100 text-xs font-bold rounded transition shadow-sm flex items-center space-x-1.5">
+                      <span>⚡</span> <span>Generieren (Docker Tool)</span>
+                    </button>
+                  </div>
+                </div>
+                <div id="meganImageResult" class="hidden text-xs text-slate-300"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -8387,6 +8428,85 @@
       } catch (err) {
         if (label) label.textContent = 'Fehler';
         if (container) container.innerHTML = `<div class="text-rose-400 p-1">Netzwerkfehler: ${err.message}</div>`;
+      }
+    }
+
+    async function executeMeganGenerateImage() {
+      const promptInput = document.getElementById('meganToolImagePrompt');
+      const arSelect = document.getElementById('meganToolImageAspect');
+      const styleSelect = document.getElementById('meganToolImageStyle');
+      const btn = document.getElementById('btnMeganGenerateImage');
+      const statusLabel = document.getElementById('meganImageStatusLabel');
+      const resultContainer = document.getElementById('meganImageResult');
+
+      const prompt = promptInput ? promptInput.value.trim() : '';
+      if (!prompt) {
+        alert('Bitte gib einen Bild-Prompt ein.');
+        return;
+      }
+      const ar = arSelect ? arSelect.value : 'portrait';
+      const sp = styleSelect ? styleSelect.value : '';
+
+      if (btn) btn.disabled = true;
+      if (statusLabel) statusLabel.textContent = 'Rendert (Arc A770)...';
+      if (resultContainer) {
+        resultContainer.classList.remove('hidden');
+        resultContainer.innerHTML = '<div class="text-pink-300 italic p-2 animate-pulse flex items-center space-x-2"><span>🎨</span> <span>ComfyUI-Render über Docker Tool Runner läuft (GPURenderLock aktiv)...</span></div>';
+      }
+
+      try {
+        const res = await fetch('/api/megan/tools/generate_image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ prompt: prompt, aspect_ratio: ar, style_preset: sp })
+        });
+        const data = await res.json();
+        if (data.status === 'ok' && data.url) {
+          if (statusLabel) statusLabel.textContent = 'Fertig';
+          const prefsApplied = data.preferences_applied ? Object.keys(data.preferences_applied).join(', ') : 'Standard';
+          if (resultContainer) {
+            resultContainer.innerHTML = `
+              <div class="p-2.5 bg-black/60 rounded border border-pink-900/60 space-y-2 mt-2">
+                <div class="flex items-center justify-between text-[11px] font-bold text-pink-300">
+                  <span class="truncate max-w-[280px]">✔ ${data.filename || 'Render abgeschlossen'}</span>
+                  <a href="${data.url}" target="_blank" class="text-[10px] text-cyan-400 hover:underline">Vollbild ↗</a>
+                </div>
+                <div class="flex space-x-3 items-center">
+                  <img src="${data.url}" alt="Megan Render" class="w-24 h-32 object-cover rounded border border-pink-800 shadow cursor-pointer" onclick="openLightbox('${data.url}', '${data.filename}')">
+                  <div class="text-[10px] space-y-1 text-slate-300 flex-1">
+                    <p class="text-slate-400 font-mono line-clamp-2"><strong>Prompt:</strong> ${data.prompt}</p>
+                    <p class="text-slate-400 font-mono"><strong>Format:</strong> ${data.aspect_ratio || 'portrait'}</p>
+                    <p class="text-pink-400 font-mono"><strong>.brain Kontext:</strong> ${prefsApplied || 'Aktiv'}</p>
+                    <button type="button" onclick="sendToolResultToMeganChat('Hier ist mein generiertes Bild: ${data.url} (Prompt: ${escape(data.prompt)})')"
+                            class="px-2 py-0.5 bg-pink-950/80 border border-pink-700 text-pink-200 rounded hover:bg-pink-900 text-[10px] font-bold">
+                      + In Chat teilen
+                    </button>
+                  </div>
+                </div>
+              </div>
+            `;
+          }
+          // Also update Megan companion preview if present
+          const previewImg = document.getElementById('meganPreviewImg');
+          const previewPlaceholder = document.getElementById('meganPreviewPlaceholder');
+          const previewFilename = document.getElementById('meganPreviewFilename');
+          if (previewImg) {
+            previewImg.src = data.url;
+            previewImg.classList.remove('hidden');
+          }
+          if (previewPlaceholder) previewPlaceholder.classList.add('hidden');
+          if (previewFilename) previewFilename.textContent = data.filename || 'megan_render.png';
+
+        } else {
+          if (statusLabel) statusLabel.textContent = 'Fehler';
+          if (resultContainer) resultContainer.innerHTML = `<div class="text-rose-400 p-2">Render-Fehler: ${data.error || 'Unbekannter Fehler'}</div>`;
+        }
+      } catch (err) {
+        if (statusLabel) statusLabel.textContent = 'Fehler';
+        if (resultContainer) resultContainer.innerHTML = `<div class="text-rose-400 p-2">Netzwerkfehler: ${err.message}</div>`;
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
 
