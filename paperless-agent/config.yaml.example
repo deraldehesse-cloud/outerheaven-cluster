@@ -1,0 +1,17 @@
+paperless:
+  base_url: "http://100.116.38.29:8000"
+  api_token: "YOUR_PAPERLESS_API_TOKEN"
+  consume_dir: "/mnt/storage-beta/paperless/consume"
+  export_dir: "/mnt/storage-beta/paperless/export"
+
+watcher:
+  inbox_dirs:
+    - "/mnt/storage-beta/rechnungseingang"
+  archive_dir: "/mnt/storage-beta/rechnungsarchiv"
+  poll_interval_seconds: 30
+
+llm:
+  node: "fox"
+  model: "qwen:vram"
+  fallback_node: "outerheaven"
+  fallback_model: "deepseek-r1:14b"
