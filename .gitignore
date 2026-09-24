@@ -58,6 +58,7 @@ env/
 # Logs and Backups
 *.log
 *.bak
+backups_recovery_*/
 *.tmp
 *.swp
 *.old
