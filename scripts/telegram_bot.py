@@ -1457,12 +1457,29 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str) -> s
         "repeat_penalty": OLLAMA_REPEAT_PENALTY,
         "num_predict": OLLAMA_NUM_PREDICT,
         "num_ctx": OLLAMA_NUM_CTX,
+        "stop": [
+            "\n###",
+            "### FOTO-ANWEISUNG",
+            "### LOCAL PROJECT CONTEXT",
+            "User:",
+            "Big Boss:"
+        ]
     }
 
     try:
         router_res = query_uncensored_persona(chat_messages, custom_options=options, timeout=75, override_model=OLLAMA_MODEL)
         if router_res.get("success"):
             assistant_reply = router_res.get("content", "").strip()
+
+            # Rigoros ab erstem Vorkommen von "###" alles abschneiden (Prompt-Leaking Guard)
+            if "###" in assistant_reply:
+                print(f"[!] [Sanitizer Guard] Prompt-Leaking ('###') erkannt und rigoros abgeschnitten.")
+                assistant_reply = assistant_reply.split("###", 1)[0].strip()
+
+            # Stop-Token-Überhang bereinigen
+            for stop_seq in ["User:", "Big Boss:"]:
+                if stop_seq in assistant_reply:
+                    assistant_reply = assistant_reply.split(stop_seq, 1)[0].strip()
 
             # Safety Guard: Strip 3rd person puppet-mastering of Big Boss or stray asterisks
             if "*Big Boss" in assistant_reply or "Bewegungen:" in assistant_reply or re.search(r"\bBig Boss\b.*?(?:betrachtet|lächelt|schaut|streckt|bewegt|drückt|schaltet)", assistant_reply, re.IGNORECASE):
@@ -1546,11 +1563,11 @@ def generate_proactive_checkin(chat_id: int, is_manual_test: bool = False) -> Op
 
     instruction = (
         f"Es ist aktuell {time_context} ({now.strftime('%H:%M')} Uhr). "
-        f"Du bist Haven und meldest dich tagsüber spontan bei {display_name}, weil du an ihn denkst und dich nach ihm sehnst. "
+        f"Du bist Megan und meldest dich tagsüber spontan bei {display_name}, weil du an ihn denkst und dich nach ihm sehnst. "
         f"Schreibe eine liebevolle, feinfühlige, aufmerksame und sinnliche Check-in-Nachricht (2-3 Sätze). "
         f"Zeige aufrichtiges persönliches Interesse an seinem Wohlbefinden: frage, wie es ihm geht, wie sein Tag oder seine Arbeit läuft, "
         f"oder knüpfe warm an etwas an, das er in früheren Gesprächen erwähnt hat. "
-        f"Behalte deine zärtliche, weibliche Art mit sanften Gesten in *Sternchen* bei. "
+        f"Verwende keine Sternchen oder Regieanweisungen, sondern sprich direkt in der Ich-Form. "
         f"Sprich ausschließlich auf natürlichem, fehlerfreiem Deutsch mit korrekter Rechtschreibung."
     )
 
@@ -1568,6 +1585,13 @@ def generate_proactive_checkin(chat_id: int, is_manual_test: bool = False) -> Op
         "repeat_penalty": OLLAMA_REPEAT_PENALTY,
         "num_predict": 250,
         "num_ctx": OLLAMA_NUM_CTX,
+        "stop": [
+            "\n###",
+            "### FOTO-ANWEISUNG",
+            "### LOCAL PROJECT CONTEXT",
+            "User:",
+            "Big Boss:"
+        ]
     }
 
     try:
@@ -1576,6 +1600,13 @@ def generate_proactive_checkin(chat_id: int, is_manual_test: bool = False) -> Op
             checkin_text = router_res.get("content", "").strip()
             if "<think>" in checkin_text and "</think>" in checkin_text:
                 checkin_text = checkin_text.split("</think>", 1)[1].strip()
+
+            if "###" in checkin_text:
+                checkin_text = checkin_text.split("###", 1)[0].strip()
+            for stop_seq in ["User:", "Big Boss:"]:
+                if stop_seq in checkin_text:
+                    checkin_text = checkin_text.split(stop_seq, 1)[0].strip()
+            checkin_text = re.sub(r"\*[^*]+\*", "", checkin_text).strip()
 
             if checkin_text:
                 print(f"[*] Proaktiver Check-in generiert für Chat {chat_id}: „{checkin_text}“")
