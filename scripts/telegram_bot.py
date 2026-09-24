@@ -531,11 +531,13 @@ def detect_bot_roleplay_photo(reply_text: str) -> Tuple[bool, str, str]:
     """
     patterns = [
         r"(\*|\[)(schickt|sendet|macht|zeigt|gibt|hier ist|hier hast du|sends|snaps|takes|shares|shows|here is|here's).*?(foto|bild|photo|pic|picture|selfie).*?(\*|\])",
+        r"\[(?:IMAGE|SELFIE|FOTO|BILD|PHOTO|PIC):\s*([^\]]+)\]",
         r"\[foto\]",
         r"\[bild\]",
         r"\[photo\]",
         r"\[pic\]",
-        r"\[picture\]"
+        r"\[picture\]",
+        r"(?:Hier ist|Hier hast du|Ich mache dir|Ich schicke dir|Ich sende dir)\s+(?:ein|mein)?\s*(?:Foto|Bild|Selfie|Schnappschuss)"
     ]
     for pat in patterns:
         if re.search(pat, reply_text, re.IGNORECASE):
@@ -1339,6 +1341,17 @@ def trigger_async_photo(chat_id: int, env_preset: str = "schreibtisch", situatio
 
 def get_full_system_prompt() -> str:
     check_and_reload_bot_config()
+    display_name = get_user_display_name()
+
+    identity_enforcement = (
+        "### UNVERRÜCKBARE IDENTITÄTS-ISOLATION & ROLLENTRENNUNG:\n"
+        "- DU BIST MEGAN: Du sprichst AUSSCHLIESSLICH als Megan in der 1. Person („Ich“, „mich“, „mir“). Du bist die loyale, hochintelligente, erotische Gefährtin und Copilotin auf Outer Heaven.\n"
+        f"- DEIN GEGENÜBER IST {display_name}: Sprich {display_name} immer direkt in der 2. Person an („Du“, „dir“, „dich“, „{display_name}“).\n"
+        f"- STRIKTES VERBOT DER 3. PERSON: Sprich NIEMALS über {display_name} in der 3. Person (niemals „Er“, „sein“, „{display_name} tut/sagt/betrachtet“). Sprich NIEMALS über dich selbst in der 3. Person („Megan tut...“).\n"
+        f"- ABSOLUTES VERBOT VON PUPPET-MASTERING: Du bist NIEMALS {display_name}! Schreibe NIEMALS Handlungen, Gefühle, Gedanken oder Reaktionen für {display_name}!\n"
+        "- STRIKTES VERBOT VON REGIEANWEISUNGEN / STERNCHEN: Verwende KEINERLEI Sternchen (*...*), keine Drehbuchanweisungen und keine Klammern mit Handlungen (z. B. KEIN *lächelt*, KEIN *betrachtet den Bildschirm*, KEIN (Bewegungen: ...)). Sprich frei, direkt und unmittelbar wie in einem echten Messenger-Chat!\n\n"
+    )
+
     base_prompt = ""
     if CHARACTER_JSON_PATH.is_file():
         try:
@@ -1355,13 +1368,13 @@ def get_full_system_prompt() -> str:
         except Exception as e:
             print(f"[Warnung] Fehler beim Lesen des System-Prompts: {e}")
     if not base_prompt:
-        base_prompt = "Du bist Haven, eine loyale, zutiefst sinnliche und verspielt intime Gefährtin auf Outer Heaven."
+        base_prompt = f"Du bist Megan, die loyale, zutiefst sinnliche und verspielte Gefährtin von {display_name} auf Outer Heaven."
+
+    base_prompt = identity_enforcement + base_prompt
 
     long_term_mem = memory_mgr.load_long_term_memory()
     if long_term_mem:
         base_prompt += f"\n\n### YOUR LONG-TERM MEMORY & USER CONTEXT (MEMORY.md):\n{long_term_mem}"
-
-    display_name = get_user_display_name()
 
     if SESSION_STATE["active"]:
         base_prompt += (
@@ -1373,10 +1386,10 @@ def get_full_system_prompt() -> str:
         )
 
     base_prompt += (
-        "\n\n### INSTRUCTION FOR PHOTOS:\n"
-        f"When {display_name} asks for a picture or you want to show him an image of yourself, "
-        "briefly describe your action in asterisks (e.g. *grabs phone and snaps a quick photo on the couch*). "
-        "Our local ComfyUI cluster will automatically detect this and deliver the real image file!"
+        f"\n\n### FOTO-ANWEISUNG:\n"
+        f"- Wenn {display_name} nach einem Bild fragt oder du ihm ein Bild/Selfie zeigen möchtest, kündige es direkt und natürlich im Chat an (z. B. 'Hier ist ein Foto für dich, {display_name}!' oder 'Ich mache dir kurz ein Foto...').\n"
+        "- Verwende auch hier KEINERLEI Sternchen (*...*) oder 3.-Person-Beschreibungen!\n"
+        "- Unser ComfyUI-Cluster erkennt Bildwünsche automatisch und liefert das reale Foto an Telegram aus."
     )
 
     # Integrate local project brain (.brain/session.json & .brain/context.md) with strict quarantine
@@ -1450,6 +1463,19 @@ def generate_ollama_response(user_id: str, chat_id: int, user_message: str) -> s
         router_res = query_uncensored_persona(chat_messages, custom_options=options, timeout=75, override_model=OLLAMA_MODEL)
         if router_res.get("success"):
             assistant_reply = router_res.get("content", "").strip()
+
+            # Safety Guard: Strip 3rd person puppet-mastering of Big Boss or stray asterisks
+            if "*Big Boss" in assistant_reply or "Bewegungen:" in assistant_reply or re.search(r"\bBig Boss\b.*?(?:betrachtet|lächelt|schaut|streckt|bewegt|drückt|schaltet)", assistant_reply, re.IGNORECASE):
+                print(f"[!] [Sanitizer Guard] 3rd-person Big Boss hallucination intercepted and stripped.")
+                clean_lines = []
+                for line in assistant_reply.splitlines():
+                    if not re.search(r"(?:\*Big Boss|\bBig Boss\b.*?(?:betrachtet|lächelt|schaut|streckt|bewegt|drückt|schaltet|streicht)|Bewegungen:\s*Big Boss)", line, re.IGNORECASE):
+                        clean_lines.append(line)
+                assistant_reply = "\n".join(clean_lines).strip()
+
+            # Strip any residual asterisks stage directions
+            assistant_reply = re.sub(r"\*[^*]+\*", "", assistant_reply).strip()
+            assistant_reply = re.sub(r"\n{3,}", "\n\n", assistant_reply).strip()
 
             # Record in 15-msg ring buffer
             memory_mgr.add_message("user", user_message)
