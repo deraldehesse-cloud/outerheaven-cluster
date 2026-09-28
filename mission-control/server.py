@@ -2126,17 +2126,17 @@ async def handle_bot_config_get(request: web.Request) -> web.Response:
             "num_predict": 300
         },
         "render": {
-            "workflow_template": "text_to_image",
-            "checkpoint": "DreamShaper8_LCM.safetensors",
+            "workflow_template": "megan_workflow.json",
+            "checkpoint": "sd_xl_base_1.0.safetensors",
             "lora": "",
             "lora_strength": 0.8,
-            "steps": 14,
-            "cfg": 6.0,
+            "steps": 25,
+            "cfg": 7.0,
             "denoise": 1.0,
-            "sampler_name": "euler_ancestral",
+            "sampler_name": "euler",
             "scheduler": "karras",
-            "width": 512,
-            "height": 768,
+            "width": 768,
+            "height": 1024,
             "positive_prompt": "1girl, solo, 178cm tall, slender athletic build, voluptuous hourglass figure, very large full natural heavy breasts, deep cleavage, narrow waist, flat toned stomach, soft natural skin texture, stunningly beautiful face, alluring green-blue eyes, seductive playful smile, slightly parted glossy lips, long layered dark hair, soft natural waves, casual gamer look, tight black cropped tank top showing cleavage, denim shorts, massive intricate detailed sleeve tattoo on entire left arm and left shoulder aesthetically framing large breast, battlestation, sitting at computer desk, dual glowing monitors displaying Linux terminal and code, mechanical keyboard, vibrant RGB ambient lighting, well-lit modern workspace, cowboy shot, slightly low angle, looking directly at viewer with intense alluring gaze, photorealistic, raw photo, 8k uhd, dslr, high quality, soft studio lighting, rim lighting, vibrant, well-lit, high key, clear visibility, detailed skin texture, natural skin pores, realistic depth of field",
             "negative_prompt": "glasses, spectacles, eyewear, score_4, score_5, score_6, worst quality, low quality, bad anatomy, bad limbs, extra limbs, deformed fingers, extra fingers, missing fingers, deformed, blurry, monochrome, watermark, text, signature, username, 3d render, cartoon, anime, illustration, bad eyes, deformed iris, underexposed, dark shadows, pitch black background, gloomy, dim lighting, censor, censored, mosaic, bar censor, censorship, pixelated, black bar"
         },
@@ -3217,17 +3217,18 @@ async def handle_comfy_models(request: web.Request) -> web.Response:
 async def render_comfy_image_direct(
     prompt_text: str,
     negative_prompt: str = "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, mutated, extra limbs",
-    checkpoint: str = "DreamShaper8_LCM.safetensors",
+    checkpoint: str = "sd_xl_base_1.0.safetensors",
     lora: str = "",
     lora_strength: float = 1.0,
-    steps: int = 14,
-    cfg: float = 6.5,
-    width: int = 512,
-    height: int = 768,
+    steps: int = 25,
+    cfg: float = 7.0,
+    width: int = 768,
+    height: int = 1024,
+    aspect_ratio: str = "portrait",
     max_wait: float = 90.0
 ) -> Optional[Dict[str, Any]]:
     """
-    Executes a direct headless ComfyUI render for autonomous Megan actions.
+    Executes a direct headless ComfyUI render for autonomous Megan actions using SDXL workflow.
     Guarantees clean VRAM allocation via GPURenderLock and returns the resulting media metadata.
     """
     if megan_context_engine and "{" in prompt_text:
@@ -3237,66 +3238,19 @@ async def render_comfy_image_direct(
             pass
 
     seed = secrets.randbelow(999999999999)
-    prefix = f"MeganStudio_Auto_{time.strftime('%Y%m%d_%H%M%S')}"
 
-    workflow = {
-        "prompt": {
-            "1": {
-                "class_type": "CheckpointLoaderSimple",
-                "inputs": {"ckpt_name": checkpoint}
-            },
-            "2": {
-                "class_type": "EmptyLatentImage",
-                "inputs": {"width": width, "height": height, "batch_size": 1}
-            },
-            "3": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": prompt_text}
-            },
-            "4": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": negative_prompt}
-            },
-            "5": {
-                "class_type": "KSampler",
-                "inputs": {
-                    "model": ["1", 0],
-                    "positive": ["3", 0],
-                    "negative": ["4", 0],
-                    "latent_image": ["2", 0],
-                    "seed": seed,
-                    "steps": steps,
-                    "cfg": cfg,
-                    "sampler_name": "euler",
-                    "scheduler": "normal",
-                    "denoise": 1.0
-                }
-            },
-            "6": {
-                "class_type": "VAEDecode",
-                "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
-            },
-            "7": {
-                "class_type": "SaveImage",
-                "inputs": {"filename_prefix": prefix, "images": ["6", 0]}
-            }
-        }
-    }
-
-    if lora and lora.lower() not in ("none", "keines", "", "false"):
-        workflow["prompt"]["8"] = {
-            "class_type": "LoraLoader",
-            "inputs": {
-                "model": ["1", 0],
-                "clip": ["1", 1],
-                "lora_name": lora,
-                "strength_model": lora_strength,
-                "strength_clip": lora_strength
-            }
-        }
-        workflow["prompt"]["3"]["inputs"]["clip"] = ["8", 1]
-        workflow["prompt"]["4"]["inputs"]["clip"] = ["8", 1]
-        workflow["prompt"]["5"]["inputs"]["model"] = ["8", 0]
+    workflow = prepare_comfy_workflow(
+        project="megan",
+        prompt_text=prompt_text,
+        aspect_ratio=aspect_ratio,
+        negative_prompt=negative_prompt,
+        checkpoint=checkpoint or "sd_xl_base_1.0.safetensors",
+        lora=lora,
+        lora_strength=lora_strength,
+        seed=seed,
+        steps=steps,
+        cfg=cfg
+    )
 
     from gpu_render_lock import GPURenderLock, PRIORITY_HIGH
     gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name="megan_autonomous_render", timeout=45.0)
@@ -3684,13 +3638,13 @@ def get_workflow_template(project: str = "megan") -> dict:
         Path("/home/outerheaven/outerheaven-cluster-repo/workflows"),
     ]
     candidates = [
-        f"{proj}_workflow.json",
         f"{proj}_sdxl_workflow.json",
+        f"{proj}_workflow.json",
     ]
     if "catlord" in proj:
-        candidates.extend(["catlord_sdxl_workflow.json", "catlord_workflow.json"])
+        candidates = ["catlord_sdxl_workflow.json", "catlord_workflow.json"]
     elif "megan" in proj:
-        candidates.append("megan_workflow.json")
+        candidates = ["megan_sdxl_workflow.json", "megan_workflow.json"]
 
     for wdir in workflows_dirs:
         for c in candidates:
@@ -3725,19 +3679,29 @@ def prepare_comfy_workflow(
     steps: Optional[int] = None,
     cfg: Optional[float] = None
 ) -> dict:
-    """Prepares and parameterizes a modular workflow for ComfyUI."""
-    prompt_dict = get_workflow_template(project)
+    """Prepares and parameterizes a modular workflow for ComfyUI with SDXL resolutions and locked checkpoint."""
+    proj = (project or "megan").lower().strip()
+    if proj == "megan":
+        # Fest verankert: Megan nutzt ausnahmslos sd_xl_base_1.0.safetensors
+        checkpoint = "sd_xl_base_1.0.safetensors"
+        if steps is None:
+            steps = 25
+        if cfg is None:
+            cfg = 7.0
+
+    prompt_dict = get_workflow_template(proj)
     if seed is None:
         seed = secrets.randbelow(999999999999)
 
     # Standard SDXL native resolutions:
-    # Porträt: 768x1024, Quadrat: 832x832, Querformat: 1024x768
-    ar = (aspect_ratio or "portrait").lower()
-    if "landscape" in ar or "quer" in ar:
+    # Porträt: 768x1024, Quadrat: 1024x1024, Breitbild/Querformat: 1024x768
+    ar = (aspect_ratio or "portrait").lower().strip()
+    if any(k in ar for k in ["landscape", "quer", "breit", "wide", "16:9", "4:3", "3:2"]):
         width, height = 1024, 768
-    elif "square" in ar or "quadrat" in ar:
-        width, height = 832, 832
+    elif any(k in ar for k in ["square", "quadrat", "1:1"]):
+        width, height = 1024, 1024
     else:
+        # portrait, porträt, hoch, vertikal, 9:16, 3:4, default
         width, height = 768, 1024
 
     # Identify KSampler, CheckpointLoaderSimple, positive and negative prompt nodes
@@ -3766,12 +3730,15 @@ def prepare_comfy_workflow(
             node["inputs"]["width"] = width
             node["inputs"]["height"] = height
             node["inputs"]["batch_size"] = 1
-        elif ctype == "CheckpointLoaderSimple" and checkpoint:
+        elif ctype == "CheckpointLoaderSimple":
             node.setdefault("inputs", {})
-            node["inputs"]["ckpt_name"] = checkpoint
+            if proj == "megan":
+                node["inputs"]["ckpt_name"] = "sd_xl_base_1.0.safetensors"
+            elif checkpoint:
+                node["inputs"]["ckpt_name"] = checkpoint
         elif ctype == "SaveImage":
             node.setdefault("inputs", {})
-            prefix = node["inputs"].get("filename_prefix", f"{project.capitalize()}_Direct")
+            prefix = node["inputs"].get("filename_prefix", f"{proj.capitalize()}_Direct")
             prefix = prefix.split("_202")[0]
             node["inputs"]["filename_prefix"] = f"{prefix}_{time.strftime('%Y%m%d_%H%M%S')}"
 

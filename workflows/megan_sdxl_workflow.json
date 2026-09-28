@@ -1,0 +1,86 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    }
+  },
+  "2": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "batch_size": 1,
+      "width": 768,
+      "height": 1024
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "1",
+        1
+      ],
+      "text": "1girl, megan, solo, cute mischievous face, emerald eyes, orange hair, photorealistic, raw photo, soft studio lighting, rim lighting, 8k uhd"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "1",
+        1
+      ],
+      "text": "ugly, deformed, bad anatomy, bad hands, missing fingers, blurry, low quality, artifacts, text, watermark, monochrome, censor"
+    }
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 7.0,
+      "denoise": 1.0,
+      "latent_image": [
+        "2",
+        0
+      ],
+      "model": [
+        "1",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "positive": [
+        "3",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "karras",
+      "seed": 0,
+      "steps": 25
+    }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "5",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    }
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Megan_SDXL",
+      "images": [
+        "6",
+        0
+      ]
+    }
+  }
+}

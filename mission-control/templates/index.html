@@ -1945,9 +1945,7 @@
             <div>
               <label class="block text-[10px] uppercase text-slate-400 font-bold mb-1">Checkpoint</label>
               <select id="botRenderCheckpoint" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-amber-200 focus:border-amber-400 truncate">
-                <option value="DreamShaper8_LCM.safetensors">DreamShaper8_LCM.safetensors (LCM Turbo)</option>
-                <option value="cyberrealistic_v42.safetensors">cyberrealistic_v42.safetensors (Photoreal)</option>
-                <option value="epicrealism_naturalSinRC1VAE.safetensors">epicrealism_naturalSinRC1VAE.safetensors</option>
+                <option value="sd_xl_base_1.0.safetensors" selected>sd_xl_base_1.0.safetensors (SDXL Base - Fest verankert)</option>
               </select>
             </div>
 
@@ -6809,12 +6807,12 @@
           }
           rndCkptEl.value = rnd.checkpoint;
         }
-        if (document.getElementById("botRenderSteps")) document.getElementById("botRenderSteps").value = rnd.steps ?? 14;
-        if (document.getElementById("botRenderCfg")) document.getElementById("botRenderCfg").value = rnd.cfg ?? 6.0;
-        if (document.getElementById("botRenderSampler")) document.getElementById("botRenderSampler").value = rnd.sampler_name || "euler_ancestral";
+        if (document.getElementById("botRenderSteps")) document.getElementById("botRenderSteps").value = rnd.steps ?? 25;
+        if (document.getElementById("botRenderCfg")) document.getElementById("botRenderCfg").value = rnd.cfg ?? 7.0;
+        if (document.getElementById("botRenderSampler")) document.getElementById("botRenderSampler").value = rnd.sampler_name || "euler";
         if (document.getElementById("botRenderScheduler")) document.getElementById("botRenderScheduler").value = rnd.scheduler || "karras";
-        if (document.getElementById("botRenderWidth")) document.getElementById("botRenderWidth").value = rnd.width || 512;
-        if (document.getElementById("botRenderHeight")) document.getElementById("botRenderHeight").value = rnd.height || 768;
+        if (document.getElementById("botRenderWidth")) document.getElementById("botRenderWidth").value = rnd.width || 768;
+        if (document.getElementById("botRenderHeight")) document.getElementById("botRenderHeight").value = rnd.height || 1024;
         if (document.getElementById("botRenderDenoise")) document.getElementById("botRenderDenoise").value = rnd.denoise ?? 1.0;
 
         // Custom Positive & Negative Prompts
@@ -6921,17 +6919,17 @@
             max_history_turns: parseInt(document.getElementById("botLlmMaxTurns")?.value || 32)
           },
           render: {
-            workflow_template: "text_to_image",
-            checkpoint: document.getElementById("botRenderCheckpoint")?.value || "DreamShaper8_LCM.safetensors",
+            workflow_template: "megan_workflow.json",
+            checkpoint: document.getElementById("botRenderCheckpoint")?.value || "sd_xl_base_1.0.safetensors",
             lora: "",
             lora_strength: 0.8,
-            steps: parseInt(document.getElementById("botRenderSteps")?.value || 14),
-            cfg: parseFloat(document.getElementById("botRenderCfg")?.value || 6.0),
+            steps: parseInt(document.getElementById("botRenderSteps")?.value || 25),
+            cfg: parseFloat(document.getElementById("botRenderCfg")?.value || 7.0),
             denoise: parseFloat(document.getElementById("botRenderDenoise")?.value || 1.0),
-            sampler_name: document.getElementById("botRenderSampler")?.value || "euler_ancestral",
+            sampler_name: document.getElementById("botRenderSampler")?.value || "euler",
             scheduler: document.getElementById("botRenderScheduler")?.value || "karras",
-            width: parseInt(document.getElementById("botRenderWidth")?.value || 512),
-            height: parseInt(document.getElementById("botRenderHeight")?.value || 768),
+            width: parseInt(document.getElementById("botRenderWidth")?.value || 768),
+            height: parseInt(document.getElementById("botRenderHeight")?.value || 1024),
             positive_prompt: document.getElementById("botPositivePrompt")?.value?.trim() || "",
             negative_prompt: document.getElementById("botNegativePrompt")?.value?.trim() || ""
           },

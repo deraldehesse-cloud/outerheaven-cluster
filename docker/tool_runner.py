@@ -410,11 +410,13 @@ def run_generate_image(prompt: str, aspect_ratio: str = "portrait", style_preset
             print(f"[Warnung] update_visual_preferences: {e}", file=sys.stderr)
 
     payload = {
+        "project": "megan",
         "prompt": final_prompt,
         "aspect_ratio": aspect_ratio or "portrait",
         "style_preset": style_preset or "",
         "raw_prompt": prompt.strip(),
-        "workflow": "megan_workflow.json"
+        "workflow": "megan_workflow.json",
+        "checkpoint": "sd_xl_base_1.0.safetensors"
     }
 
     last_error = ""
