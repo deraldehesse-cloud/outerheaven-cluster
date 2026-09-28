@@ -122,7 +122,7 @@ class CatlordIdleWorker:
         self.current_scenario_idx += 1
 
         # 3. Attempt to acquire LOW-priority lock
-        lock = GPURenderLock(priority=PRIORITY_LOW, task_name=f"catlord_{scenario['id']}")
+        lock = GPURenderLock(priority=PRIORITY_LOW, task_name=f"catlord_{scenario['id']}", project="catlord")
         if not lock.acquire():
             self.current_state = "YIELDED_LOCK"
             self.save_state_file()

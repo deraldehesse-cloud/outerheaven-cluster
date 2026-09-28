@@ -33,6 +33,7 @@ import jinja2
 import urllib.parse
 import shutil
 import contextlib
+import copy
 
 try:
     import filelock
@@ -3674,11 +3675,187 @@ async def handle_megan_tool_brain(request: web.Request) -> web.Response:
         res = await run_docker_megan_tool("brain", {}, timeout=20)
         return web.json_response(res)
 
+def get_workflow_template(project: str = "megan") -> dict:
+    proj = project.lower().strip() if project else "megan"
+    workflows_dirs = [
+        Path(__file__).resolve().parent / "workflows",
+        Path("/mnt/storage-beta/workflows"),
+        Path("/home/outerheaven/mission-control/workflows"),
+        Path("/home/outerheaven/outerheaven-cluster-repo/workflows"),
+    ]
+    candidates = [
+        f"{proj}_workflow.json",
+        f"{proj}_sdxl_workflow.json",
+    ]
+    if "catlord" in proj:
+        candidates.extend(["catlord_sdxl_workflow.json", "catlord_workflow.json"])
+    elif "megan" in proj:
+        candidates.append("megan_workflow.json")
+
+    for wdir in workflows_dirs:
+        for c in candidates:
+            cand = wdir / c
+            if cand.is_file():
+                try:
+                    data = json.loads(cand.read_text(encoding="utf-8"))
+                    return copy.deepcopy(data.get("prompt", data))
+                except Exception as e:
+                    logger.warning(f"Failed to read workflow template {cand}: {e}")
+
+    for wdir in workflows_dirs:
+        cand = wdir / "megan_workflow.json"
+        if cand.is_file():
+            try:
+                data = json.loads(cand.read_text(encoding="utf-8"))
+                return copy.deepcopy(data.get("prompt", data))
+            except Exception:
+                pass
+    raise FileNotFoundError(f"No workflow template found for project '{project}'")
+
+
+def prepare_comfy_workflow(
+    project: str = "megan",
+    prompt_text: str = "",
+    aspect_ratio: str = "portrait",
+    negative_prompt: Optional[str] = None,
+    checkpoint: Optional[str] = None,
+    lora: Optional[str] = None,
+    lora_strength: float = 1.0,
+    seed: Optional[int] = None,
+    steps: Optional[int] = None,
+    cfg: Optional[float] = None
+) -> dict:
+    """Prepares and parameterizes a modular workflow for ComfyUI."""
+    prompt_dict = get_workflow_template(project)
+    if seed is None:
+        seed = secrets.randbelow(999999999999)
+
+    # Standard SDXL native resolutions:
+    # Porträt: 768x1024, Quadrat: 832x832, Querformat: 1024x768
+    ar = (aspect_ratio or "portrait").lower()
+    if "landscape" in ar or "quer" in ar:
+        width, height = 1024, 768
+    elif "square" in ar or "quadrat" in ar:
+        width, height = 832, 832
+    else:
+        width, height = 768, 1024
+
+    # Identify KSampler, CheckpointLoaderSimple, positive and negative prompt nodes
+    ksampler_node = None
+    ckpt_node_id = None
+    positive_clip_id = None
+    negative_clip_id = None
+
+    for nid, node in prompt_dict.items():
+        ctype = node.get("class_type")
+        if ctype == "KSampler":
+            ksampler_node = node
+            pos = node.get("inputs", {}).get("positive")
+            neg = node.get("inputs", {}).get("negative")
+            if isinstance(pos, list) and len(pos) > 0:
+                positive_clip_id = str(pos[0])
+            if isinstance(neg, list) and len(neg) > 0:
+                negative_clip_id = str(neg[0])
+        elif ctype == "CheckpointLoaderSimple":
+            ckpt_node_id = nid
+
+    for nid, node in prompt_dict.items():
+        ctype = node.get("class_type")
+        if ctype == "EmptyLatentImage":
+            node.setdefault("inputs", {})
+            node["inputs"]["width"] = width
+            node["inputs"]["height"] = height
+            node["inputs"]["batch_size"] = 1
+        elif ctype == "CheckpointLoaderSimple" and checkpoint:
+            node.setdefault("inputs", {})
+            node["inputs"]["ckpt_name"] = checkpoint
+        elif ctype == "SaveImage":
+            node.setdefault("inputs", {})
+            prefix = node["inputs"].get("filename_prefix", f"{project.capitalize()}_Direct")
+            prefix = prefix.split("_202")[0]
+            node["inputs"]["filename_prefix"] = f"{prefix}_{time.strftime('%Y%m%d_%H%M%S')}"
+
+    if ksampler_node:
+        ksampler_node.setdefault("inputs", {})
+        ksampler_node["inputs"]["seed"] = seed
+        if steps is not None:
+            ksampler_node["inputs"]["steps"] = steps
+        if cfg is not None:
+            ksampler_node["inputs"]["cfg"] = cfg
+
+    # Inject LoRA if requested and not none
+    if lora and lora.lower() not in ("none", "keines", "", "false") and ckpt_node_id:
+        lora_node_id = str(max([int(k) for k in prompt_dict.keys() if k.isdigit()] or [7]) + 1)
+        prompt_dict[lora_node_id] = {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": [ckpt_node_id, 0],
+                "clip": [ckpt_node_id, 1],
+                "lora_name": lora,
+                "strength_model": lora_strength,
+                "strength_clip": lora_strength
+            }
+        }
+        if positive_clip_id and positive_clip_id in prompt_dict:
+            prompt_dict[positive_clip_id]["inputs"]["clip"] = [lora_node_id, 1]
+        if negative_clip_id and negative_clip_id in prompt_dict:
+            prompt_dict[negative_clip_id]["inputs"]["clip"] = [lora_node_id, 1]
+        if ksampler_node:
+            ksampler_node["inputs"]["model"] = [lora_node_id, 0]
+
+    if positive_clip_id and positive_clip_id in prompt_dict:
+        prompt_dict[positive_clip_id].setdefault("inputs", {})
+        prompt_dict[positive_clip_id]["inputs"]["text"] = prompt_text
+    if negative_prompt and negative_clip_id and negative_clip_id in prompt_dict:
+        prompt_dict[negative_clip_id].setdefault("inputs", {})
+        prompt_dict[negative_clip_id]["inputs"]["text"] = negative_prompt
+
+    return {"prompt": prompt_dict}
+
+
+async def get_comfy_queue_remaining() -> int:
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(f"{COMFYUI_URL}/queue", timeout=aiohttp.ClientTimeout(total=2.0)) as r:
+                if r.status == 200:
+                    q = await r.json()
+                    return len(q.get("queue_running", [])) + len(q.get("queue_pending", []))
+    except Exception:
+        pass
+    return 0
+
+
+async def handle_gpu_status(request: web.Request) -> web.Response:
+    """GET /api/gpu/status
+    Structured JSON: {"status": "idle" | "busy", "active_project": "<projektname>" | null, "queue_remaining": <int>}
+    """
+    from gpu_render_lock import get_gpu_lock_status, deduce_project
+    lock_status = get_gpu_lock_status()
+    queue_rem = await get_comfy_queue_remaining()
+
+    is_locked = bool(lock_status.get("locked"))
+    is_busy = is_locked or (queue_rem > 0)
+
+    active_project = None
+    if is_busy:
+        active_project = lock_status.get("active_project") or lock_status.get("project")
+        if not active_project and lock_status.get("current_task"):
+            active_project = deduce_project(lock_status.get("current_task"))
+        if not active_project and queue_rem > 0:
+            active_project = "comfyui"
+
+    return web.json_response({
+        "status": "busy" if is_busy else "idle",
+        "active_project": active_project if is_busy else None,
+        "queue_remaining": queue_rem
+    })
+
+
 async def handle_comfy_render_direct(request: web.Request) -> web.Response:
     """
     Synchronous / Direct ComfyUI Render Endpoint with GPURenderLock.
     Awaits image generation and returns result JSON with filename, filepath, url.
-    Accepts: prompt (str), aspect_ratio (str: portrait, landscape, square), style_preset (optional), negative_prompt (optional)
+    Accepts: project (str, default: megan), prompt (str), aspect_ratio (str), etc.
     """
     try:
         body = await request.json()
@@ -3689,86 +3866,68 @@ async def handle_comfy_render_direct(request: web.Request) -> web.Response:
     if not prompt_text:
         return web.json_response({"status": "error", "error": "Prompt required"}, status=400)
 
+    project = body.get("project", "megan").lower().strip()
     aspect_ratio = body.get("aspect_ratio", "portrait").lower()
-    width, height = 512, 768
-    if "landscape" in aspect_ratio:
-        width, height = 768, 512
-    elif "square" in aspect_ratio:
-        width, height = 512, 512
 
     # Dynamic Context & Wildcard Resolution via megan_context
     if megan_context_engine and "{" in prompt_text:
         try:
             prompt_text = megan_context_engine.resolve_prompt_wildcards(prompt_text)
-            logger.info(f"[megan-context] Wildcards resolved in direct render -> {prompt_text[:120]}...")
+            logger.info(f"[{project}-context] Wildcards resolved in direct render -> {prompt_text[:120]}...")
         except Exception as _ce:
             logger.warning(f"Error resolving wildcards in direct render: {_ce}")
 
-    negative_prompt = body.get(
-        "negative_prompt",
-        "ugly, deformed, bad anatomy, bad hands, missing fingers, blurry, low quality, artifacts, text, watermark, monochrome, censor"
-    ).strip()
-
-    checkpoint = body.get("checkpoint", "DreamShaper8_LCM.safetensors").strip()
+    negative_prompt = body.get("negative_prompt")
+    checkpoint = body.get("checkpoint")
+    lora = body.get("lora")
+    lora_strength = float(body.get("lora_strength", 1.0))
     seed = int(body.get("seed", secrets.randbelow(999999999999)))
+    steps = int(body.get("steps")) if "steps" in body else None
+    cfg = float(body.get("cfg")) if "cfg" in body else None
 
-    is_lcm = "lcm" in checkpoint.lower()
-    if is_lcm:
-        steps = int(body.get("steps", 8))
-        cfg = float(body.get("cfg", 2.0))
-    else:
-        steps = int(body.get("steps", 20))
-        cfg = float(body.get("cfg", 6.0))
+    # Immediate fail-fast: check if GPU is currently locked by another project
+    from gpu_render_lock import get_gpu_lock_status, GPURenderLock, PRIORITY_HIGH
+    cur_status = get_gpu_lock_status()
+    if cur_status.get("locked"):
+        act_proj = cur_status.get("active_project") or cur_status.get("project")
+        if act_proj and act_proj != project:
+            queue_rem = await get_comfy_queue_remaining()
+            return web.json_response({
+                "status": "busy",
+                "active_project": act_proj,
+                "project": act_proj,
+                "queue_remaining": queue_rem,
+                "error": f"GPU belegt durch Projekt '{act_proj}'"
+            }, status=503)
 
-    workflow = {
-        "prompt": {
-            "1": {
-                "class_type": "CheckpointLoaderSimple",
-                "inputs": {"ckpt_name": checkpoint}
-            },
-            "2": {
-                "class_type": "EmptyLatentImage",
-                "inputs": {"width": width, "height": height, "batch_size": 1}
-            },
-            "3": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": prompt_text}
-            },
-            "4": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": negative_prompt}
-            },
-            "5": {
-                "class_type": "KSampler",
-                "inputs": {
-                    "model": ["1", 0],
-                    "positive": ["3", 0],
-                    "negative": ["4", 0],
-                    "latent_image": ["2", 0],
-                    "seed": seed,
-                    "steps": steps,
-                    "cfg": cfg,
-                    "sampler_name": "euler",
-                    "scheduler": "normal" if is_lcm else "karras",
-                    "denoise": 1.0
-                }
-            },
-            "6": {
-                "class_type": "VAEDecode",
-                "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
-            },
-            "7": {
-                "class_type": "SaveImage",
-                "inputs": {"filename_prefix": f"Megan_Direct_{time.strftime('%Y%m%d_%H%M%S')}", "images": ["6", 0]}
-            }
-        }
-    }
+    try:
+        workflow = prepare_comfy_workflow(
+            project=project,
+            prompt_text=prompt_text,
+            aspect_ratio=aspect_ratio,
+            negative_prompt=negative_prompt,
+            checkpoint=checkpoint,
+            lora=lora,
+            lora_strength=lora_strength,
+            seed=seed,
+            steps=steps,
+            cfg=cfg
+        )
+    except Exception as wfe:
+        return web.json_response({"status": "error", "error": f"Fehler bei Workflow-Vorlage: {wfe}"}, status=400)
 
-    # Acquire GPU Lock (High Priority)
-    from gpu_render_lock import GPURenderLock, PRIORITY_HIGH
-    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name="megan_direct_render", timeout=60.0)
-    if not gpu_lock.acquire():
-        return web.json_response({"status": "error", "error": "GPU ausgelastet. Bitte kurz warten."}, status=503)
+    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name=f"{project}_direct_render", project=project, timeout=60.0)
+    if not gpu_lock.acquire(fail_fast_if_other_project=True):
+        cur_status = get_gpu_lock_status()
+        act_proj = cur_status.get("active_project") or cur_status.get("project") or "another_task"
+        queue_rem = await get_comfy_queue_remaining()
+        return web.json_response({
+            "status": "busy",
+            "active_project": act_proj,
+            "project": act_proj,
+            "queue_remaining": queue_rem,
+            "error": f"GPU belegt durch Projekt '{act_proj}'"
+        }, status=503)
 
     try:
         await unload_local_ollama_vram()
@@ -3784,9 +3943,8 @@ async def handle_comfy_render_direct(request: web.Request) -> web.Response:
         if not prompt_id:
             return web.json_response({"status": "error", "error": "Keine prompt_id von ComfyUI erhalten"}, status=500)
 
-        # Poll history until finished (max 120s)
         t_start = time.time()
-        timeout = 120.0
+        timeout = 140.0
         result_filename = None
         result_subfolder = ""
 
@@ -3817,7 +3975,6 @@ async def handle_comfy_render_direct(request: web.Request) -> web.Response:
         full_filepath = str(COMFYUI_OUTPUT_DIR / rel_path)
         url = f"/api/gallery/{urllib.parse.quote(rel_path)}"
 
-        # Mirror copy to projekt-sexchat output directory if writable
         try:
             sexchat_out = Path("/mnt/storage-beta/projekte/projekt-sexchat/output")
             if sexchat_out.is_dir():
@@ -3829,6 +3986,7 @@ async def handle_comfy_render_direct(request: web.Request) -> web.Response:
         return web.json_response({
             "status": "ok",
             "success": True,
+            "project": project,
             "prompt_id": prompt_id,
             "filename": rel_path,
             "filepath": full_filepath,
@@ -3853,83 +4011,57 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
     if not prompt_text:
         return web.json_response({"error": "Prompt required"}, status=400)
 
+    project = body.get("project", "megan").lower().strip()
+    aspect_ratio = body.get("aspect_ratio", "portrait").lower()
+
     # Dynamic Context & Wildcard Resolution via megan_context
     if megan_context_engine and "{" in prompt_text:
         try:
             prompt_text = megan_context_engine.resolve_prompt_wildcards(prompt_text)
-            logger.info(f"[megan-context] Wildcards resolved -> {prompt_text[:120]}...")
+            logger.info(f"[{project}-context] Wildcards resolved -> {prompt_text[:120]}...")
         except Exception as _ce:
             logger.warning(f"Error resolving wildcards in render: {_ce}")
 
-    negative_prompt = body.get("negative_prompt", "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark").strip()
-    checkpoint = body.get("checkpoint", "DreamShaper8_LCM.safetensors").strip()
+    negative_prompt = body.get("negative_prompt")
+    checkpoint = body.get("checkpoint")
     lora = body.get("lora", "").strip()
     lora_strength = float(body.get("lora_strength", 1.0))
-    steps = int(body.get("steps", 14))
-    cfg = float(body.get("cfg", 6.5))
+    steps = int(body.get("steps")) if "steps" in body else None
+    cfg = float(body.get("cfg")) if "cfg" in body else None
     seed = int(body.get("seed", secrets.randbelow(999999999999)))
 
-    workflow = {
-        "prompt": {
-            "1": {
-                "class_type": "CheckpointLoaderSimple",
-                "inputs": {"ckpt_name": checkpoint}
-            },
-            "2": {
-                "class_type": "EmptyLatentImage",
-                "inputs": {"width": 512, "height": 512, "batch_size": 1}
-            },
-            "3": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": prompt_text}
-            },
-            "4": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": negative_prompt}
-            },
-            "5": {
-                "class_type": "KSampler",
-                "inputs": {
-                    "model": ["1", 0],
-                    "positive": ["3", 0],
-                    "negative": ["4", 0],
-                    "latent_image": ["2", 0],
-                    "seed": seed,
-                    "steps": steps,
-                    "cfg": cfg,
-                    "sampler_name": "euler",
-                    "scheduler": "normal",
-                    "denoise": 1.0
-                }
-            },
-            "6": {
-                "class_type": "VAEDecode",
-                "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
-            },
-            "7": {
-                "class_type": "SaveImage",
-                "inputs": {"filename_prefix": f"OuterHeaven_MissionControl_{time.strftime('%Y%m%d_%H%M%S')}", "images": ["6", 0]}
-            }
-        }
-    }
+    # Immediate fail-fast: check if GPU is currently locked by another project
+    from gpu_render_lock import get_gpu_lock_status, GPURenderLock, PRIORITY_HIGH
+    cur_status = get_gpu_lock_status()
+    if cur_status.get("locked"):
+        act_proj = cur_status.get("active_project") or cur_status.get("project")
+        if act_proj and act_proj != project:
+            queue_rem = await get_comfy_queue_remaining()
+            return web.json_response({
+                "status": "busy",
+                "active_project": act_proj,
+                "project": act_proj,
+                "queue_remaining": queue_rem,
+                "error": f"GPU belegt durch Projekt '{act_proj}'"
+            }, status=503)
 
-    # Dynamically inject LoRA if selected
-    if lora and lora.lower() not in ("none", "keines", "", "false"):
-        workflow["prompt"]["8"] = {
-            "class_type": "LoraLoader",
-            "inputs": {
-                "model": ["1", 0],
-                "clip": ["1", 1],
-                "lora_name": lora,
-                "strength_model": lora_strength,
-                "strength_clip": lora_strength
-            }
-        }
-        workflow["prompt"]["3"]["inputs"]["clip"] = ["8", 1]
-        workflow["prompt"]["4"]["inputs"]["clip"] = ["8", 1]
-        workflow["prompt"]["5"]["inputs"]["model"] = ["8", 0]
+    try:
+        workflow = prepare_comfy_workflow(
+            project=project,
+            prompt_text=prompt_text,
+            aspect_ratio=aspect_ratio,
+            negative_prompt=negative_prompt,
+            checkpoint=checkpoint,
+            lora=lora,
+            lora_strength=lora_strength,
+            seed=seed,
+            steps=steps,
+            cfg=cfg
+        )
+    except Exception as wfe:
+        return web.json_response({"error": f"Fehler bei Workflow-Vorlage: {wfe}"}, status=400)
 
-    async def _watch_and_release_gpu_lock(pid: str, lock_obj: Any, max_wait: float = 120.0):
+    async def _watch_and_release_gpu_lock(pid: str, lock_obj: Any, max_wait: float = 140.0):
         t_start = time.time()
         try:
             while time.time() - t_start < max_wait:
@@ -3947,13 +4079,19 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
             lock_obj.release()
             logger.info(f"✔ Released GPU lock for prompt_id={pid} after {round(time.time() - t_start, 1)}s")
 
-    # Acquire GPU Lock (High Priority)
-    from gpu_render_lock import GPURenderLock, PRIORITY_HIGH
-    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name="web_schnell_render", timeout=60.0)
-    if not gpu_lock.acquire():
-        return web.json_response({"error": "GPU ausgelastet. Bitte kurz warten."}, status=503)
+    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name=f"{project}_schnell_render", project=project, timeout=60.0)
+    if not gpu_lock.acquire(fail_fast_if_other_project=True):
+        cur_status = get_gpu_lock_status()
+        act_proj = cur_status.get("active_project") or cur_status.get("project") or "another_task"
+        queue_rem = await get_comfy_queue_remaining()
+        return web.json_response({
+            "status": "busy",
+            "active_project": act_proj,
+            "project": act_proj,
+            "queue_remaining": queue_rem,
+            "error": f"GPU belegt durch Projekt '{act_proj}'"
+        }, status=503)
 
-    # 1. Unload local Ollama model to guarantee 100% clean Arc A770 VRAM for ComfyUI
     await unload_local_ollama_vram()
 
     lock_transferred = False
@@ -3965,8 +4103,7 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
                     return web.json_response({"error": f"ComfyUI error: {text}"}, status=502)
                 res_data = await resp.json()
                 prompt_id = res_data.get("prompt_id")
-                
-                # Auto-Purge Cache Logic: every 3-4 renders execute ComfyUI /free
+
                 global comfy_render_count
                 comfy_render_count += 1
                 if comfy_render_count % COMFY_CACHE_PURGE_INTERVAL == 0:
@@ -3982,6 +4119,7 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
 
                 return web.json_response({
                     "success": True,
+                    "project": project,
                     "prompt_id": prompt_id,
                     "seed": seed,
                     "status": "queued"
@@ -4015,7 +4153,7 @@ async def handle_catlord_trainer_toggle(request: web.Request) -> web.Response:
 
 
 async def handle_gpu_lock_status(request: web.Request) -> web.Response:
-    """GET /api/render/lock"""
+    """GET /api/render/lock (Legacy endpoint)"""
     from gpu_render_lock import get_gpu_lock_status
     return web.json_response({
         "success": True,
@@ -6023,6 +6161,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/catlord/trainer/status", handle_catlord_trainer_status)
     app.router.add_post("/api/catlord/trainer/toggle", handle_catlord_trainer_toggle)
     app.router.add_get("/api/render/lock", handle_gpu_lock_status)
+    app.router.add_get("/api/gpu/status", handle_gpu_status)
     app.router.add_static("/outputs/catlord/", path="/mnt/storage-beta/projekte/projekt-catlord/assets/training", name="catlord_outputs", follow_symlinks=True)
 
     # ComfyUI Autonomous Evolution Loop
