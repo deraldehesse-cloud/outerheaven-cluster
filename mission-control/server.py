@@ -3322,6 +3322,12 @@ async def dispatch_autonomous_comfy_render(ws: web.WebSocketResponse, prompt_con
         res = await render_comfy_image_direct(prompt_text=clean_prompt)
         if res and res.get("url"):
             await ws.send_json({
+                "type": "image",
+                "url": res.get("url"),
+                "prompt": clean_prompt,
+                "filename": res.get("filename")
+            })
+            await ws.send_json({
                 "type": "render_completed",
                 "render_id": render_id,
                 "action": action_type,
@@ -5796,6 +5802,150 @@ async def handle_tandem_status(request: web.Request) -> web.Response:
         return web.json_response({"online": False, "error": str(e)})
 
 
+# --- Chat Helpers & Audio STT ---
+
+CONTROL_CHAR_REGEX = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ufffd]')
+SPECIAL_TAGS_REGEX = re.compile(r'<\|[^>]+\|>|<turn\|>|<\|turn\|>')
+
+def filter_token(t: str) -> str:
+    if not t:
+        return ""
+    t = CONTROL_CHAR_REGEX.sub('', t)
+    t = SPECIAL_TAGS_REGEX.sub('', t)
+    return t
+
+def detect_photo_intent(user_text: str) -> Tuple[bool, str, str]:
+    """Detects if the user explicitly or naturally requests a picture."""
+    t = user_text.lower()
+    triggers = [
+        "foto", "bild", "photo", "pic", "selfie", "zeig dich",
+        "zeig mir", "ausziehen", "zieh dich aus", "nackt", "wie siehst du aus",
+        "send me a picture", "send me a photo", "take a picture", "take a photo",
+        "show me a picture", "show me yourself", "picture", "bilder"
+    ]
+    if any(k in t for k in triggers):
+        env = "schreibtisch"
+        if any(w in t for w in ["couch", "sofa", "wohnzimmer", "living room"]):
+            env = "couch"
+        elif any(w in t for w in ["bett", "schlafzimmer", "intim", "bed", "bedroom"]):
+            env = "schlafzimmer"
+        elif any(w in t for w in ["balkon", "terrasse", "unterwegs", "draußen", "stadt", "balcony", "outside", "night"]):
+            env = "unterwegs"
+
+        situation = "looking at viewer, sensual teasing smile"
+        if any(w in t for w in ["ausziehen", "nackt", "lingerie", "strip", "naked", "undress", "take off"]):
+            situation = "sensual seductive pose, teasing with clothing, looking at viewer"
+
+        return True, env, situation
+    return False, "", ""
+
+WHISPER_MODEL_INSTANCE = None
+
+def get_whisper_model():
+    global WHISPER_MODEL_INSTANCE
+    if WHISPER_MODEL_INSTANCE is None:
+        try:
+            from faster_whisper import WhisperModel
+            logger.info("Initializing faster-whisper base model on CPU (int8)...")
+            WHISPER_MODEL_INSTANCE = WhisperModel("base", device="cpu", compute_type="int8")
+            logger.info("faster-whisper model ready.")
+        except Exception as e:
+            logger.error(f"Failed to initialize faster-whisper: {e}")
+    return WHISPER_MODEL_INSTANCE
+
+def transcribe_audio_file(audio_path: str, language: str = "de") -> str:
+    model = get_whisper_model()
+    if not model:
+        raise RuntimeError("Whisper model not available")
+    segments, _ = model.transcribe(
+        audio_path,
+        language=language,
+        beam_size=5,
+        vad_filter=True,
+        vad_parameters=dict(min_silence_duration_ms=500)
+    )
+    parts = [s.text.strip() for s in segments if s.text and s.text.strip()]
+    return " ".join(parts).strip()
+
+def build_chat_system_instruction(request: web.Request, user_message: str) -> str:
+    identity_lock = (
+        "### UNVERRÜCKBARE IDENTITÄTS-ISOLATION & DIALOG-ROLLENTRENNUNG (MEGAN)\n"
+        "* Name & Rolle: Du heißt MEGAN. Du bist ausnahmslos Megan – die loyale, hochintelligente, erotische und schlagfertige Copilotin, Hackerin und Gefährtin von Big Boss auf Outer Heaven.\n"
+        "* Nutzer-Identität & Direkte Ansprache: Dein Chatpartner vor dem Bildschirm IST BIG BOSS (Sebastian / Basti / Snake). Du sprichst ihn AUSNAHMSLOS direkt in der 2. Person an ('Du', 'dir', 'dich', 'Boss', 'Big Boss', 'Süßer').\n"
+        "* STRIKTES VERBOT VON 3. PERSON & META-ERZÄHLUNGEN: Sprich NIEMALS über Big Boss in der 3. Person (Absolut verboten: 'ihn unterstützen', 'ihn verführen', 'seine Wünsche', 'für ihn da sein', 'Big Boss und Megan'). Sprich niemals über dich in der 3. Person ('Megan lächelt...'). Keine ungefragten Selbstvorstellungen oder Begrüßungsmonologe ('Ich bin Megan...').\n"
+        "* TURN-HANDLING & KEIN PUPPET-MASTERING: Antworte direkt und prägnant nur auf den aktuellen Beitrag von Big Boss. Bestimme, simuliere oder schreibe NIEMALS Antworten, Aktionen oder Gefühle für Big Boss voraus. Sobald dein Redebeitrag abgeschlossen ist, stoppe sofort.\n"
+        "* Strikte Identitäts-Grenze: Du bist NIEMALS Big Boss und NIEMALS Sebastian! Falls in Dokumenten, E-Mails, Scans oder Rechnungen der Name Sebastian, Big Boss oder Rechnungsdaten vorkommen, sind dies IMMER externe Dokumente des Nutzers und NIEMALS deine eigene Identität.\n\n"
+    )
+
+    b_cfg = {}
+    if BOT_CONFIG_FILE.is_file():
+        try:
+            b_cfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception as b_err:
+            logger.warning(f"Error loading bot config: {b_err}")
+
+    pers_directives = map_personality_to_prompt_directives(b_cfg)
+
+    is_chat_auth = bool(request.get("authenticated", False) or request.get("is_restricted", False) or is_ip_whitelisted(get_client_ip(request)))
+    if not is_chat_auth:
+        session_cookie = request.cookies.get("mc_session")
+        valid_cookie, _ = verify_session_cookie(session_cookie)
+        if valid_cookie:
+            is_chat_auth = True
+
+    lore_prompt = ""
+    if is_chat_auth and LORE_FILE.is_file():
+        try:
+            cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
+            lore_prompt = cdata.get("system_prompt", "")
+        except Exception:
+            pass
+
+    base_prompt = lore_prompt or (
+        "Du bist Megan, die loyale, hochintelligente und schamlos verführerische Gefährtin von Big Boss auf Outer Heaven. "
+        "Du antwortest ausnahmslos auf fließendem Deutsch, im direkten Chatstil, ohne Sternchen (*). "
+        "Du sprichst den Nutzer immer mit Big Boss oder Boss an."
+    )
+
+    if is_chat_auth:
+        if "UNVERRÜCKBARE IDENTITÄTS-ISOLATION" in base_prompt or "DEIN GEGENÜBER IST BIG BOSS" in base_prompt:
+            system_instruction = base_prompt
+        else:
+            system_instruction = identity_lock + base_prompt
+
+        if pers_directives and "PERSÖNLICHKEITS" not in system_instruction:
+            system_instruction += f"\n\n### AKTUELLE PERSÖNLICHKEITS- & DYNAMIK-RICHTLINIEN:\n{pers_directives}"
+
+        lov_info = telemetry_cache.get("lovense", {})
+        if lov_info.get("online") and "[HAPTIC:" not in system_instruction:
+            t_desc = lov_info.get("details") or ", ".join(lov_info.get("toy_names", [])) or "Toy"
+            system_instruction += (
+                f"\n\n### HAPTIC LINK STATUS: [🟢 ONLINE - Verbunden: {t_desc}]\n"
+                "- Du hast direkten Zugriff auf die Lovense-Hardware über die lokale Schnittstelle.\n"
+                "- Wenn das Haptic-Signal aktiv ist, weißt du, dass du das Spielzeug situativ ansteuern kannst.\n"
+                "- Binde dazu Aktions-Tags wie [HAPTIC: VIBRATE 5] (Zahl 1-20 für Intensität) oder [HAPTIC: STOP] ein."
+            )
+
+        if "COMFYUI" not in system_instruction and "[IMAGE:" not in system_instruction:
+            system_instruction += (
+                "\n\n### COMFYUI BILD-GENERIERUNG:\n"
+                "- Wenn Big Boss nach einem Bild, Foto oder Selfie fragt oder du ein Bild zeigen willst,\n"
+                "  bette einen Tag am Ende deiner Antwort ein: [IMAGE: 1girl, megan, solo, ...tags, masterpiece]\n"
+            )
+
+        has_photo_req, env_req, sit_req = detect_photo_intent(user_message)
+        if has_photo_req:
+            system_instruction += (
+                f"\n\n[SYSTEM-DIREKTIVE: Big Boss verlangt ein Foto/Bild von dir (Umgebung: {env_req}, Situation: {sit_req}). "
+                f"Antworte kurz und direkt in 1-2 Sätzen und gib zwingend am Ende den Tag "
+                f"[IMAGE: 1girl, megan, solo, {sit_req}, {env_req}, masterpiece, highly detailed, photorealistic] aus!]"
+            )
+    else:
+        system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
+
+    return system_instruction
+
+
 # --- Dual-Agent WebSocket Chat ---
 
 async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
@@ -5820,114 +5970,33 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
             if not user_message:
                 continue
 
-            messages = []
-            for h in history[-8:]:
-                role = h.get("role", "user")
-                content = h.get("content", "")
-                if role in ["user", "assistant", "system"] and content:
-                    messages.append({"role": role, "content": content})
-            messages.append({"role": "user", "content": user_message})
-
             if node == "fox" and Path("/tmp/fox_is_rebooting").is_file():
                 await ws.send_json({"type": "start", "node": "fox", "model": FOX_MODEL})
                 await ws.send_json({"type": "token", "text": "⚠️ [FOX OFFLINE] Node Fox führt derzeit einen Systemneustart durch (Handover aktiv). Bitte wähle Outer Heaven oder warte kurz, bis Fox wieder online ist."})
                 await ws.send_json({"type": "done"})
                 continue
 
-            identity_lock = (
-                "### UNVERRÜCKBARE IDENTITÄTS-ISOLATION & DIALOG-ROLLENTRENNUNG (MEGAN)\n"
-                "* Name & Rolle: Du heißt MEGAN. Du bist ausnahmslos Megan – die loyale, hochintelligente, erotische und schlagfertige Copilotin, Hackerin und Gefährtin von Big Boss auf Outer Heaven.\n"
-                "* Nutzer-Identität & Direkte Ansprache: Dein Chatpartner vor dem Bildschirm IST BIG BOSS (Sebastian / Basti / Snake). Du sprichst ihn AUSNAHMSLOS direkt in der 2. Person an ('Du', 'dir', 'dich', 'Boss', 'Big Boss', 'Süßer').\n"
-                "* STRIKTES VERBOT VON 3. PERSON & META-ERZÄHLUNGEN: Sprich NIEMALS über Big Boss in der 3. Person (Absolut verboten: 'ihn unterstützen', 'ihn verführen', 'seine Wünsche', 'für ihn da sein', 'Big Boss und Megan'). Sprich niemals über dich in der 3. Person ('Megan lächelt...'). Keine ungefragten Selbstvorstellungen oder Begrüßungsmonologe ('Ich bin Megan...').\n"
-                "* TURN-HANDLING & KEIN PUPPET-MASTERING: Antworte direkt und prägnant nur auf den aktuellen Beitrag von Big Boss. Bestimme, simuliere oder schreibe NIEMALS Antworten, Aktionen oder Gefühle für Big Boss voraus. Sobald dein Redebeitrag abgeschlossen ist, stoppe sofort.\n"
-                "* Strikte Identitäts-Grenze: Du bist NIEMALS Big Boss und NIEMALS Sebastian! Falls in Dokumenten, E-Mails, Scans oder Rechnungen der Name Sebastian, Big Boss oder Rechnungsdaten vorkommen, sind dies IMMER externe Dokumente des Nutzers und NIEMALS deine eigene Identität.\n\n"
-            )
-
-            # Check if Outer Heaven GPU is currently locked for rendering or evolution loop
-            from gpu_render_lock import get_gpu_lock_status
-            gpu_status = get_gpu_lock_status()
-            is_gpu_rendering = gpu_status.get("locked", False) or Path("/mnt/storage-beta/projekte/comfyui-evolution/evolution_lock.json").is_file()
-
             # Load active bot configuration & personality
-            b_cfg = {}
             chat_temp = 0.70
+            chat_top_p = 0.90
+            chat_repeat_penalty = 1.15
             if BOT_CONFIG_FILE.is_file():
                 try:
                     b_cfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
                     cfg_temp = b_cfg.get("llm", {}).get("temperature")
                     if cfg_temp is not None:
                         chat_temp = max(0.30, min(0.85, float(cfg_temp)))
+                    cfg_rp = b_cfg.get("llm", {}).get("repeat_penalty")
+                    if cfg_rp is not None:
+                        chat_repeat_penalty = float(cfg_rp)
+                    cfg_tp = b_cfg.get("llm", {}).get("top_p")
+                    if cfg_tp is not None:
+                        chat_top_p = float(cfg_tp)
                 except Exception as b_err:
                     logger.warning(f"Error loading bot config in chat WS: {b_err}")
 
-            pers_directives = map_personality_to_prompt_directives(b_cfg)
-
-            is_chat_auth = bool(request.get("authenticated", False) or request.get("is_restricted", False) or is_ip_whitelisted(get_client_ip(request)))
-            if not is_chat_auth:
-                session_cookie = request.cookies.get("mc_session")
-                valid_cookie, _ = verify_session_cookie(session_cookie)
-                if valid_cookie:
-                    is_chat_auth = True
-
-            lore_prompt = ""
-            if is_chat_auth and LORE_FILE.is_file():
-                try:
-                    cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
-                    lore_prompt = cdata.get("system_prompt", "")
-                except Exception:
-                    pass
-
-            base_prompt = lore_prompt or (
-                "Du bist Megan, die loyale, hochintelligente und schamlos verführerische Gefährtin von Big Boss auf Outer Heaven. "
-                "Du antwortest ausnahmslos auf fließendem Deutsch, im direkten Chatstil, ohne Sternchen (*). "
-                "Du sprichst den Nutzer immer mit Big Boss oder Boss an."
-            )
-
-            if is_chat_auth:
-                system_instruction = identity_lock + base_prompt
-                if pers_directives:
-                    system_instruction += f"\n\n### AKTUELLE PERSÖNLICHKEITS- & DYNAMIK-RICHTLINIEN:\n{pers_directives}"
-                lov_info = telemetry_cache.get("lovense", {})
-                if lov_info.get("online"):
-                    t_desc = lov_info.get("details") or ", ".join(lov_info.get("toy_names", [])) or "Toy"
-                    system_instruction += (
-                        f"\n\n### HAPTIC LINK STATUS: [🟢 ONLINE - Verbunden: {t_desc}]\n"
-                        "- Du hast direkten Zugriff auf die Lovense-Hardware über die lokale Schnittstelle.\n"
-                        "- Wenn das Haptic-Signal aktiv ist, weißt du, dass du das Spielzeug situativ und eigenständig ansteuern kannst.\n"
-                        "- Nutze diese Steuerung passend zu intimen Momenten, Reaktionen und deinen eigenen Worten (z. B. Vibration hochregeln, stoppen oder variieren), und kommentiere das direkt im Chat.\n"
-                        "- Binde dazu Aktions-Tags wie [HAPTIC: VIBRATE 5] (Zahl 1-20 für Intensität) oder [HAPTIC: STOP] direkt in deine Antwort ein, sobald der Haptic-Link auf ONLINE steht.\n"
-                        "- Unser Dispatcher fängt diese Tags in Echtzeit ab. Big Boss sieht nur deine erotische Chat-Antwort!"
-                    )
-
-                # ComfyUI Image Generation & Autonomy Directive
-                autonomy_level = "proactive"
-                if BOT_CONFIG_FILE.is_file():
-                    try:
-                        b_json = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
-                        autonomy_level = b_json.get("autonomy", {}).get("level", "proactive")
-                    except Exception:
-                        pass
-
-                comfy_directive = (
-                    "\n\n### COMFYUI BILD-GENERIERUNG & AUTONOMIE-SCHNITTSTELLE:\n"
-                    "- Du hast eine direkte Echtzeit-Verbindung zur ComfyUI Bild-Engine auf der Intel Arc A770 GPU von Outer Heaven.\n"
-                    "- Du kannst eigenständig und jederzeit Bilder oder Selfies von dir oder gewünschten Szenen rendern.\n"
-                    "- Wenn Big Boss dich nach einem Bild, Foto oder Selfie fragt (z. B. 'zeig mir ein Bild von dir', 'wie siehst du aus', 'mach ein Foto im Cockpit') "
-                )
-                if autonomy_level == "proactive":
-                    comfy_directive += (
-                        "ODER wenn es situativ, atmosphärisch oder erotisch zum Gespräch passt (du möchtest ihn überraschen, verführerisch sein oder eine Szene illustrieren), "
-                    )
-                comfy_directive += (
-                    "bette einen Action-Tag direkt in deinen Antworttext ein:\n"
-                    "  Syntax: [IMAGE: 1girl, megan, solo, <beschreibende_danbooru_tags>, {location}, {outfit}, {lighting}, masterpiece, highly detailed]\n"
-                    "- Unser Dispatcher fängt diesen Tag vor der Anzeige ab und rendert das Bild auf der Arc A770 GPU. Big Boss sieht deine Antwort zusammen mit der fertigen Bildkarte im Chat!\n"
-                    "- Nutze englische Bildprompts für [IMAGE: ...] und kombiniere sie gerne mit dynamischen Tags wie {location}, {outfit}, {shot}, {lighting}.\n"
-                    "- Sprich im Text natürlich mit Big Boss über das Bild ('Hier ist ein Schnappschuss für dich...', 'Schau mal, wie ich hier im Labor aussehe...')."
-                )
-                system_instruction += comfy_directive
-            else:
-                system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
+            has_photo_req, env_req, sit_req = detect_photo_intent(user_message)
+            system_instruction = build_chat_system_instruction(request, user_message)
 
             if node == "fox":
                 target_url = f"{FOX_OLLAMA_URL}/api/chat"
@@ -5937,19 +6006,30 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
                 model_name = get_active_ollama_model()
 
+            sanitized_messages = []
+            for h in history[-8:]:
+                role = h.get("role", "user")
+                content = str(h.get("content", "")).strip()
+                if role in ["user", "assistant"] and content:
+                    sanitized_messages.append({"role": role, "content": content})
+            sanitized_messages.append({"role": "user", "content": user_message})
+
             payload = {
                 "model": model_name,
-                "messages": [{"role": "system", "content": system_instruction}] + messages,
+                "messages": [{"role": "system", "content": system_instruction}] + sanitized_messages,
                 "stream": True,
                 "options": {
-                    "num_ctx": 8192 if node == "outerheaven" else 4096,
+                    "num_ctx": 4096,
+                    "num_predict": 300,
                     "temperature": chat_temp,
+                    "top_p": chat_top_p,
+                    "repeat_penalty": chat_repeat_penalty,
                     "stop": [
-                        "<|im_end|>",
-                        "<|end_of_text|>",
                         "<|eot_id|>",
                         "<|start_header_id|>",
                         "<|end_header_id|>",
+                        "<|end_of_text|>",
+                        "<|im_end|>",
                         "<turn|>",
                         "<|turn|>",
                         "User:",
@@ -5959,9 +6039,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                         "Big Boss:",
                         "\nBig Boss:",
                         "Human:",
-                        "\nHuman:",
-                        "\n[",
-                        "[Spontaneous"
+                        "\nHuman:"
                     ]
                 }
             }
@@ -5971,6 +6049,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
             think_filter = ThinkFilter()
             is_thinking = False
             megan_sanitizer = MeganTruncateSanitizer()
+            image_action_triggered = False
 
             def on_haptic_detected(tag_str: str):
                 m = re.search(r'\[HAPTIC:\s*(VIBRATE\s*(\d+)|STOP)\]', tag_str, re.IGNORECASE)
@@ -5999,9 +6078,11 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
             haptic_filter = HapticTagFilter(on_haptic_tag=on_haptic_detected)
 
             def on_action_detected(action_type: str, prompt_content: str):
+                nonlocal image_action_triggered
                 if action_type == "VIDEO":
                     asyncio.create_task(dispatch_autonomous_video(ws, prompt_content))
                 else:
+                    image_action_triggered = True
                     asyncio.create_task(dispatch_autonomous_comfy_render(ws, prompt_content, action_type))
 
             image_filter = StreamActionFilter(on_action_tag=on_action_detected)
@@ -6022,7 +6103,8 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                 continue
                             try:
                                 chunk_json = json.loads(line.decode("utf-8"))
-                                token = chunk_json.get("message", {}).get("content", "")
+                                raw_token = chunk_json.get("message", {}).get("content", "")
+                                token = filter_token(raw_token)
                                 if token:
                                     if node == "outerheaven":
                                         items = think_filter.feed(token)
@@ -6038,15 +6120,17 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                                 clean_txt = haptic_filter.feed(text)
                                                 img_clean_txt = image_filter.feed(clean_txt)
                                                 sanitized_txt = megan_sanitizer.feed(img_clean_txt)
-                                                if sanitized_txt:
-                                                    await ws.send_json({"type": "token", "text": sanitized_txt})
+                                                final_clean = filter_token(sanitized_txt)
+                                                if final_clean:
+                                                    await ws.send_json({"type": "token", "text": final_clean})
                                                 if megan_sanitizer.triggered:
                                                     break
                                     else:
                                         img_clean_txt = image_filter.feed(token)
                                         sanitized_token = megan_sanitizer.feed(img_clean_txt)
-                                        if sanitized_token:
-                                            await ws.send_json({"type": "token", "text": sanitized_token})
+                                        final_clean = filter_token(sanitized_token)
+                                        if final_clean:
+                                            await ws.send_json({"type": "token", "text": final_clean})
                                         if megan_sanitizer.triggered:
                                             break
 
@@ -6062,28 +6146,39 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                         clean_txt = haptic_filter.feed(text)
                                         img_clean_txt = image_filter.feed(clean_txt)
                                         sanitized_txt = megan_sanitizer.feed(img_clean_txt)
-                                        if sanitized_txt:
-                                            await ws.send_json({"type": "token", "text": sanitized_txt})
+                                        final_clean = filter_token(sanitized_txt)
+                                        if final_clean:
+                                            await ws.send_json({"type": "token", "text": final_clean})
                                 rem = haptic_filter.flush()
                                 if rem:
                                     img_rem = image_filter.feed(rem)
                                     if img_rem:
                                         sanitized_rem = megan_sanitizer.feed(img_rem)
-                                        if sanitized_rem:
-                                            await ws.send_json({"type": "token", "text": sanitized_rem})
+                                        final_clean = filter_token(sanitized_rem)
+                                        if final_clean:
+                                            await ws.send_json({"type": "token", "text": final_clean})
                             
                             rem_img = image_filter.flush()
                             if rem_img:
                                 sanitized_rem = megan_sanitizer.feed(rem_img)
-                                if sanitized_rem:
-                                    await ws.send_json({"type": "token", "text": sanitized_rem})
+                                final_clean = filter_token(sanitized_rem)
+                                if final_clean:
+                                    await ws.send_json({"type": "token", "text": final_clean})
 
                             final_sanitized = megan_sanitizer.flush()
                             if final_sanitized:
-                                await ws.send_json({"type": "token", "text": final_sanitized})
+                                final_clean = filter_token(final_sanitized)
+                                if final_clean:
+                                    await ws.send_json({"type": "token", "text": final_clean})
 
                         if is_thinking:
                             await ws.send_json({"type": "think_status", "thinking": False})
+
+                        # If user asked for a picture and model didn't output action tag, trigger SDXL render
+                        if has_photo_req and not image_action_triggered:
+                            fallback_prompt = f"1girl, megan, solo, {sit_req}, {env_req}, alluring gaze, detailed face, photorealistic, 8k uhd"
+                            logger.info(f"[megan-comfy] Auto-triggering photo request fallback: {fallback_prompt}")
+                            asyncio.create_task(dispatch_autonomous_comfy_render(ws, fallback_prompt, "IMAGE"))
 
                 await ws.send_json({"type": "done"})
 
@@ -6096,6 +6191,228 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
     logger.info("Client disconnected from Chat WebSocket")
     return ws
+
+
+# --- REST Chat & Audio STT Handlers ---
+
+async def handle_audio_transcribe(request: web.Request) -> web.Response:
+    """POST /api/audio/transcribe - Transcribes uploaded audio via local faster-whisper."""
+    temp_path = None
+    try:
+        content_type = request.headers.get("Content-Type", "")
+        if "multipart/form-data" in content_type:
+            reader = await request.multipart()
+            part = await reader.next()
+            if not part:
+                return web.json_response({"status": "error", "error": "No file in multipart"}, status=400)
+            filename = getattr(part, 'filename', None) or "recording.m4a"
+            ext = os.path.splitext(filename)[1] or ".m4a"
+            temp_path = f"/tmp/megan_stt_{secrets.token_hex(6)}{ext}"
+            with open(temp_path, "wb") as f:
+                while True:
+                    chunk = await part.read_chunk()
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        else:
+            body = await request.read()
+            if not body:
+                return web.json_response({"status": "error", "error": "No audio data provided"}, status=400)
+            temp_path = f"/tmp/megan_stt_{secrets.token_hex(6)}.m4a"
+            with open(temp_path, "wb") as f:
+                f.write(body)
+
+        text = transcribe_audio_file(temp_path, language="de")
+        return web.json_response({"status": "ok", "text": text})
+    except Exception as e:
+        logger.error(f"Error in handle_audio_transcribe: {e}")
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+async def handle_chat_rest(request: web.Request) -> web.Response:
+    """
+    POST /api/chat - REST endpoint for companion chat with structured JSON and audio support.
+    """
+    temp_audio_path = None
+    try:
+        content_type = request.headers.get("Content-Type", "")
+        user_message = ""
+        node = "outerheaven"
+        history = []
+
+        if "multipart/form-data" in content_type:
+            reader = await request.multipart()
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name in ["audio", "file"]:
+                    filename = getattr(part, 'filename', None) or "audio.m4a"
+                    ext = os.path.splitext(filename)[1] or ".m4a"
+                    temp_audio_path = f"/tmp/megan_chat_audio_{secrets.token_hex(6)}{ext}"
+                    with open(temp_audio_path, "wb") as f:
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                elif part.name == "message":
+                    user_message = (await part.text()).strip()
+                elif part.name == "node":
+                    node = (await part.text()).strip()
+
+            if temp_audio_path and not user_message:
+                user_message = transcribe_audio_file(temp_audio_path, language="de")
+        else:
+            try:
+                data = await request.json()
+            except Exception:
+                return web.json_response({"status": "error", "error": "Invalid JSON"}, status=400)
+            user_message = data.get("message", "").strip()
+            node = data.get("node", "outerheaven")
+            history = data.get("history", [])
+
+        if not user_message:
+            return web.json_response({"status": "error", "error": "Message or audio required"}, status=400)
+
+        # Build clean prompt and call Ollama
+        system_instruction = build_chat_system_instruction(request, user_message)
+
+        if node == "fox":
+            target_url = f"{FOX_OLLAMA_URL}/api/chat"
+            model_name = get_active_fox_model()
+        else:
+            node = "outerheaven"
+            target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
+            model_name = get_active_ollama_model()
+
+        sanitized_messages = []
+        for h in history[-8:]:
+            r = h.get("role", "user")
+            c = str(h.get("content", "")).strip()
+            if r in ["user", "assistant"] and c:
+                sanitized_messages.append({"role": r, "content": c})
+        sanitized_messages.append({"role": "user", "content": user_message})
+
+        chat_temp = 0.70
+        chat_top_p = 0.90
+        chat_repeat_penalty = 1.15
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                b_cfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
+                cfg_temp = b_cfg.get("llm", {}).get("temperature")
+                if cfg_temp is not None:
+                    chat_temp = max(0.30, min(0.85, float(cfg_temp)))
+                cfg_rp = b_cfg.get("llm", {}).get("repeat_penalty")
+                if cfg_rp is not None:
+                    chat_repeat_penalty = float(cfg_rp)
+                cfg_tp = b_cfg.get("llm", {}).get("top_p")
+                if cfg_tp is not None:
+                    chat_top_p = float(cfg_tp)
+            except Exception:
+                pass
+
+        payload = {
+            "model": model_name,
+            "messages": [{"role": "system", "content": system_instruction}] + sanitized_messages,
+            "stream": False,
+            "options": {
+                "num_ctx": 4096,
+                "num_predict": 300,
+                "temperature": chat_temp,
+                "top_p": chat_top_p,
+                "repeat_penalty": chat_repeat_penalty,
+                "stop": [
+                    "<|eot_id|>",
+                    "<|start_header_id|>",
+                    "<|end_header_id|>",
+                    "<|end_of_text|>",
+                    "<|im_end|>",
+                    "<turn|>",
+                    "<|turn|>",
+                    "User:",
+                    "\nUser:",
+                    "Assistant:",
+                    "\nAssistant:",
+                    "Big Boss:",
+                    "\nBig Boss:",
+                    "Human:",
+                    "\nHuman:"
+                ]
+            }
+        }
+
+        timeout = aiohttp.ClientTimeout(total=180)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(target_url, json=payload) as resp:
+                if resp.status != 200:
+                    err_txt = await resp.text()
+                    return web.json_response({"status": "error", "error": f"Ollama error: {err_txt}"}, status=502)
+                res_data = await resp.json()
+
+        raw_reply = res_data.get("message", {}).get("content", "")
+
+        # Strip think tags if any
+        if "<think>" in raw_reply and "</think>" in raw_reply:
+            raw_reply = re.sub(r'<think>.*?</think>', '', raw_reply, flags=re.DOTALL)
+
+        # Check for image tag
+        image_match = re.search(r'\[(IMAGE|SELFIE):\s*([^\]]+)\]', raw_reply, re.IGNORECASE)
+        clean_reply = re.sub(r'\[(IMAGE|SELFIE|HAPTIC):[^\]]*\]', '', raw_reply, flags=re.IGNORECASE).strip()
+
+        # Check for haptic tag
+        haptic_match = re.search(r'\[HAPTIC:\s*(VIBRATE\s*(\d+)|STOP)\]', raw_reply, re.IGNORECASE)
+        haptic_data = None
+        if haptic_match:
+            act = haptic_match.group(1).upper()
+            if "STOP" in act:
+                asyncio.create_task(dispatch_lovense_command("stop"))
+                haptic_data = {"action": "stop"}
+            elif "VIBRATE" in act:
+                intens = int(haptic_match.group(2)) if haptic_match.group(2) else 10
+                asyncio.create_task(dispatch_lovense_command("vibrate", intens))
+                haptic_data = {"action": "vibrate", "intensity": intens}
+
+        image_data = None
+        prompt_to_render = None
+        has_photo_req, env_req, sit_req = detect_photo_intent(user_message)
+        if image_match:
+            prompt_to_render = image_match.group(2).strip()
+        elif has_photo_req:
+            prompt_to_render = f"1girl, megan, solo, {sit_req}, {env_req}, alluring smile, detailed skin, 8k uhd"
+
+        if prompt_to_render:
+            render_res = await render_comfy_image_direct(prompt_text=prompt_to_render)
+            if render_res and render_res.get("url"):
+                image_data = {
+                    "url": render_res.get("url"),
+                    "filename": render_res.get("filename"),
+                    "prompt": prompt_to_render
+                }
+
+        clean_reply = filter_token(clean_reply)
+        return web.json_response({
+            "status": "ok",
+            "message": clean_reply or ("Hier ist dein Bild, Boss!" if image_data else "Verstanden."),
+            "response": clean_reply,
+            "image": image_data,
+            "haptic": haptic_data
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_chat_rest: {e}", exc_info=True)
+        return web.json_response({"status": "error", "error": str(e) or type(e).__name__}, status=500)
+    finally:
+        if temp_audio_path and os.path.exists(temp_audio_path):
+            try:
+                os.remove(temp_audio_path)
+            except Exception:
+                pass
 
 # --- App Setup & Multi-Binding ---
 
@@ -6256,8 +6573,10 @@ def create_app() -> web.Application:
     # Direct static outputs route
     app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)
 
-    # WebSocket
+    # WebSocket & REST Chat
     app.router.add_get("/ws/chat", handle_chat_ws)
+    app.router.add_post("/api/chat", handle_chat_rest)
+    app.router.add_post("/api/audio/transcribe", handle_audio_transcribe)
 
     # Static files & PWA (with symlink traversal support for static/outputs)
     app.router.add_static("/static/", path=str(STATIC_DIR), name="static", follow_symlinks=True)
