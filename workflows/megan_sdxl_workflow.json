@@ -57,7 +57,7 @@
       "sampler_name": "euler",
       "scheduler": "karras",
       "seed": 0,
-      "steps": 25
+      "steps": 18
     }
   },
   "6": {

@@ -3333,7 +3333,6 @@ async def dispatch_autonomous_comfy_render(ws: web.WebSocketResponse, prompt_con
                 "action": action_type,
                 "prompt": clean_prompt,
                 "filename": res.get("filename"),
-                "url": res.get("url"),
                 "seed": res.get("seed")
             })
         else:
@@ -3706,7 +3705,7 @@ def prepare_comfy_workflow(
         # Fest verankert: Megan nutzt ausnahmslos sd_xl_base_1.0.safetensors
         checkpoint = "sd_xl_base_1.0.safetensors"
         if steps is None:
-            steps = 25
+            steps = 18
         if cfg is None:
             cfg = 7.0
 
@@ -3800,10 +3799,11 @@ def prepare_comfy_workflow(
     if ksampler_node:
         ksampler_node.setdefault("inputs", {})
         ksampler_node["inputs"]["seed"] = seed
-        if steps is not None:
-            ksampler_node["inputs"]["steps"] = steps
+        ksampler_node["inputs"]["steps"] = steps if steps is not None else 18
         if cfg is not None:
             ksampler_node["inputs"]["cfg"] = cfg
+        ksampler_node["inputs"]["sampler_name"] = "euler"
+        ksampler_node["inputs"]["scheduler"] = "karras"
 
     # Inject LoRA if requested and not none
     if lora and lora.lower() not in ("none", "keines", "", "false") and ckpt_node_id:
@@ -6221,6 +6221,11 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     asyncio.create_task(dispatch_autonomous_comfy_render(ws, prompt_content, action_type))
 
             image_filter = StreamActionFilter(on_action_tag=on_action_detected)
+            accumulated_voice_tokens = []
+
+            async def emit_token(t: str):
+                accumulated_voice_tokens.append(t)
+                await ws.send_json({"type": "token", "text": t})
 
             try:
                 timeout = aiohttp.ClientTimeout(total=180)
@@ -6257,7 +6262,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                                 sanitized_txt = megan_sanitizer.feed(img_clean_txt)
                                                 final_clean = filter_token(sanitized_txt)
                                                 if final_clean:
-                                                    await ws.send_json({"type": "token", "text": final_clean})
+                                                    await emit_token(final_clean)
                                                 if megan_sanitizer.triggered:
                                                     break
                                     else:
@@ -6265,7 +6270,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                         sanitized_token = megan_sanitizer.feed(img_clean_txt)
                                         final_clean = filter_token(sanitized_token)
                                         if final_clean:
-                                            await ws.send_json({"type": "token", "text": final_clean})
+                                            await emit_token(final_clean)
                                         if megan_sanitizer.triggered:
                                             break
 
@@ -6283,7 +6288,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                         sanitized_txt = megan_sanitizer.feed(img_clean_txt)
                                         final_clean = filter_token(sanitized_txt)
                                         if final_clean:
-                                            await ws.send_json({"type": "token", "text": final_clean})
+                                            await emit_token(final_clean)
                                 rem = haptic_filter.flush()
                                 if rem:
                                     img_rem = image_filter.feed(rem)
@@ -6291,20 +6296,20 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                         sanitized_rem = megan_sanitizer.feed(img_rem)
                                         final_clean = filter_token(sanitized_rem)
                                         if final_clean:
-                                            await ws.send_json({"type": "token", "text": final_clean})
+                                            await emit_token(final_clean)
                             
                             rem_img = image_filter.flush()
                             if rem_img:
                                 sanitized_rem = megan_sanitizer.feed(rem_img)
                                 final_clean = filter_token(sanitized_rem)
                                 if final_clean:
-                                    await ws.send_json({"type": "token", "text": final_clean})
+                                    await emit_token(final_clean)
 
                             final_sanitized = megan_sanitizer.flush()
                             if final_sanitized:
                                 final_clean = filter_token(final_sanitized)
                                 if final_clean:
-                                    await ws.send_json({"type": "token", "text": final_clean})
+                                    await emit_token(final_clean)
 
                         if is_thinking:
                             await ws.send_json({"type": "think_status", "thinking": False})
@@ -6315,7 +6320,25 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                             logger.info(f"[megan-comfy] Auto-triggering photo request fallback: {fallback_prompt}")
                             asyncio.create_task(dispatch_autonomous_comfy_render(ws, fallback_prompt, "IMAGE"))
 
-                await ws.send_json({"type": "done"})
+                # Synthesize Piper TTS Voice output for Megan's spoken reply
+                voice_audio_url = None
+                spoken_response = "".join(accumulated_voice_tokens).strip()
+                if spoken_response:
+                    try:
+                        audio_id = await generate_piper_tts(spoken_response)
+                        if audio_id:
+                            voice_audio_url = f"/api/audio/tts/{audio_id}.wav"
+                            await ws.send_json({
+                                "type": "voice",
+                                "audio_url": voice_audio_url
+                            })
+                    except Exception as _v_err:
+                        logger.warning(f"Voice generation error in chat WS: {_v_err}")
+
+                done_payload = {"type": "done"}
+                if voice_audio_url:
+                    done_payload["audio_url"] = voice_audio_url
+                await ws.send_json(done_payload)
 
             except Exception as e:
                 logger.error(f"Chat stream error: {e}")
@@ -6328,7 +6351,154 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
-# --- REST Chat & Audio STT Handlers ---
+# --- REST Chat & Audio TTS/STT Handlers ---
+
+DIR_AUDIO_TTS = Path("/mnt/storage-beta/projekte/projekt-sexchat/output/audio_tts")
+try:
+    DIR_AUDIO_TTS.mkdir(parents=True, exist_ok=True)
+except Exception:
+    DIR_AUDIO_TTS = Path("/tmp/megan_audio_tts")
+    DIR_AUDIO_TTS.mkdir(parents=True, exist_ok=True)
+
+PIPER_MODELS = [
+    Path("/mnt/storage-beta/models/piper/de_DE-kerstin-low.onnx"),
+    Path("/mnt/storage-beta/models/piper/de_DE-thorsten-medium.onnx"),
+    Path("/home/outerheaven/models/piper/de_DE-kerstin-low.onnx"),
+    Path("/home/outerheaven/models/piper/de_DE-thorsten-medium.onnx"),
+]
+
+def clean_text_for_tts(text: str) -> str:
+    """Sanitizes text for TTS speech synthesis."""
+    if not text:
+        return ""
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'www\.\S+', '', text)
+    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+    text = re.sub(r'\[.*?\]', '', text)
+    text = re.sub(r'\*[^*]+\*', '', text)
+    text = text.replace('*', '')
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'```[\w]*\n(.*?)```', '', text, flags=re.DOTALL)
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+    text = re.sub(r'[\u2600-\u27BF]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+async def generate_piper_tts(text: str, voice_model: Optional[str] = None) -> Optional[str]:
+    cleaned = clean_text_for_tts(text)
+    if not cleaned:
+        return None
+
+    model_file = None
+    if voice_model:
+        cand = Path(voice_model)
+        if cand.is_file():
+            model_file = str(cand)
+        else:
+            cand_p = Path(f"/mnt/storage-beta/models/piper/{voice_model}.onnx")
+            if cand_p.is_file():
+                model_file = str(cand_p)
+
+    if not model_file:
+        for p in PIPER_MODELS:
+            if p.is_file():
+                model_file = str(p)
+                break
+
+    audio_id = f"megan_voice_{int(time.time()*1000)}_{secrets.token_hex(4)}"
+    out_wav = DIR_AUDIO_TTS / f"{audio_id}.wav"
+
+    piper_bin = shutil.which("piper") or str(Path.home() / ".local/bin/piper")
+
+    if model_file and (shutil.which(piper_bin) or Path(piper_bin).is_file()):
+        try:
+            cmd = [piper_bin, "-m", model_file, "-f", str(out_wav)]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate(input=cleaned.encode("utf-8"))
+            if proc.returncode == 0 and out_wav.is_file() and out_wav.stat().st_size > 0:
+                logger.info(f"[megan-tts] Synthesized audio note {out_wav.name} ({out_wav.stat().st_size} bytes)")
+                return audio_id
+            else:
+                logger.warning(f"[megan-tts] Piper failed ({proc.returncode}): {stderr.decode('utf-8', errors='ignore')}")
+        except Exception as pe:
+            logger.error(f"[megan-tts] Piper process execution error: {pe}")
+
+    # Fallback to edge-tts if available
+    try:
+        import edge_tts
+        communicate = edge_tts.Communicate(
+            text=cleaned,
+            voice="de-DE-SeraphinaMultilingualNeural"
+        )
+        tmp_mp3 = DIR_AUDIO_TTS / f"{audio_id}.mp3"
+        await communicate.save(str(tmp_mp3))
+        ffmpeg_bin = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
+        if os.path.isfile(ffmpeg_bin):
+            conv_proc = await asyncio.create_subprocess_exec(
+                ffmpeg_bin, "-y", "-i", str(tmp_mp3), str(out_wav),
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+            )
+            await conv_proc.communicate()
+            if tmp_mp3.is_file():
+                try:
+                    tmp_mp3.unlink()
+                except Exception:
+                    pass
+            if out_wav.is_file():
+                return audio_id
+        return audio_id
+    except Exception as ee:
+        logger.warning(f"[megan-tts] edge-tts fallback error: {ee}")
+
+    return None
+
+async def handle_audio_tts(request: web.Request) -> web.Response:
+    """POST /api/audio/tts - Synthesizes spoken audio from text using Piper TTS."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"status": "error", "error": "Invalid JSON"}, status=400)
+
+    text = data.get("text", "").strip()
+    voice = data.get("voice")
+    if not text:
+        return web.json_response({"status": "error", "error": "Text required"}, status=400)
+
+    audio_id = await generate_piper_tts(text, voice_model=voice)
+    if not audio_id:
+        return web.json_response({"status": "error", "error": "TTS synthesis failed"}, status=500)
+
+    return web.json_response({
+        "status": "ok",
+        "audio_id": audio_id,
+        "audio_url": f"/api/audio/tts/{audio_id}.wav"
+    })
+
+async def handle_audio_tts_serve(request: web.Request) -> web.Response:
+    """GET /api/audio/tts/{filename} - Serves synthesized TTS audio files."""
+    filename = request.match_info.get("filename", "")
+    if not filename or ".." in filename or "/" in filename or "\\" in filename:
+        return web.Response(status=400, text="Invalid filename")
+
+    file_path = DIR_AUDIO_TTS / filename
+    if not file_path.is_file():
+        return web.Response(status=404, text="Audio file not found")
+
+    content_type = "audio/wav"
+    if filename.endswith(".ogg"):
+        content_type = "audio/ogg"
+    elif filename.endswith(".mp3"):
+        content_type = "audio/mpeg"
+
+    return web.FileResponse(file_path, headers={"Content-Type": content_type, "Accept-Ranges": "bytes"})
 
 async def handle_audio_transcribe(request: web.Request) -> web.Response:
     """POST /api/audio/transcribe - Transcribes uploaded audio via local faster-whisper."""
@@ -6532,12 +6702,23 @@ async def handle_chat_rest(request: web.Request) -> web.Response:
                 }
 
         clean_reply = filter_token(clean_reply)
+        speech_text = clean_reply or ("Hier ist dein Bild, Boss!" if image_data else "")
+        audio_url = None
+        if speech_text:
+            try:
+                audio_id = await generate_piper_tts(speech_text)
+                if audio_id:
+                    audio_url = f"/api/audio/tts/{audio_id}.wav"
+            except Exception as _ttse:
+                logger.warning(f"Error generating voice in REST chat: {_ttse}")
+
         return web.json_response({
             "status": "ok",
             "message": clean_reply or ("Hier ist dein Bild, Boss!" if image_data else "Verstanden."),
             "response": clean_reply,
             "image": image_data,
-            "haptic": haptic_data
+            "haptic": haptic_data,
+            "audio_url": audio_url
         })
     except Exception as e:
         logger.error(f"Error in handle_chat_rest: {e}", exc_info=True)
@@ -6713,6 +6894,8 @@ def create_app() -> web.Application:
     app.router.add_get("/ws/chat", handle_chat_ws)
     app.router.add_post("/api/chat", handle_chat_rest)
     app.router.add_post("/api/audio/transcribe", handle_audio_transcribe)
+    app.router.add_post("/api/audio/tts", handle_audio_tts)
+    app.router.add_get("/api/audio/tts/{filename}", handle_audio_tts_serve)
 
     # Static files & PWA (with symlink traversal support for static/outputs)
     app.router.add_static("/static/", path=str(STATIC_DIR), name="static", follow_symlinks=True)
