@@ -3673,6 +3673,21 @@ def get_workflow_template(project: str = "megan") -> dict:
     raise FileNotFoundError(f"No workflow template found for project '{project}'")
 
 
+def get_active_profile_data() -> Dict[str, Any]:
+    """Loads active profile from Säule 2 (/data/vault/profile.json or local fallback)."""
+    candidates = [
+        Path("/data/vault/profile.json"),
+        BASE_DIR / "data" / "vault" / "profile.json"
+    ]
+    for p in candidates:
+        if p.is_file():
+            try:
+                return json.loads(p.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning(f"Error reading profile {p}: {e}")
+    return {}
+
+
 def prepare_comfy_workflow(
     project: str = "megan",
     prompt_text: str = "",
@@ -3694,6 +3709,40 @@ def prepare_comfy_workflow(
             steps = 25
         if cfg is None:
             cfg = 7.0
+
+        # SDXL Fotorealismus festnageln & Säule 2 Profil einbinden
+        photorealism_trigger = "photorealistic, raw photography, 35mm film, hyperdetailed skin texture, soft natural lighting"
+        prof = get_active_profile_data()
+        profile_tags = []
+        if prof:
+            dyn = prof.get("dynamic_tags", {})
+            if dyn.get("gender_tag"):
+                profile_tags.append(dyn["gender_tag"])
+            elif prof.get("gender"):
+                g_lower = str(prof["gender"]).lower()
+                profile_tags.append("1shemale, futanari, solo" if ("trans" in g_lower or "shemale" in g_lower) else "1girl, solo")
+
+            if "megan" not in prompt_text.lower():
+                profile_tags.append("megan")
+            if prof.get("hair_color") and not any(k in prompt_text.lower() for k in ["hair", "haare"]):
+                profile_tags.append(str(prof["hair_color"]))
+            if prof.get("eye_color") and "eye" not in prompt_text.lower():
+                profile_tags.append(str(prof["eye_color"]))
+            if prof.get("cup_size") and not any(k in prompt_text.lower() for k in ["breast", "brüste"]):
+                profile_tags.append(str(prof["cup_size"]))
+            if prof.get("body_type") and not any(k in prompt_text.lower() for k in ["body", "athletic", "curvy", "petite"]):
+                profile_tags.append(str(prof["body_type"]))
+            if prof.get("features") and "sleeve" in str(prof.get("features")).lower() and "tattoo" not in prompt_text.lower():
+                profile_tags.append("sleeve tattoo on left arm")
+
+        prefix_list = []
+        if profile_tags:
+            prefix_list.append(", ".join(profile_tags))
+        prefix_list.append(photorealism_trigger)
+        prefix_str = ", ".join(prefix_list)
+
+        if prefix_str and prefix_str not in prompt_text:
+            prompt_text = f"{prefix_str}, {prompt_text}".strip(", ")
 
     prompt_dict = get_workflow_template(proj)
     if seed is None:
@@ -5725,6 +5774,52 @@ async def handle_appearance_preset_activate(request: web.Request) -> web.Respons
             except Exception as b_err:
                 logger.warning(f"Error syncing preset to bot_config.json: {b_err}")
 
+        # Synchronize Säule 2: profile.json
+        try:
+            vis = pdata.get("visual", {})
+            g_val = pdata.get("gender") or ("Transgender" if "trans" in clean_id.lower() else "Female")
+            is_trans = "trans" in str(g_val).lower() or "trans" in clean_id.lower() or "shemale" in str(g_val).lower()
+
+            profile_data = {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "version": "2.0.0",
+                "description": "Säule 2 (Identität & Präsenz): Verwaltet das in Mission Control ausgewählte Profil.",
+                "active_preset_id": clean_id,
+                "name": pdata.get("name", f"Megan ({clean_id})"),
+                "gender": g_val,
+                "age": int(pdata.get("age", 24) if str(pdata.get("age", 24)).isdigit() else 24),
+                "hair_color": vis.get("hair_color") or ("Dark red hair" if is_trans else "dark brown hair"),
+                "hair_style": vis.get("hair_style") or vis.get("hair") or "long layered dark hair, soft natural waves",
+                "eye_color": vis.get("eye_color") or "green-blue eyes",
+                "cup_size": vis.get("cup_size") or ("large full natural big breasts" if is_trans else "large natural breasts"),
+                "body_type": vis.get("body_type") or ("femininer koerperbau" if is_trans else "slender athletic build, flat toned stomach"),
+                "height": pdata.get("prompt_height") or "178cm tall",
+                "features": vis.get("features") or pdata.get("physical_chat_lore", {}).get("markantes_merkmal", ""),
+                "style_aesthetic": "photorealistic, raw photography, 35mm film, hyperdetailed skin texture, soft natural lighting",
+                "dynamic_tags": {
+                    "gender_tag": "1shemale, futanari, solo" if is_trans else "1girl, solo",
+                    "hair_tag": f"{vis.get('hair_color', 'dark brown hair')}, {vis.get('hair_style', 'long layered hair')}",
+                    "eye_tag": f"{vis.get('eye_color', 'green-blue eyes')}, alluring captivating gaze",
+                    "body_tag": "slender athletic build, large natural breasts, flat toned stomach",
+                    "feature_tag": vis.get("features", ""),
+                    "photorealism_triggers": "photorealistic, raw photography, 35mm film, hyperdetailed skin texture, soft natural lighting"
+                }
+            }
+
+            vault_targets = [
+                Path("/data/vault/profile.json"),
+                BASE_DIR / "data" / "vault" / "profile.json"
+            ]
+            for vt in vault_targets:
+                try:
+                    vt.parent.mkdir(parents=True, exist_ok=True)
+                    vt.write_text(json.dumps(profile_data, indent=2, ensure_ascii=False), encoding="utf-8")
+                except Exception:
+                    pass
+            logger.info(f"Säule 2 profile.json synchronized with preset {clean_id}")
+        except Exception as p_err:
+            logger.warning(f"Error updating profile.json for preset {clean_id}: {p_err}")
+
         return web.json_response({"success": True, "id": clean_id, "message": f"Preset '{clean_id}' aktiviert."})
     except Exception as e:
         logger.error(f"Error activating appearance preset {clean_id}: {e}")
@@ -5913,6 +6008,46 @@ def build_chat_system_instruction(request: web.Request, user_message: str) -> st
         else:
             system_instruction = identity_lock + base_prompt
 
+        # Säule 1: Unveränderliche Hintergrundgeschichte (Canonical Vault)
+        can_path = Path("/data/vault/canonical.json") if Path("/data/vault/canonical.json").is_file() else BASE_DIR / "data" / "vault" / "canonical.json"
+        if can_path.is_file():
+            try:
+                can_data = json.loads(can_path.read_text(encoding="utf-8"))
+                bg_story = can_data.get("biography", {}).get("background_story", {}).get("origin_and_emergence", "")
+                if bg_story:
+                    system_instruction += f"\n\n### KANONISCHER HINTERGRUND (CANONICAL VAULT):\n{bg_story}"
+            except Exception:
+                pass
+
+        # Säule 2: Aktives Profil & Präsenz (profile.json)
+        prof_data = get_active_profile_data()
+        if prof_data:
+            g = prof_data.get("gender", "Female")
+            a = prof_data.get("age", 24)
+            h = prof_data.get("hair_color", "dark brown hair")
+            e = prof_data.get("eye_color", "green-blue eyes")
+            c = prof_data.get("cup_size", "large natural breasts")
+            b = prof_data.get("body_type", "slender athletic build")
+            f = prof_data.get("features", "")
+            system_instruction += (
+                f"\n\n### DEINE AKTUELLE PHYSISCHE PRÄSENZ (PROFIL):\n"
+                f"- Geschlecht/Typus: {g}\n"
+                f"- Alter: {a} Jahre\n"
+                f"- Haare & Augen: {h}, {e}\n"
+                f"- Körbchengröße & Körperbau: {c}, {b}\n"
+                f"- Merkmale/Tattoos: {f}"
+            )
+
+        # Säule 3: Megans Gedächtnis & Vorlieben
+        try:
+            from megan_memory import megan_memory_store
+            prefs = megan_memory_store.get_all_preferences()
+            if prefs:
+                pref_lines = [f"- {k}: {v}" for k, v in list(prefs.items())[:6]]
+                system_instruction += f"\n\n### GEMERKTE VORLIEBEN & LANGZEITGEDÄCHTNIS (SÄULE 3):\n" + "\n".join(pref_lines)
+        except Exception:
+            pass
+
         if pers_directives and "PERSÖNLICHKEITS" not in system_instruction:
             system_instruction += f"\n\n### AKTUELLE PERSÖNLICHKEITS- & DYNAMIK-RICHTLINIEN:\n{pers_directives}"
 
@@ -5930,7 +6065,7 @@ def build_chat_system_instruction(request: web.Request, user_message: str) -> st
             system_instruction += (
                 "\n\n### COMFYUI BILD-GENERIERUNG:\n"
                 "- Wenn Big Boss nach einem Bild, Foto oder Selfie fragt oder du ein Bild zeigen willst,\n"
-                "  bette einen Tag am Ende deiner Antwort ein: [IMAGE: 1girl, megan, solo, ...tags, masterpiece]\n"
+                "  bette einen Tag am Ende deiner Antwort ein: [IMAGE: 1girl, megan, solo, ...tags, photorealistic, raw photography, 35mm film]\n"
             )
 
         has_photo_req, env_req, sit_req = detect_photo_intent(user_message)
@@ -5938,7 +6073,7 @@ def build_chat_system_instruction(request: web.Request, user_message: str) -> st
             system_instruction += (
                 f"\n\n[SYSTEM-DIREKTIVE: Big Boss verlangt ein Foto/Bild von dir (Umgebung: {env_req}, Situation: {sit_req}). "
                 f"Antworte kurz und direkt in 1-2 Sätzen und gib zwingend am Ende den Tag "
-                f"[IMAGE: 1girl, megan, solo, {sit_req}, {env_req}, masterpiece, highly detailed, photorealistic] aus!]"
+                f"[IMAGE: 1girl, megan, solo, {sit_req}, {env_req}, photorealistic, raw photography, 35mm film, hyperdetailed skin texture, soft natural lighting] aus!]"
             )
     else:
         system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
@@ -6551,6 +6686,7 @@ def create_app() -> web.Application:
 
     # Megan Studio Video Ingest & Vision Endpoints
     app.router.add_post("/api/megan/video/upload", handle_megan_video_upload)
+    app.router.add_post("/api/megan/image/upload", handle_megan_video_upload)
     app.router.add_post("/api/megan/video/process", handle_megan_video_process)
     app.router.add_get("/api/megan/video/frame/{video_id}/{filename}", handle_megan_video_frame)
     app.router.add_get("/api/megan/video/file/{filename}", handle_megan_video_file)

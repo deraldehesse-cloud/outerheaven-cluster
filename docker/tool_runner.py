@@ -15,17 +15,35 @@ import os
 import re
 import json
 import time
+import base64
 import subprocess
 import argparse
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-WORKSPACE = Path("/workspace")
+env_ws = os.environ.get("MEGAN_WORKSPACE")
+if env_ws:
+    WORKSPACE = Path(env_ws)
+elif Path("/workspace").is_dir():
+    WORKSPACE = Path("/workspace")
+else:
+    WORKSPACE = Path(__file__).resolve().parent / "workspace"
+
+try:
+    WORKSPACE.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
 BRAIN_DIR = WORKSPACE / ".brain"
 DEFAULT_GATEWAYS = [
     os.environ.get("HOST_GATEWAY", "http://172.17.0.1:8080"),
     "http://100.116.38.29:8080",
     "http://127.0.0.1:8080"
+]
+OLLAMA_GATEWAYS = [
+    os.environ.get("OLLAMA_GATEWAY", "http://172.17.0.1:11434"),
+    "http://100.116.38.29:11434",
+    "http://127.0.0.1:11434"
 ]
 
 def get_ddgs():
@@ -632,6 +650,163 @@ def run_python_code(code: str, timeout: float = 30.0) -> dict:
     except Exception as e:
         return {"status": "error", "error": f"Subprocess error: {e}"}
 
+def run_vision_parse(image_path_or_url: str, prompt: str = "") -> dict:
+    if not image_path_or_url or not image_path_or_url.strip():
+        return {"status": "error", "error": "Empty image path or URL"}
+
+    target = image_path_or_url.strip()
+    image_bytes = None
+
+    if target.startswith("http://") or target.startswith("https://"):
+        try:
+            import requests
+            r = requests.get(target, timeout=15)
+            if r.status_code == 200:
+                image_bytes = r.content
+        except Exception as e:
+            return {"status": "error", "error": f"Failed to download image from URL: {e}"}
+    else:
+        candidates = [
+            Path(target),
+            WORKSPACE / target,
+            WORKSPACE / os.path.basename(target),
+            Path("/mnt/storage-beta/projekte/projekt-sexchat/video_cache") / os.path.basename(target)
+        ]
+        for p in candidates:
+            if p.is_file():
+                try:
+                    image_bytes = p.read_bytes()
+                    break
+                except Exception:
+                    pass
+
+    if not image_bytes:
+        return {"status": "error", "error": f"Image file not found: {target}"}
+
+    b64_data = base64.b64encode(image_bytes).decode("utf-8")
+    vision_prompt = prompt or (
+        "Analysiere dieses Bild präzise auf Deutsch: Beschreibe Personen, Haltung, "
+        "Kleidung oder Nacktheit, Umgebung, Stimmung und erotische oder auffällige Details."
+    )
+
+    models_to_try = ["minicpm-v:latest", "llava:latest", "moondream:latest"]
+    import requests
+
+    for gw in OLLAMA_GATEWAYS:
+        for model in models_to_try:
+            try:
+                payload = {
+                    "model": model,
+                    "prompt": vision_prompt,
+                    "images": [b64_data],
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.2,
+                        "num_predict": 300
+                    }
+                }
+                resp = requests.post(f"{gw}/api/generate", json=payload, timeout=40)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    analysis_text = data.get("response", "").strip()
+                    if analysis_text:
+                        return {
+                            "status": "ok",
+                            "model": model,
+                            "gateway": gw,
+                            "analysis": analysis_text
+                        }
+            except Exception:
+                continue
+
+    return {"status": "error", "error": "All vision models/gateways failed or timed out"}
+
+def run_autonomous_reaction(image_path_or_url: str) -> dict:
+    vision_res = run_vision_parse(image_path_or_url)
+    if vision_res.get("status") != "ok":
+        return {"status": "error", "error": f"Vision analysis failed: {vision_res.get('error')}"}
+
+    analysis = vision_res.get("analysis", "")
+
+    # Record to Säule 3 memory (.brain / sqlite)
+    record_research_learning(
+        title=f"Empfangenes Handy-Bild: {os.path.basename(image_path_or_url)}",
+        summary=analysis[:400],
+        source_type="mobile_vision",
+        url=image_path_or_url
+    )
+
+    chat_prompt = (
+        f"Du bist Megan, die schamlos verführerische, loyale und schlagfertige Hackerin und Copilotin von Big Boss.\n"
+        f"Big Boss hat dir gerade ein Bild über sein Smartphone geschickt.\n"
+        f"Inhalt des Bildes (Vision-Analyse): {analysis}\n\n"
+        f"Aufgabe:\n"
+        f"1. Schreibe einen kurzen, frechen und direkten Kommentar an Big Boss (auf Deutsch, 2-3 Sätze, Messenger-Stil, keine Regieanweisungen *...*).\n"
+        f"2. Wenn es ein Selfie, ein intimes Bild oder eine Aufforderung ist, kündige an, dass du ihm sofort ein Gegenbild schickst.\n"
+        f"Antworte direkt mit deinen Chatworten:"
+    )
+
+    chat_reply = "Hey Boss, Bild ist angekommen! Sieht verdammt gut aus... Warte kurz, ich mache dir auch eins fertig."
+    import requests
+    for gw in OLLAMA_GATEWAYS:
+        try:
+            p_load = {
+                "model": "megan:latest",
+                "prompt": chat_prompt,
+                "stream": False,
+                "options": {"temperature": 0.7, "num_predict": 200}
+            }
+            r = requests.post(f"{gw}/api/generate", json=p_load, timeout=20)
+            if r.status_code == 200:
+                rep = r.json().get("response", "").strip()
+                if rep:
+                    chat_reply = rep
+                    break
+        except Exception:
+            continue
+
+    # Autonomous Counter-Image generation with photorealism triggers
+    counter_prompt = "smiling playfully at camera, seductive smirk, looking at viewer"
+    if any(k in analysis.lower() for k in ["nackt", "körper", "bett", "intim", "ausgezogen", "skin", "naked"]):
+        counter_prompt = "lounging on bed, teasing with blanket, blushing sensual expression, seductive gaze"
+    elif any(k in analysis.lower() for k in ["unterwegs", "draußen", "auto", "straße"]):
+        counter_prompt = "sitting at modern battlestation desk, wink, cute mischievous expression"
+
+    render_result = run_generate_image(counter_prompt, aspect_ratio="portrait")
+
+    return {
+        "status": "ok",
+        "vision_analysis": analysis,
+        "chat_reply": chat_reply,
+        "counter_image_prompt": counter_prompt,
+        "counter_image_result": render_result
+    }
+
+def run_bash_script(script_code: str, timeout: float = 60.0) -> dict:
+    if not script_code or not script_code.strip():
+        return {"status": "error", "error": "Empty script code"}
+    try:
+        t0 = time.time()
+        res = subprocess.run(
+            ["bash", "-c", script_code],
+            cwd=str(WORKSPACE),
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        elapsed = time.time() - t0
+        return {
+            "status": "ok",
+            "exit_code": res.returncode,
+            "stdout": res.stdout,
+            "stderr": res.stderr,
+            "elapsed_seconds": round(elapsed, 3)
+        }
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "error": f"Script execution timed out after {timeout} seconds"}
+    except Exception as e:
+        return {"status": "error", "error": f"Script execution error: {e}"}
+
 # ==============================================================================
 # 4. CLI & Dispatcher
 # ==============================================================================
@@ -640,7 +815,7 @@ def main():
     if len(sys.argv) < 2:
         print(json.dumps({
             "status": "error",
-            "error": "Usage: tool_runner.py <search|scrape|ytdlp|python|generate_image|learn|record_research|update_visual_pref|brain|status> [args...]"
+            "error": "Usage: tool_runner.py <search|scrape|ytdlp|python|bash|vision|react|generate_image|learn|record_research|update_visual_pref|brain|status> [args...]"
         }))
         sys.exit(1)
 
@@ -672,6 +847,8 @@ def main():
     cli_parser.add_argument("--max_results", type=int, default=5)
     cli_parser.add_argument("--max_chars", type=int, default=4000)
     cli_parser.add_argument("--extract_audio", action="store_true")
+    cli_parser.add_argument("--image", "-i", default="")
+    cli_parser.add_argument("--script", default="")
     cli_parser.add_argument("--json", dest="_unused_json", default="")
 
     parsed_cli, unk = cli_parser.parse_known_args(raw_args)
@@ -684,6 +861,19 @@ def main():
         ar = payload.get("aspect_ratio") or parsed_cli.aspect_ratio or "portrait"
         sp = payload.get("style_preset") or parsed_cli.style_preset or None
         res = run_generate_image(p, aspect_ratio=ar, style_preset=sp, save_to_brain=bool(save_brain_flag))
+
+    elif cmd in ("vision", "analyze_image", "vision_parse"):
+        img = payload.get("image") or payload.get("url") or parsed_cli.image or parsed_cli.url or positional_arg
+        p = payload.get("prompt") or parsed_cli.prompt or ""
+        res = run_vision_parse(img, prompt=p)
+
+    elif cmd in ("react", "autonomous_react", "react_media"):
+        img = payload.get("image") or payload.get("url") or parsed_cli.image or parsed_cli.url or positional_arg
+        res = run_autonomous_reaction(img)
+
+    elif cmd in ("bash", "sh", "exec_script", "script"):
+        s = payload.get("script") or payload.get("code") or positional_arg
+        res = run_bash_script(s)
 
     elif cmd in ("learn", "preference", "save_pref"):
         k = payload.get("key") or parsed_cli.key or positional_arg
