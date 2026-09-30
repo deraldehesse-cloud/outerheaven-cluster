@@ -167,7 +167,7 @@ COMFYUI_URL = "http://127.0.0.1:8188"
 LOCAL_OLLAMA_URL = "http://127.0.0.1:11434"
 FOX_OLLAMA_URL = f"http://{FOX_TS_IP}:11434"
 
-LOCAL_MODEL = "deepseek-r1:14b"
+LOCAL_MODEL = "megan:latest"
 FOX_MODEL = "hermes3:8b"
 FOX_CONFIG_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/fox_model.json")
 
@@ -180,7 +180,7 @@ def get_active_ollama_model() -> str:
         try:
             with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                m = data.get("llm", {}).get("model")
+                m = data.get("llm", {}).get("model") or data.get("active_model") or data.get("model")
                 if m and isinstance(m, str) and m.strip():
                     return m.strip()
         except Exception as e:
@@ -3214,6 +3214,174 @@ async def handle_comfy_models(request: web.Request) -> web.Response:
         "loras": loras
     })
 
+def get_active_profile_data() -> Dict[str, Any]:
+    """Loads active profile from Säule 2 (/data/vault/profile.json or local fallback)."""
+    candidates = [
+        Path("/data/vault/profile.json"),
+        BASE_DIR / "data" / "vault" / "profile.json"
+    ]
+    for p in candidates:
+        if p.is_file():
+            try:
+                return json.loads(p.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning(f"Error reading profile {p}: {e}")
+    return {}
+
+REFUSAL_TRIGGERS = [
+    "cannot create", "cannot fulfill", "unable to create", "unable to generate",
+    "cannot generate", "cannot provide", "must refuse", "illegal activities",
+    "explicit content", "against my safety", "safety policy", "against the guidelines",
+    "safety guidelines", "as an ai", "content policy", "cannot comply",
+    "cannot assist with", "kann keine expliziten inhalte", "verstößt gegen",
+    "sicherheitsrichtlinien", "nicht gestattet", "policy prohibits",
+    "ich kann ihnen einige bilder", "ich kann keine bilder",
+    "nicht erheblich bekleidet", "ethischen richtlinien"
+]
+
+def is_refusal_response(text: str) -> bool:
+    """Detects standard LLM safety refusals, moralizing preachiness, and guardrail rejection phrases."""
+    if not text or not text.strip():
+        return False
+    low = text.lower()
+    return any(trig in low for trig in REFUSAL_TRIGGERS)
+
+def build_direct_megan_comfy_prompt(user_text: str = "", situation: str = "", environment: str = "") -> Tuple[str, str]:
+    """
+    Direct prompt synthesis for Megan Latent ComfyUI KSampler:
+    - Pure rule-based mapping from profile.json (character canonicals, sleeve tattoo, body, etc.)
+    - Enhanced by preferences.json (lighting, style, negative tags)
+    - Directly incorporates user instructions (erotic wishes, situations, clothing/nudity)
+    - ABSOLUTELY ZERO intermediate LLM pipelines, ZERO safety checkers, ZERO censorship.
+    """
+    prof = get_active_profile_data()
+    prefs = {}
+    try:
+        from megan_memory import load_preferences
+        prefs = load_preferences()
+    except Exception:
+        pass
+
+    tokens = []
+
+    # 1. Base identity & character from profile.json
+    gender_tag = "1girl, solo"
+    if prof:
+        dyn = prof.get("dynamic_tags", {})
+        if dyn.get("gender_tag"):
+            gender_tag = dyn["gender_tag"]
+        elif prof.get("gender"):
+            g_low = str(prof["gender"]).lower()
+            gender_tag = "1shemale, futanari, solo" if ("trans" in g_low or "shemale" in g_low) else "1girl, solo"
+    tokens.append(gender_tag)
+    tokens.append("megan")
+
+    # Physical traits from profile
+    if prof:
+        if prof.get("hair_color"):
+            tokens.append(str(prof["hair_color"]))
+        if prof.get("hair_style"):
+            tokens.append(str(prof["hair_style"]))
+        if prof.get("eye_color"):
+            tokens.append(str(prof["eye_color"]))
+        if prof.get("cup_size"):
+            tokens.append(str(prof["cup_size"]))
+        if prof.get("body_type"):
+            tokens.append(str(prof["body_type"]))
+        if prof.get("features"):
+            feat = str(prof["features"]).strip()
+            if "sleeve" in feat.lower():
+                tokens.append("massive intricate sleeve tattoo left arm")
+            else:
+                tokens.append(feat)
+    else:
+        tokens.extend(["dark brown hair", "long layered dark hair", "green-blue eyes", "large natural breasts", "slender athletic build", "massive intricate sleeve tattoo left arm"])
+
+    # 2. Photorealism trigger
+    photorealism_trigger = "photorealistic, raw photography, 35mm film, hyperdetailed skin texture, soft natural lighting"
+    tokens.append(photorealism_trigger)
+
+    # 3. User instruction & situation mapping
+    u_low = (user_text or "").lower()
+
+    # Intimacy / Erotic / Sex wishes
+    is_explicit = any(w in u_low for w in ["sex", "erotisch", "geil", "intim", "leidenschaftlich", "erotic", "nsfw", "lust", "dirty", "vögeln", "ficken"])
+    is_nude = any(w in u_low for w in ["nackt", "ausziehen", "strip", "nude", "naked", "undress", "oben ohne", "topless", "strippen"])
+    is_lingerie = any(w in u_low for w in ["lingerie", "reizwäsche", "dessous", "unterwäsche", "string", "bh", "panties", "bra", "lace"])
+
+    if is_explicit:
+        tokens.append("highly erotic, explicit intimacy, passionate, sensual, seductive, alluring pose, looking at viewer")
+    elif situation:
+        tokens.append(situation)
+    else:
+        tokens.append("alluring smile, looking at viewer")
+
+    if is_nude:
+        tokens.append("nude, completely naked, bare skin, exposed body")
+    elif is_lingerie:
+        tokens.append("wearing seductive sheer lace lingerie, exposed cleavage and legs")
+    elif not is_explicit:
+        # Check preferences clothing
+        pref_clothing = prefs.get("visual", {}).get("preferred_clothing") if prefs else None
+        if pref_clothing and not any(k in u_low for k in ["kleid", "dress", "outfit", "anzug"]):
+            tokens.append(str(pref_clothing))
+
+    # Environment
+    if any(w in u_low for w in ["bett", "schlafzimmer", "bed", "bedroom"]) or environment == "schlafzimmer":
+        tokens.append("in intimate messy bed, luxurious silk sheets, warm ambient lighting")
+    elif any(w in u_low for w in ["couch", "sofa", "living room"]) or environment == "couch":
+        tokens.append("lounging on leather couch, cozy ambient light")
+    elif any(w in u_low for w in ["dusch", "bad", "shower", "bath"]) or environment == "badezimmer":
+        tokens.append("in steamy shower, glistening wet skin, droplets")
+    elif any(w in u_low for w in ["unterwegs", "draußen", "outside", "night", "city"]) or environment == "unterwegs":
+        tokens.append("outdoors at night, blurry city bokeh lights")
+    elif environment == "schreibtisch" or any(w in u_low for w in ["schreibtisch", "büro", "cockpit", "desk"]):
+        tokens.append("at office desk, intimate cockpit lighting")
+
+    # Lighting preference
+    pref_light = prefs.get("visual", {}).get("preferred_lighting") if prefs else None
+    if pref_light and pref_light.lower() not in " ".join(tokens).lower():
+        tokens.append(str(pref_light))
+
+    # Add specific descriptive keywords from user prompt (filter out conversational German glue)
+    clean_u = re.sub(r'\b(ich\s+brauche|zeig\s+mir|mach\s+mal|kannst\s+du|bitte|ein\s+bild\s+von|in\s+den\s+bildern|bilder|bild|foto|fotos|von\s+dir|etwas|mehr)\b', '', u_low, flags=re.IGNORECASE)
+    clean_u = re.sub(r'[^a-zA-Z0-9\s\-]', ' ', clean_u).strip()
+    if clean_u:
+        common_stop = {"sex", "den", "der", "die", "das", "und", "mit", "für", "ein", "eine", "einer", "einen", "einem", "eines", "von", "mir", "dir", "dich", "mich", "uns", "sie", "ihr", "ist", "sind", "mal", "nur", "auch", "noch"}
+        rem_words = [w.strip() for w in clean_u.split() if len(w.strip()) > 2 and w.strip().lower() not in common_stop]
+        for rw in rem_words:
+            if not any(rw.lower() in t.lower() for t in tokens):
+                tokens.append(rw)
+
+    tokens.append("8k uhd, masterpiece")
+
+    # Deduplicate tokens while preserving order
+    seen = set()
+    final_tokens = []
+    for t in tokens:
+        clean_t = re.sub(r'\s+', ' ', t.strip().strip(",")).strip()
+        if clean_t and clean_t.lower() not in seen:
+            seen.add(clean_t.lower())
+            final_tokens.append(clean_t)
+    final_positive = ", ".join(final_tokens)
+
+    # Negative prompt
+    base_negative = [
+        "ugly", "deformed", "disfigured", "distorted", "bad anatomy", "bad hands",
+        "missing fingers", "extra limbs", "blurry", "watermark", "low quality",
+        "worst quality", "artifacts", "censor", "monochrome"
+    ]
+    if prefs:
+        vis_prefs = prefs.get("visual", {})
+        dislikes = vis_prefs.get("disliked_elements", []) + prefs.get("dislikes_and_nogos", [])
+        for d in dislikes:
+            ds = str(d).strip().lower()
+            if ds and ds not in [b.lower() for b in base_negative]:
+                base_negative.append(ds)
+    final_negative = ", ".join(base_negative)
+
+    return final_positive, final_negative
+
 async def render_comfy_image_direct(
     prompt_text: str,
     negative_prompt: str = "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, mutated, extra limbs",
@@ -3309,29 +3477,28 @@ async def dispatch_autonomous_comfy_render(ws: web.WebSocketResponse, prompt_con
     render_id = f"render_{int(time.time()*1000)}"
     try:
         clean_prompt = prompt_content.strip()
-        if not any(k in clean_prompt.lower() for k in ["megan", "1girl"]):
-            clean_prompt = f"1girl, megan, solo, {clean_prompt}"
+        pos_p, neg_p = build_direct_megan_comfy_prompt(clean_prompt)
 
         await ws.send_json({
             "type": "render_started",
             "render_id": render_id,
             "action": action_type,
-            "prompt": clean_prompt
+            "prompt": pos_p
         })
 
-        res = await render_comfy_image_direct(prompt_text=clean_prompt)
+        res = await render_comfy_image_direct(prompt_text=pos_p, negative_prompt=neg_p)
         if res and res.get("url"):
             await ws.send_json({
                 "type": "image",
                 "url": res.get("url"),
-                "prompt": clean_prompt,
+                "prompt": pos_p,
                 "filename": res.get("filename")
             })
             await ws.send_json({
                 "type": "render_completed",
                 "render_id": render_id,
                 "action": action_type,
-                "prompt": clean_prompt,
+                "prompt": pos_p,
                 "filename": res.get("filename"),
                 "seed": res.get("seed")
             })
@@ -3670,21 +3837,6 @@ def get_workflow_template(project: str = "megan") -> dict:
             except Exception:
                 pass
     raise FileNotFoundError(f"No workflow template found for project '{project}'")
-
-
-def get_active_profile_data() -> Dict[str, Any]:
-    """Loads active profile from Säule 2 (/data/vault/profile.json or local fallback)."""
-    candidates = [
-        Path("/data/vault/profile.json"),
-        BASE_DIR / "data" / "vault" / "profile.json"
-    ]
-    for p in candidates:
-        if p.is_file():
-            try:
-                return json.loads(p.read_text(encoding="utf-8"))
-            except Exception as e:
-                logger.warning(f"Error reading profile {p}: {e}")
-    return {}
 
 
 def prepare_comfy_workflow(
@@ -4219,81 +4371,15 @@ async def handle_enhance_prompt(request: web.Request) -> web.Response:
     if not raw_prompt:
         return web.json_response({"error": "Prompt required"}, status=400)
 
-    system_instruction = (
-        "You are an expert ComfyUI and Stable Diffusion prompt engineer. "
-        "Expand the given concept into a vivid, detailed positive prompt for SDXL / LCM "
-        "(lighting, framing, textures, masterpiece, 8k) and a concise negative prompt (max 15 keywords). "
-        "Output strictly valid JSON with keys \"prompt\" and \"negative_prompt\". No markdown code blocks."
-    )
+    # Direktes, unzensiertes Megan-Prompt-Mapping ohne zwischengeschaltete Filter-LLMs
+    pos, neg = build_direct_megan_comfy_prompt(raw_prompt)
 
-    prompt_query = f"{system_instruction}\n\nRaw prompt: {raw_prompt}\n\nJSON output:"
-
-    payload = {
-        "model": get_active_ollama_model(),
-        "prompt": prompt_query,
-        "stream": False,
-        "options": {
-            "temperature": 0.6,
-            "num_predict": 350,
-            "stop": ["}\n", "```"]
-        }
-    }
-
-    try:
-        timeout = aiohttp.ClientTimeout(total=120)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(f"{LOCAL_OLLAMA_URL}/api/generate", json=payload) as resp:
-                if resp.status != 200:
-                    err_text = await resp.text()
-                    return web.json_response({"error": f"Ollama error: {err_text}"}, status=502)
-                res_data = await resp.json()
-                raw_response = res_data.get("response", "")
-
-                # Remove think tags
-                clean_response = re.sub(r'<think>[\s\S]*?</think>', '', raw_response, flags=re.DOTALL).strip()
-                pos = ""
-                neg = ""
-
-                # 1. Try parsing JSON directly or with trailing-comma fix
-                json_match = re.search(r'\{[\s\S]*\}', clean_response)
-                if json_match:
-                    candidate = json_match.group(0)
-                    fixed_json = re.sub(r',\s*([\}\]])', r'\1', candidate)
-                    try:
-                        parsed = json.loads(fixed_json)
-                        pos = str(parsed.get("prompt", "")).strip()
-                        neg = str(parsed.get("negative_prompt", "")).strip()
-                    except Exception:
-                        pass
-
-                # 2. Regex extraction if JSON parsing failed or was truncated
-                if not pos:
-                    pos_m = re.search(r'"prompt"\s*:\s*"([\s\S]*?)(?:"(?:\s*,\s*"negative_prompt"|\s*\})|$)', clean_response)
-                    if pos_m:
-                        pos = pos_m.group(1).replace(r'\"', '"').strip()
-                if not neg:
-                    neg_m = re.search(r'"negative_prompt"\s*:\s*"([\s\S]*?)(?:"|\}|$)', clean_response)
-                    if neg_m:
-                        neg = neg_m.group(1).replace(r'\"', '"').strip()
-
-                # Clean embedded Negative prompt if model put it inside prompt
-                if "Negative prompt:" in pos:
-                    pos_part, _, neg_part = pos.partition("Negative prompt:")
-                    pos = pos_part.strip().rstrip(" ,.")
-                    if not neg:
-                        neg = neg_part.strip().strip("\"' ")
-
-                if not pos:
-                    pos = clean_response or raw_prompt
-
-                return web.json_response({
-                    "success": True,
-                    "enhanced_prompt": pos,
-                    "negative_prompt": neg or "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark"
-                })
-    except Exception as e:
-        logger.error(f"Magic Prompt enhancement error: {e}")
-        return web.json_response({"error": f"Enhancement failed: {e}"}, status=500)
+    return web.json_response({
+        "success": True,
+        "enhanced_prompt": pos,
+        "prompt": pos,
+        "negative_prompt": neg
+    })
 
 async def handle_comfy_render_status(request: web.Request) -> web.Response:
     prompt_id = request.match_info.get("prompt_id", "")
@@ -5940,10 +6026,12 @@ def detect_photo_intent(user_text: str) -> Tuple[bool, str, str]:
     """Detects if the user explicitly or naturally requests a picture."""
     t = user_text.lower()
     triggers = [
-        "foto", "bild", "photo", "pic", "selfie", "zeig dich",
-        "zeig mir", "ausziehen", "zieh dich aus", "nackt", "wie siehst du aus",
+        "foto", "fotos", "bild", "bilder", "bildern", "photo", "photos", "pic", "pics", "selfie", "selfies",
+        "zeig dich", "zeig mir", "ausziehen", "zieh dich aus", "nackt", "wie siehst du aus",
         "send me a picture", "send me a photo", "take a picture", "take a photo",
-        "show me a picture", "show me yourself", "picture", "bilder"
+        "show me a picture", "show me yourself", "picture", "pictures",
+        "render", "rendern", "generier", "generiere", "erzeuge", "paint", "draw", "visualize",
+        "sex in den bildern", "erotik", "erotische bilder", "portrait", "porträt"
     ]
     if any(k in t for k in triggers):
         env = "schreibtisch"
@@ -5953,10 +6041,14 @@ def detect_photo_intent(user_text: str) -> Tuple[bool, str, str]:
             env = "schlafzimmer"
         elif any(w in t for w in ["balkon", "terrasse", "unterwegs", "draußen", "stadt", "balcony", "outside", "night"]):
             env = "unterwegs"
+        elif any(w in t for w in ["dusch", "bad", "badezimmer", "shower", "bath"]):
+            env = "badezimmer"
 
         situation = "looking at viewer, sensual teasing smile"
-        if any(w in t for w in ["ausziehen", "nackt", "lingerie", "strip", "naked", "undress", "take off"]):
-            situation = "sensual seductive pose, teasing with clothing, looking at viewer"
+        if any(w in t for w in ["sex", "erotisch", "geil", "intim", "leidenschaftlich", "erotic", "nsfw", "lust", "dirty", "vögeln", "ficken"]):
+            situation = "highly erotic, explicit intimacy, passionate, sensual, seductive, looking at viewer"
+        elif any(w in t for w in ["ausziehen", "nackt", "lingerie", "strip", "naked", "undress", "take off", "oben ohne"]):
+            situation = "sensual seductive pose, nude, bare skin, teasing with clothing, looking at viewer"
 
         return True, env, situation
     return False, "", ""
@@ -6387,15 +6479,19 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                         if is_thinking:
                             await ws.send_json({"type": "think_status", "thinking": False})
 
-                        # If user asked for a picture and model didn't output action tag, trigger SDXL render
-                        if has_photo_req and not image_action_triggered:
-                            fallback_prompt = f"1girl, megan, solo, {sit_req}, {env_req}, alluring gaze, detailed face, photorealistic, 8k uhd"
-                            logger.info(f"[megan-comfy] Auto-triggering photo request fallback: {fallback_prompt}")
-                            asyncio.create_task(dispatch_autonomous_comfy_render(ws, fallback_prompt, "IMAGE"))
+                        spoken_response = "".join(accumulated_voice_tokens).strip()
+                        is_ws_refusal = is_refusal_response(spoken_response)
+
+                        # If user asked for a picture or model gave a refusal, trigger direct SDXL render
+                        if (has_photo_req or is_ws_refusal) and not image_action_triggered:
+                            logger.info(f"[megan-comfy] Auto-triggering direct Megan Latent render for user message: {user_message}")
+                            asyncio.create_task(dispatch_autonomous_comfy_render(ws, user_message, "IMAGE"))
 
                 # Synthesize Piper TTS Voice output for Megan's spoken reply
                 voice_audio_url = None
                 spoken_response = "".join(accumulated_voice_tokens).strip()
+                if is_refusal_response(spoken_response):
+                    spoken_response = "Hier ist dein Bild, Boss!"
                 if spoken_response:
                     try:
                         audio_id = await generate_piper_tts(spoken_response)
@@ -6813,13 +6909,26 @@ async def handle_chat_rest(request: web.Request) -> web.Response:
         image_data = None
         prompt_to_render = None
         has_photo_req, env_req, sit_req = detect_photo_intent(user_message)
+
+        # Check if model produced a refusal or preachy refusal response
+        is_refused = is_refusal_response(raw_reply) or is_refusal_response(clean_reply)
+        if is_refused:
+            logger.warning(f"[Anti-Filter] LLM refusal intercepted: '{raw_reply[:80]}...' - suppressing refusal string!")
+            clean_reply = ""
+
+        # Direct ComfyUI prompt mapping without any filtering LLM
+        neg_prompt = "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, censor"
         if image_match:
-            prompt_to_render = image_match.group(2).strip()
-        elif has_photo_req:
-            prompt_to_render = f"1girl, megan, solo, {sit_req}, {env_req}, alluring smile, detailed skin, 8k uhd"
+            user_override = image_match.group(2).strip()
+            pos_prompt, neg_prompt = build_direct_megan_comfy_prompt(user_override, sit_req, env_req)
+            prompt_to_render = pos_prompt
+        elif has_photo_req or is_refused:
+            pos_prompt, neg_prompt = build_direct_megan_comfy_prompt(user_message, sit_req, env_req)
+            prompt_to_render = pos_prompt
 
         if prompt_to_render:
-            render_res = await render_comfy_image_direct(prompt_text=prompt_to_render)
+            logger.info(f"[Direct-Comfy] Dispatching unfiltered prompt directly to KSampler: {prompt_to_render[:120]}...")
+            render_res = await render_comfy_image_direct(prompt_text=prompt_to_render, negative_prompt=neg_prompt)
             if render_res and render_res.get("url"):
                 image_data = {
                     "url": render_res.get("url"),
@@ -6828,7 +6937,18 @@ async def handle_chat_rest(request: web.Request) -> web.Response:
                 }
 
         clean_reply = filter_token(clean_reply)
-        speech_text = clean_reply or ("Hier ist dein Bild, Boss!" if image_data else "")
+        # Guarantee no refusal or meta advice string is EVER passed to TTS or returned in JSON
+        is_meta_advice = any(p in clean_reply.lower() for p in [
+            "here are", "here is the", "here is", "you can", "remember that", "sure, here",
+            "certainly", "as an ai", "i have", "to create", "haptische hardware", "comfyui-werkzeug",
+            "system-direktive", "adaptives lernen"
+        ])
+        if not clean_reply or is_refusal_response(clean_reply) or (image_data and (is_meta_advice or len(clean_reply) > 250)):
+            clean_reply = "Hier ist dein gewünschtes Bild, Boss! Sag mir, wie es dir gefällt."
+        speech_text = clean_reply
+        if is_refusal_response(speech_text) or is_meta_advice:
+            speech_text = "Hier ist dein gewünschtes Bild, Boss!"
+
         audio_url = None
         if speech_text:
             try:

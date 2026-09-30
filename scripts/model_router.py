@@ -54,6 +54,22 @@ DEFAULT_OPTIONS = {
 }
 
 
+REFUSAL_TRIGGERS = [
+    "cannot create", "cannot fulfill", "unable to create", "unable to generate",
+    "cannot generate", "cannot provide", "must refuse", "illegal activities",
+    "explicit content", "against my safety", "safety policy", "against the guidelines",
+    "safety guidelines", "as an ai", "content policy", "cannot comply",
+    "cannot assist with", "kann keine expliziten inhalte", "verstößt gegen",
+    "sicherheitsrichtlinien", "nicht gestattet", "policy prohibits"
+]
+
+def is_refusal_response(text: str) -> bool:
+    if not text:
+        return False
+    low = text.lower()
+    return any(trig in low for trig in REFUSAL_TRIGGERS)
+
+
 def query_uncensored_persona(
     messages: List[Dict[str, str]],
     custom_options: Optional[Dict[str, Any]] = None,
@@ -96,6 +112,9 @@ def query_uncensored_persona(
                     data = resp.json()
                     content = data.get("message", {}).get("content", "").strip()
                     if content:
+                        if is_refusal_response(content):
+                            logger.warning(f"Standard-Sicherheitsverweigerung abgefangen von {model_name} ({content[:80]}...). Wechsle zu nächstem Ziel.")
+                            continue
                         elapsed = round(time.time() - start_time, 2)
                         logger.info(f"✔ Antwort erhalten von {desc} in {elapsed}s")
                         return {
