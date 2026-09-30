@@ -38,6 +38,7 @@ FOX_WORKER_HOSTS = [
 ]
 
 ROUTING_TARGETS = [
+    {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "megan:latest", "desc": "Outer Heaven Local - Megan Uncensored (Lexi Llama 3)"},
     {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "lexi-llama-3-8b-uncensored_q4_k_m:latest", "desc": "Outer Heaven Local - Lexi Llama 3 8B Uncensored"},
     {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "darkidol-8b:latest", "desc": "Outer Heaven Local - DarkIdol 8B Uncensored"}
 ]

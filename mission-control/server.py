@@ -2130,13 +2130,13 @@ async def handle_bot_config_get(request: web.Request) -> web.Response:
             "checkpoint": "sd_xl_base_1.0.safetensors",
             "lora": "",
             "lora_strength": 0.8,
-            "steps": 25,
+            "steps": 18,
             "cfg": 7.0,
             "denoise": 1.0,
             "sampler_name": "euler",
             "scheduler": "karras",
-            "width": 768,
-            "height": 1024,
+            "width": 832,
+            "height": 1216,
             "positive_prompt": "1girl, solo, 178cm tall, slender athletic build, voluptuous hourglass figure, very large full natural heavy breasts, deep cleavage, narrow waist, flat toned stomach, soft natural skin texture, stunningly beautiful face, alluring green-blue eyes, seductive playful smile, slightly parted glossy lips, long layered dark hair, soft natural waves, casual gamer look, tight black cropped tank top showing cleavage, denim shorts, massive intricate detailed sleeve tattoo on entire left arm and left shoulder aesthetically framing large breast, battlestation, sitting at computer desk, dual glowing monitors displaying Linux terminal and code, mechanical keyboard, vibrant RGB ambient lighting, well-lit modern workspace, cowboy shot, slightly low angle, looking directly at viewer with intense alluring gaze, photorealistic, raw photo, 8k uhd, dslr, high quality, soft studio lighting, rim lighting, vibrant, well-lit, high key, clear visibility, detailed skin texture, natural skin pores, realistic depth of field",
             "negative_prompt": "glasses, spectacles, eyewear, score_4, score_5, score_6, worst quality, low quality, bad anatomy, bad limbs, extra limbs, deformed fingers, extra fingers, missing fingers, deformed, blurry, monochrome, watermark, text, signature, username, 3d render, cartoon, anime, illustration, bad eyes, deformed iris, underexposed, dark shadows, pitch black background, gloomy, dim lighting, censor, censored, mosaic, bar censor, censorship, pixelated, black bar"
         },
@@ -3220,10 +3220,10 @@ async def render_comfy_image_direct(
     checkpoint: str = "sd_xl_base_1.0.safetensors",
     lora: str = "",
     lora_strength: float = 1.0,
-    steps: int = 25,
+    steps: int = 18,
     cfg: float = 7.0,
-    width: int = 768,
-    height: int = 1024,
+    width: int = 832,
+    height: int = 1216,
     aspect_ratio: str = "portrait",
     max_wait: float = 90.0
 ) -> Optional[Dict[str, Any]]:
@@ -3704,7 +3704,7 @@ def prepare_comfy_workflow(
     if proj == "megan":
         # Fest verankert: Megan nutzt ausnahmslos sd_xl_base_1.0.safetensors
         checkpoint = "sd_xl_base_1.0.safetensors"
-        if steps is None:
+        if steps is None or steps < 16 or steps > 18:
             steps = 18
         if cfg is None:
             cfg = 7.0
@@ -3748,15 +3748,17 @@ def prepare_comfy_workflow(
         seed = secrets.randbelow(999999999999)
 
     # Standard SDXL native resolutions:
-    # Porträt: 768x1024, Quadrat: 1024x1024, Breitbild/Querformat: 1024x768
+    # Porträt (Standard): 832 x 1216 Pixel
+    # Quadrat: 1024 x 1024 Pixel
+    # Querformat: 1216 x 832 Pixel
     ar = (aspect_ratio or "portrait").lower().strip()
     if any(k in ar for k in ["landscape", "quer", "breit", "wide", "16:9", "4:3", "3:2"]):
-        width, height = 1024, 768
+        width, height = 1216, 832
     elif any(k in ar for k in ["square", "quadrat", "1:1"]):
         width, height = 1024, 1024
     else:
         # portrait, porträt, hoch, vertikal, 9:16, 3:4, default
-        width, height = 768, 1024
+        width, height = 832, 1216
 
     # Identify KSampler, CheckpointLoaderSimple, positive and negative prompt nodes
     ksampler_node = None
@@ -3799,11 +3801,21 @@ def prepare_comfy_workflow(
     if ksampler_node:
         ksampler_node.setdefault("inputs", {})
         ksampler_node["inputs"]["seed"] = seed
-        ksampler_node["inputs"]["steps"] = steps if steps is not None else 18
+        # KSampler: steps auf 16 bis 18 festlegen (Euler Karras)
+        clamped_steps = max(16, min(int(steps), 18)) if steps is not None else 18
+        ksampler_node["inputs"]["steps"] = clamped_steps
         if cfg is not None:
             ksampler_node["inputs"]["cfg"] = cfg
         ksampler_node["inputs"]["sampler_name"] = "euler"
         ksampler_node["inputs"]["scheduler"] = "karras"
+
+    # KEINE Oversized-Renderings (kein 2K/4K Upscaling auf der Arc A770)
+    prune_keys = [
+        nid for nid, node in prompt_dict.items()
+        if any(u in str(node.get("class_type", "")) for u in ["Upscale", "ImageScale", "LatentUpscale", "UltimateSDUpscale"])
+    ]
+    for pk in prune_keys:
+        del prompt_dict[pk]
 
     # Inject LoRA if requested and not none
     if lora and lora.lower() not in ("none", "keines", "", "false") and ckpt_node_id:
@@ -3828,9 +3840,24 @@ def prepare_comfy_workflow(
     if positive_clip_id and positive_clip_id in prompt_dict:
         prompt_dict[positive_clip_id].setdefault("inputs", {})
         prompt_dict[positive_clip_id]["inputs"]["text"] = prompt_text
-    if negative_prompt and negative_clip_id and negative_clip_id in prompt_dict:
+    if negative_clip_id and negative_clip_id in prompt_dict:
         prompt_dict[negative_clip_id].setdefault("inputs", {})
-        prompt_dict[negative_clip_id]["inputs"]["text"] = negative_prompt
+        base_neg = negative_prompt.strip() if negative_prompt and negative_prompt.strip() else (
+            "ugly, deformed, disfigured, distorted, bad anatomy, bad hands, missing limbs, extra limbs, blurry, watermark, low quality, worst quality"
+        )
+        try:
+            from megan_memory import load_preferences
+            prefs = load_preferences()
+            dislikes = prefs.get("visual", {}).get("disliked_elements", []) + prefs.get("dislikes_and_nogos", [])
+            neg_items = [base_neg]
+            for dl in dislikes:
+                dl_s = str(dl).strip()
+                if dl_s and dl_s.lower() not in base_neg.lower():
+                    neg_items.append(dl_s)
+            effective_neg = ", ".join(neg_items)
+        except Exception:
+            effective_neg = base_neg
+        prompt_dict[negative_clip_id]["inputs"]["text"] = effective_neg
 
     return {"prompt": prompt_dict}
 
@@ -5941,12 +5968,34 @@ def get_whisper_model():
     if WHISPER_MODEL_INSTANCE is None:
         try:
             from faster_whisper import WhisperModel
-            logger.info("Initializing faster-whisper base model on CPU (int8)...")
-            WHISPER_MODEL_INSTANCE = WhisperModel("base", device="cpu", compute_type="int8")
-            logger.info("faster-whisper model ready.")
+            logger.info("Initializing faster-whisper medium model on CPU (int8)...")
+            try:
+                WHISPER_MODEL_INSTANCE = WhisperModel("medium", device="cpu", compute_type="int8")
+                logger.info("faster-whisper medium model ready.")
+            except Exception as m_err:
+                logger.warning(f"Failed to load medium whisper model ({m_err}), falling back to small...")
+                WHISPER_MODEL_INSTANCE = WhisperModel("small", device="cpu", compute_type="int8")
+                logger.info("faster-whisper small model ready as fallback.")
         except Exception as e:
             logger.error(f"Failed to initialize faster-whisper: {e}")
     return WHISPER_MODEL_INSTANCE
+
+def correct_transcript_speech_patterns(raw_text: str) -> str:
+    """Applies phonetic glossary from /data/memory/user_speech_patterns.json to correct Whisper transcription."""
+    if not raw_text or not raw_text.strip():
+        return ""
+    try:
+        from megan_memory import load_user_speech_patterns
+        patterns = load_user_speech_patterns()
+        glossary = patterns.get("phonetic_glossary", {})
+        corrected = raw_text
+        for misspelling, correct_term in glossary.items():
+            pattern = r'\b' + re.escape(misspelling) + r'\b'
+            corrected = re.sub(pattern, correct_term, corrected, flags=re.IGNORECASE)
+        return corrected
+    except Exception as e:
+        logger.warning(f"Error correcting speech patterns: {e}")
+        return raw_text
 
 def transcribe_audio_file(audio_path: str, language: str = "de") -> str:
     model = get_whisper_model()
@@ -5960,7 +6009,8 @@ def transcribe_audio_file(audio_path: str, language: str = "de") -> str:
         vad_parameters=dict(min_silence_duration_ms=500)
     )
     parts = [s.text.strip() for s in segments if s.text and s.text.strip()]
-    return " ".join(parts).strip()
+    raw_transcript = " ".join(parts).strip()
+    return correct_transcript_speech_patterns(raw_transcript)
 
 def build_chat_system_instruction(request: web.Request, user_message: str) -> str:
     identity_lock = (
@@ -6040,13 +6090,36 @@ def build_chat_system_instruction(request: web.Request, user_message: str) -> st
 
         # Säule 3: Megans Gedächtnis & Vorlieben
         try:
-            from megan_memory import megan_memory_store
-            prefs = megan_memory_store.get_all_preferences()
-            if prefs:
-                pref_lines = [f"- {k}: {v}" for k, v in list(prefs.items())[:6]]
+            from megan_memory import load_preferences, load_linguistic_style
+            prefs = load_preferences()
+            vis = prefs.get("visual", {})
+            pref_lines = []
+            if vis.get("preferred_lighting"):
+                pref_lines.append(f"- Bevorzugtes Licht: {vis['preferred_lighting']}")
+            if vis.get("preferred_clothing"):
+                pref_lines.append(f"- Bevorzugte Kleidung: {vis['preferred_clothing']}")
+            if vis.get("disliked_elements"):
+                pref_lines.append(f"- Unerwünschte Elemente: {', '.join(vis['disliked_elements'][:5])}")
+            if pref_lines:
                 system_instruction += f"\n\n### GEMERKTE VORLIEBEN & LANGZEITGEDÄCHTNIS (SÄULE 3):\n" + "\n".join(pref_lines)
-        except Exception:
-            pass
+
+            # Säule 4: Linguistischer Stil & Vokabular-Regeln (linguistic_style.json)
+            style_cfg = load_linguistic_style()
+            if style_cfg:
+                reg = style_cfg.get("register", "")
+                bl = style_cfg.get("blacklist", [])
+                rules = style_cfg.get("rules", [])
+                style_block = ["\n### AUTONOME STIL- & VOKABULAR-DIREKTIVE:"]
+                if reg:
+                    style_block.append(f"- Sprachniveau & Register: {reg}")
+                if bl:
+                    bl_str = ", ".join([f"'{w}'" for w in bl[:12]])
+                    style_block.append(f"- STRIKTE BLACKLIST (Verbotene Phrasen/Füllwörter): {bl_str}")
+                for r in rules:
+                    style_block.append(f"- {r}")
+                system_instruction += "\n" + "\n".join(style_block)
+        except Exception as st_err:
+            logger.warning(f"Error injecting preferences or style: {st_err}")
 
         if pers_directives and "PERSÖNLICHKEITS" not in system_instruction:
             system_instruction += f"\n\n### AKTUELLE PERSÖNLICHKEITS- & DYNAMIK-RICHTLINIEN:\n{pers_directives}"
@@ -6387,10 +6460,34 @@ def clean_text_for_tts(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-async def generate_piper_tts(text: str, voice_model: Optional[str] = None) -> Optional[str]:
+async def generate_piper_tts(
+    text: str,
+    voice_model: Optional[str] = None,
+    length_scale: Optional[float] = None,
+    noise_scale: Optional[float] = None,
+    noise_w: Optional[float] = None
+) -> Optional[str]:
     cleaned = clean_text_for_tts(text)
     if not cleaned:
         return None
+
+    # Load and apply phoneme pronunciation replacements from /data/voice/phonemes.json
+    try:
+        from megan_memory import load_phonemes
+        phon_cfg = load_phonemes()
+        repls = phon_cfg.get("replacements", {})
+        for word, replacement in repls.items():
+            pattern = r'\b' + re.escape(word) + r'\b'
+            cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+        default_params = phon_cfg.get("default_params", {})
+        if length_scale is None and "length_scale" in default_params:
+            length_scale = float(default_params["length_scale"])
+        if noise_scale is None and "noise_scale" in default_params:
+            noise_scale = float(default_params["noise_scale"])
+        if noise_w is None and "noise_w" in default_params:
+            noise_w = float(default_params["noise_w"])
+    except Exception as phon_err:
+        logger.warning(f"Error applying phoneme replacements: {phon_err}")
 
     model_file = None
     if voice_model:
@@ -6416,6 +6513,13 @@ async def generate_piper_tts(text: str, voice_model: Optional[str] = None) -> Op
     if model_file and (shutil.which(piper_bin) or Path(piper_bin).is_file()):
         try:
             cmd = [piper_bin, "-m", model_file, "-f", str(out_wav)]
+            if length_scale is not None:
+                cmd.extend(["--length-scale", str(length_scale)])
+            if noise_scale is not None:
+                cmd.extend(["--noise-scale", str(noise_scale)])
+            if noise_w is not None:
+                cmd.extend(["--noise-w", str(noise_w)])
+
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
@@ -6472,7 +6576,29 @@ async def handle_audio_tts(request: web.Request) -> web.Response:
     if not text:
         return web.json_response({"status": "error", "error": "Text required"}, status=400)
 
-    audio_id = await generate_piper_tts(text, voice_model=voice)
+    length_scale = data.get("length_scale") or data.get("speed")
+    noise_scale = data.get("noise_scale") or data.get("pitch")
+    noise_w = data.get("noise_w")
+    try:
+        length_scale = float(length_scale) if length_scale is not None else None
+    except Exception:
+        length_scale = None
+    try:
+        noise_scale = float(noise_scale) if noise_scale is not None else None
+    except Exception:
+        noise_scale = None
+    try:
+        noise_w = float(noise_w) if noise_w is not None else None
+    except Exception:
+        noise_w = None
+
+    audio_id = await generate_piper_tts(
+        text,
+        voice_model=voice,
+        length_scale=length_scale,
+        noise_scale=noise_scale,
+        noise_w=noise_w
+    )
     if not audio_id:
         return web.json_response({"status": "error", "error": "TTS synthesis failed"}, status=500)
 

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Megan Autonomous Tool Runner
+Megan Autonomous Tool Runner & Sandbox Engine
 Executes sandboxed tools inside the megan-tools container:
-- duckduckgo search (via ddgs / duckduckgo_search)
-- web scraping (via requests & beautifulsoup4)
-- yt-dlp media ingest
-- sandboxed python execution (30s timeout, restricted to /workspace)
-- autonomous comfyui image generation (via host gateway http://172.17.0.1:8080/api/render/direct)
-- persistent memory & learning (.brain/session.json and .brain/context.md in /workspace)
+- Full Script Autonomy in /workspace/scripts/ (create, modify, execute, inspect)
+- Subprocess & Shell execution (Bash, Python, File Management)
+- ComfyUI dynamic prompt synthesis incorporating /data/memory/preferences.json & /data/vault/profile.json
+- Linguistic Style & Phonemes autonomous self-management
+- DuckDuckGo search, Web scraping & yt-dlp media ingest
+- Persistent memory (.brain, /data/memory/preferences.json)
 """
 
 import sys
@@ -16,10 +16,12 @@ import re
 import json
 import time
 import base64
+import shutil
+import stat
 import subprocess
 import argparse
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
 env_ws = os.environ.get("MEGAN_WORKSPACE")
 if env_ws:
@@ -35,6 +37,23 @@ except Exception:
     pass
 
 BRAIN_DIR = WORKSPACE / ".brain"
+SCRIPTS_DIR = WORKSPACE / "scripts"
+try:
+    SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
+DATA_DIR = Path("/data") if Path("/data").is_dir() else (WORKSPACE / "data")
+MEMORY_DIR = DATA_DIR / "memory"
+VOICE_DIR = DATA_DIR / "voice"
+VAULT_DIR = DATA_DIR / "vault"
+
+PREFERENCES_FILE = MEMORY_DIR / "preferences.json"
+STYLE_FILE = MEMORY_DIR / "linguistic_style.json"
+SPEECH_PATTERNS_FILE = MEMORY_DIR / "user_speech_patterns.json"
+PHONEMES_FILE = VOICE_DIR / "phonemes.json"
+PROFILE_FILE = VAULT_DIR / "profile.json"
+
 DEFAULT_GATEWAYS = [
     os.environ.get("HOST_GATEWAY", "http://172.17.0.1:8080"),
     "http://100.116.38.29:8080",
@@ -55,381 +74,492 @@ def get_ddgs():
         return DDGS
 
 # ==============================================================================
-# 1. Autonomous Memory & .brain Persistence
+# 1. Script Management & Subprocess Autonomy in /workspace/scripts/
 # ==============================================================================
 
-def ensure_brain_dir():
-    BRAIN_DIR.mkdir(parents=True, exist_ok=True)
+def ensure_scripts_dir():
+    SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
 
-def load_brain_data() -> Dict[str, Any]:
-    """Loads context.md and session.json from /workspace/.brain/."""
-    ensure_brain_dir()
-    context_file = BRAIN_DIR / "context.md"
-    session_file = BRAIN_DIR / "session.json"
+def sanitize_script_name(name: str) -> str:
+    clean = os.path.basename(name.strip())
+    if not clean or clean in (".", ".."):
+        raise ValueError("Ungueltiger Skript-Dateiname")
+    return clean
 
-    context_text = ""
-    if context_file.is_file():
-        try:
-            context_text = context_file.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
-
-    session_data = {"history": [], "preferences": {}, "learned_preferences": {}, "visual_preferences": {}}
-    if session_file.is_file():
-        try:
-            session_data = json.loads(session_file.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-
-    return {
-        "context": context_text,
-        "session": session_data,
-        "preferences": session_data.get("preferences", {}),
-        "learned_preferences": session_data.get("learned_preferences", {}),
-        "visual_preferences": session_data.get("visual_preferences", {})
-    }
-
-def _sync_to_host_brain(session_data: Dict[str, Any], context_text: str = ""):
-    """Best-effort write to sibling host brain directories if accessible."""
-    host_targets = [
-        (Path("/mnt/storage-beta/projekte/projekt-sexchat/.brain/session.json"),
-         Path("/mnt/storage-beta/projekte/projekt-sexchat/.brain/context.md")),
-        (Path("/mnt/storage-beta/projekte/projekt-sexchat/workspace/.brain/session.json"),
-         Path("/mnt/storage-beta/projekte/projekt-sexchat/workspace/.brain/context.md"))
-    ]
-    for s_path, c_path in host_targets:
-        try:
-            if s_path.parent.is_dir() and os.access(str(s_path.parent), os.W_OK):
-                s_path.write_text(json.dumps(session_data, indent=2, ensure_ascii=False), encoding="utf-8")
-                if context_text and os.access(str(c_path.parent), os.W_OK):
-                    c_path.write_text(context_text, encoding="utf-8")
-        except Exception:
-            pass
-
-def save_brain_preference(key: str, value: Any) -> Dict[str, Any]:
-    """Saves or updates a preference in /workspace/.brain/session.json and context.md."""
-    ensure_brain_dir()
-    session_file = BRAIN_DIR / "session.json"
-    context_file = BRAIN_DIR / "context.md"
-
-    session_data = {"history": [], "preferences": {}}
-    if session_file.is_file():
-        try:
-            session_data = json.loads(session_file.read_text(encoding="utf-8"))
-        except Exception:
-            session_data = {"history": [], "preferences": {}}
-
-    session_data.setdefault("preferences", {})[key] = value
-    session_data.setdefault("history", []).append({
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "action": "preference_learned",
-        "key": key,
-        "value": value
-    })
-    session_file.write_text(json.dumps(session_data, indent=2, ensure_ascii=False), encoding="utf-8")
-
-    ctx = ""
+def run_write_script(name: str, content: str, make_executable: bool = True) -> dict:
+    """Creates or overwrites a helper script in /workspace/scripts/."""
     try:
-        ctx = context_file.read_text(encoding="utf-8") if context_file.is_file() else "# Megan Memory & Context\n"
-        bullet = f"- **{key}**: {value}\n"
-        if key not in ctx:
-            if "## Gelernte Vorlieben von Big Boss" not in ctx:
-                ctx += "\n## Gelernte Vorlieben von Big Boss\n"
-            ctx += bullet
-            context_file.write_text(ctx, encoding="utf-8")
-    except Exception:
-        pass
+        ensure_scripts_dir()
+        sname = sanitize_script_name(name)
+        target = SCRIPTS_DIR / sname
+        target.write_text(content, encoding="utf-8")
+        if make_executable:
+            st = target.stat()
+            target.chmod(st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        return {
+            "status": "ok",
+            "name": sname,
+            "path": str(target),
+            "size": target.stat().st_size,
+            "executable": os.access(str(target), os.X_OK)
+        }
+    except Exception as e:
+        return {"status": "error", "error": f"Failed to write script '{name}': {e}"}
 
-    _sync_to_host_brain(session_data, ctx)
-    return {"status": "ok", "key": key, "value": value, "all_preferences": session_data["preferences"]}
-
-# Visual Keywords for Classification
-VISUAL_KEYWORD_MAP = {
-    "clothing": [
-        "cockpit suit", "flight suit", "pilot suit", "lingerie", "latex", "leather jacket",
-        "bikini", "swimsuit", "evening dress", "mini dress", "dress", "skirt",
-        "stockings", "thighhighs", "thigh-highs", "bodysuit", "catsuit", "panties", "bra",
-        "oversized sweater", "crop top", "blouse", "business suit", "suit", "t-shirt",
-        "jeans", "shorts", "naked", "nude"
-    ],
-    "lighting": [
-        "soft rim lighting", "soft studio lighting", "cinematic lighting",
-        "studio lighting", "neon lighting", "neon glow", "dramatic lighting", "volumetric lighting",
-        "golden hour", "warm lighting", "moody lighting", "backlit", "cyberpunk neon", "rim lighting"
-    ],
-    "styles": [
-        "photorealistic", "raw photo", "8k uhd", "dslr", "masterpiece", "best quality",
-        "hyperdetailed", "film grain", "depth of field", "sharp focus", "anime", "illustration"
-    ],
-    "settings": [
-        "cockpit", "flight simulator", "space station", "cyberpunk city", "neon street",
-        "bedroom", "luxury hotel", "balcony", "rainy street", "rain", "stairs", "office"
-    ]
-}
-
-def extract_visual_tags(prompt: str) -> Dict[str, List[str]]:
-    """Extracts known clothing, lighting, style, and setting tags from a prompt."""
-    lp = prompt.lower()
-    found = {"clothing": [], "lighting": [], "styles": [], "settings": []}
-    for category, keywords in VISUAL_KEYWORD_MAP.items():
-        for kw in keywords:
-            pattern = r'(?:\b|_)' + re.escape(kw) + r'(?:\b|_)'
-            if re.search(pattern, lp) or kw in lp:
-                if kw not in found[category]:
-                    found[category].append(kw)
-    return found
-
-def update_visual_preferences(prompt: str, is_manual_save: bool = False) -> Dict[str, Any]:
-    """Extracts visual tags from prompt and updates visual_preferences in session.json."""
-    if not prompt or not prompt.strip():
-        return {"status": "skipped", "reason": "empty prompt"}
-
-    ensure_brain_dir()
-    session_file = BRAIN_DIR / "session.json"
-    session_data = {"history": [], "preferences": {}}
-    if session_file.is_file():
-        try:
-            session_data = json.loads(session_file.read_text(encoding="utf-8"))
-        except Exception:
-            session_data = {"history": [], "preferences": {}}
-
-    vis_prefs = session_data.setdefault("visual_preferences", {
-        "clothing": {},
-        "lighting": {},
-        "styles": {},
-        "settings": {},
-        "recent_prompts": []
-    })
-
-    extracted = extract_visual_tags(prompt)
-    weight = 3 if is_manual_save else 1
-
-    for cat in ["clothing", "lighting", "styles", "settings"]:
-        cat_dict = vis_prefs.setdefault(cat, {})
-        for tag in extracted.get(cat, []):
-            cat_dict[tag] = cat_dict.get(tag, 0) + weight
-
-    recents = vis_prefs.setdefault("recent_prompts", [])
-    recents.append({
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "prompt": prompt[:300],
-        "manual_save": is_manual_save,
-        "extracted_tags": extracted
-    })
-    vis_prefs["recent_prompts"] = recents[-15:]
-
-    prefs = session_data.setdefault("preferences", {})
-    if vis_prefs.get("clothing"):
-        top_cloth = max(vis_prefs["clothing"].items(), key=lambda x: x[1])
-        if is_manual_save or top_cloth[1] >= 3:
-            prefs["favorite_clothing"] = top_cloth[0]
-
-    if vis_prefs.get("lighting"):
-        top_light = max(vis_prefs["lighting"].items(), key=lambda x: x[1])
-        if is_manual_save or top_light[1] >= 3:
-            prefs["preferred_lighting"] = top_light[0]
-
-    if vis_prefs.get("styles"):
-        top_style = max(vis_prefs["styles"].items(), key=lambda x: x[1])
-        if is_manual_save or top_style[1] >= 3:
-            prefs["image_style"] = top_style[0]
-
-    session_file.write_text(json.dumps(session_data, indent=2, ensure_ascii=False), encoding="utf-8")
-    _sync_to_host_brain(session_data)
-
-    return {
-        "status": "ok",
-        "extracted": extracted,
-        "visual_preferences": vis_prefs,
-        "updated_preferences": prefs
-    }
-
-def record_research_learning(title: str, summary: str, source_type: str = "web", url: str = "") -> Dict[str, Any]:
-    """Records research, scrape, or vision ingest into .brain/context.md and session.json."""
-    ensure_brain_dir()
-    session_file = BRAIN_DIR / "session.json"
-    context_file = BRAIN_DIR / "context.md"
-
-    session_data = {"history": [], "preferences": {}}
-    if session_file.is_file():
-        try:
-            session_data = json.loads(session_file.read_text(encoding="utf-8"))
-        except Exception:
-            session_data = {"history": [], "preferences": {}}
-
-    learned = session_data.setdefault("learned_preferences", {
-        "topics": [],
-        "recent_research": []
-    })
-
-    stopwords = {
-        "https", "http", "www", "com", "html", "eine", "einer", "eines", "einem",
-        "dies", "diese", "dieser", "haben", "sein", "wurde", "video", "frame",
-        "frames", "bild", "bilder", "analyse", "sehen", "zeigt", "nicht", "auch",
-        "dass", "oder", "aber", "über", "unter", "durch", "nach"
-    }
-    raw_tokens = re.findall(r"[a-zA-ZäöüÄÖÜß]{4,}", f"{title} {summary}".lower())
-    detected_topics = []
-    for t in raw_tokens:
-        if t not in stopwords and t not in detected_topics:
-            detected_topics.append(t)
-        if len(detected_topics) >= 8:
-            break
-
-    for dt in detected_topics:
-        if dt not in learned.setdefault("topics", []):
-            learned["topics"].append(dt)
-    learned["topics"] = learned["topics"][-30:]
-
-    clean_summary = summary.replace("\n", " ").strip()
-    if len(clean_summary) > 280:
-        clean_summary = clean_summary[:280] + "..."
-
-    learned.setdefault("recent_research", []).append({
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "source": source_type,
-        "title": title[:120],
-        "summary": clean_summary,
-        "url": url,
-        "topics": detected_topics
-    })
-    learned["recent_research"] = learned["recent_research"][-15:]
-
-    session_file.write_text(json.dumps(session_data, indent=2, ensure_ascii=False), encoding="utf-8")
-
-    ctx_text = ""
+def run_edit_script(name: str, content: str, mode: str = "replace") -> dict:
+    """Modifies an existing script in /workspace/scripts/ (replace or append)."""
     try:
-        ctx_text = context_file.read_text(encoding="utf-8") if context_file.is_file() else "# Projekt Big Boss Megan Context & Goals\n"
-        section_header = "### USER INTERESTS & RESEARCH"
-        bullet = f"- [{time.strftime('%Y-%m-%d %H:%M')}] ({source_type.upper()}) **{title[:80]}**: {clean_summary}\n"
+        ensure_scripts_dir()
+        sname = sanitize_script_name(name)
+        target = SCRIPTS_DIR / sname
+        if not target.is_file():
+            return {"status": "error", "error": f"Script '{sname}' does not exist"}
 
-        if section_header in ctx_text:
-            parts = ctx_text.split(section_header, 1)
-            before = parts[0]
-            after = parts[1].lstrip("\n")
-            lines = after.splitlines(keepends=True)
-            sec_lines = []
-            rest_lines = []
-            in_sec = True
-            for line in lines:
-                if in_sec and line.startswith("### ") and not line.startswith(section_header):
-                    in_sec = False
-                if in_sec:
-                    sec_lines.append(line)
-                else:
-                    rest_lines.append(line)
-
-            sec_bullets = [l for l in sec_lines if l.strip().startswith("- ")]
-            sec_bullets.insert(0, bullet)
-            sec_bullets = sec_bullets[:15]
-
-            ctx_text = before + section_header + "\n\n" + "".join(sec_bullets) + "".join(rest_lines)
+        if mode == "append":
+            existing = target.read_text(encoding="utf-8")
+            target.write_text(existing + "\n" + content, encoding="utf-8")
         else:
-            ctx_text = ctx_text.rstrip() + f"\n\n{section_header}\n\n{bullet}"
+            target.write_text(content, encoding="utf-8")
 
-        context_file.write_text(ctx_text, encoding="utf-8")
-    except Exception as ctx_err:
-        print(f"[Warnung] context.md Update: {ctx_err}", file=sys.stderr)
+        st = target.stat()
+        target.chmod(st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        return {
+            "status": "ok",
+            "name": sname,
+            "path": str(target),
+            "size": target.stat().st_size,
+            "mode": mode
+        }
+    except Exception as e:
+        return {"status": "error", "error": f"Failed to edit script '{name}': {e}"}
 
-    _sync_to_host_brain(session_data, ctx_text)
+def run_read_script(name: str) -> dict:
+    """Reads the source code of a script in /workspace/scripts/."""
+    try:
+        ensure_scripts_dir()
+        sname = sanitize_script_name(name)
+        target = SCRIPTS_DIR / sname
+        if not target.is_file():
+            return {"status": "error", "error": f"Script '{sname}' not found"}
+        content = target.read_text(encoding="utf-8", errors="replace")
+        return {
+            "status": "ok",
+            "name": sname,
+            "path": str(target),
+            "content": content,
+            "size": target.stat().st_size
+        }
+    except Exception as e:
+        return {"status": "error", "error": f"Failed to read script '{name}': {e}"}
 
+def run_list_scripts() -> dict:
+    """Lists all scripts in /workspace/scripts/ with metadata."""
+    try:
+        ensure_scripts_dir()
+        scripts = []
+        for p in sorted(SCRIPTS_DIR.iterdir()):
+            if p.is_file():
+                st = p.stat()
+                scripts.append({
+                    "name": p.name,
+                    "path": str(p),
+                    "size": st.st_size,
+                    "executable": os.access(str(p), os.X_OK),
+                    "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime))
+                })
+        return {"status": "ok", "count": len(scripts), "scripts": scripts}
+    except Exception as e:
+        return {"status": "error", "error": f"Failed to list scripts: {e}"}
+
+def run_exec_script(name: str, args: Optional[List[str]] = None, timeout: float = 60.0) -> dict:
+    """Executes a helper script from /workspace/scripts/ with arguments."""
+    try:
+        ensure_scripts_dir()
+        sname = sanitize_script_name(name)
+        target = SCRIPTS_DIR / sname
+        if not target.is_file():
+            return {"status": "error", "error": f"Script '{sname}' not found in {SCRIPTS_DIR}"}
+
+        st = target.stat()
+        target.chmod(st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+        cmd = []
+        if sname.endswith(".py"):
+            cmd = [sys.executable, str(target)]
+        elif sname.endswith(".sh") or sname.endswith(".bash"):
+            cmd = ["bash", str(target)]
+        else:
+            cmd = [str(target)]
+
+        if args:
+            cmd.extend([str(a) for a in args])
+
+        t0 = time.time()
+        res = subprocess.run(
+            cmd,
+            cwd=str(WORKSPACE),
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        elapsed = time.time() - t0
+        return {
+            "status": "ok",
+            "name": sname,
+            "exit_code": res.returncode,
+            "stdout": res.stdout,
+            "stderr": res.stderr,
+            "elapsed_seconds": round(elapsed, 3)
+        }
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "error": f"Script '{name}' timed out after {timeout}s"}
+    except Exception as e:
+        return {"status": "error", "error": f"Execution error for '{name}': {e}"}
+
+def run_manage_file(action: str, filepath: str, content: str = "") -> dict:
+    """Universal sandboxed file manager within /workspace or /data."""
+    try:
+        act = action.lower().strip()
+        p = Path(filepath)
+        if not p.is_absolute():
+            p = WORKSPACE / p
+        p = p.resolve()
+
+        ws_resolved = WORKSPACE.resolve()
+        data_resolved = DATA_DIR.resolve()
+        is_safe = False
+        for root in [ws_resolved, data_resolved, Path("/data").resolve()]:
+            try:
+                p.relative_to(root)
+                is_safe = True
+                break
+            except ValueError:
+                pass
+
+        if not is_safe:
+            return {"status": "error", "error": f"Access denied: path '{filepath}' is outside allowed sandbox"}
+
+        if act in ("read", "cat"):
+            if not p.is_file():
+                return {"status": "error", "error": f"File '{p}' does not exist"}
+            return {"status": "ok", "path": str(p), "content": p.read_text(encoding="utf-8", errors="replace")}
+
+        elif act in ("write", "save"):
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+            return {"status": "ok", "path": str(p), "size": p.stat().st_size}
+
+        elif act in ("delete", "remove", "rm"):
+            if p.is_file():
+                p.unlink()
+                return {"status": "ok", "deleted": str(p)}
+            elif p.is_dir():
+                shutil.rmtree(p)
+                return {"status": "ok", "deleted_dir": str(p)}
+            return {"status": "error", "error": f"Path '{p}' not found"}
+
+        elif act in ("list", "ls"):
+            if p.is_dir():
+                items = [{"name": child.name, "is_dir": child.is_dir(), "size": child.stat().st_size if child.is_file() else 0} for child in sorted(p.iterdir())]
+                return {"status": "ok", "path": str(p), "items": items}
+            return {"status": "error", "error": f"Path '{p}' is not a directory"}
+
+        elif act in ("stat", "info"):
+            if not p.exists():
+                return {"status": "error", "error": f"Path '{p}' does not exist"}
+            st = p.stat()
+            return {
+                "status": "ok",
+                "path": str(p),
+                "is_dir": p.is_dir(),
+                "size": st.st_size,
+                "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime))
+            }
+        else:
+            return {"status": "error", "error": f"Unknown file action: {act}"}
+    except Exception as e:
+        return {"status": "error", "error": f"manage_file error: {e}"}
+
+# ==============================================================================
+# 2. Preferences, Profile & Linguistic Style Persistence
+# ==============================================================================
+
+def load_structured_preferences() -> Dict[str, Any]:
+    """Loads structured preferences from /data/memory/preferences.json, with fallback."""
+    candidates = [
+        PREFERENCES_FILE,
+        Path("/data/memory/preferences.json"),
+        Path("/home/outerheaven/mission-control/data/memory/preferences.json"),
+        WORKSPACE / ".brain" / "session.json"
+    ]
+    for cp in candidates:
+        if cp.is_file():
+            try:
+                data = json.loads(cp.read_text(encoding="utf-8"))
+                if "visual" in data or "preferences" in data:
+                    return data
+            except Exception:
+                pass
     return {
-        "status": "ok",
-        "title": title,
-        "source": source_type,
-        "topics": detected_topics,
-        "learned": learned
+        "version": "1.0",
+        "visual": {
+            "colors": ["emerald green", "warm orange"],
+            "hairstyles": ["long layered hair", "soft natural curls"],
+            "poses": ["sensual teasing smile", "sitting on desk"],
+            "lighting": ["soft natural lighting"],
+            "preferred_lighting": "soft natural lighting",
+            "preferred_clothing": "cockpit suit",
+            "favorite_style": "photorealistic",
+            "positive_reactions": ["gefällt mir", "wunderschön"],
+            "disliked_elements": ["plastic skin", "unnatural lighting", "oversaturated neon", "cgi look"]
+        },
+        "chat": {
+            "preferred_salutation": "Big Boss",
+            "intimacy_level": "hoch",
+            "roleplay_depth": "intensiv",
+            "dominance_degree": "verführerisch-dominant"
+        },
+        "dislikes_and_nogos": ["sterile Assistentenfloskeln", "unnatürliche Beleuchtung", "Plastikhaut"]
     }
 
+def save_structured_preferences(data: Dict[str, Any]) -> bool:
+    """Saves structured preferences to /data/memory/preferences.json and syncs."""
+    data["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    success = False
+    targets = [PREFERENCES_FILE, Path("/data/memory/preferences.json")]
+    for tp in targets:
+        try:
+            tp.parent.mkdir(parents=True, exist_ok=True)
+            tp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            success = True
+        except Exception:
+            pass
+    return success
+
+def load_active_profile() -> Dict[str, Any]:
+    """Loads active persona profile from /data/vault/profile.json."""
+    candidates = [
+        PROFILE_FILE,
+        Path("/data/vault/profile.json"),
+        Path("/home/outerheaven/mission-control/data/vault/profile.json")
+    ]
+    for cp in candidates:
+        if cp.is_file():
+            try:
+                return json.loads(cp.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    return {}
+
+def load_linguistic_style() -> Dict[str, Any]:
+    """Loads linguistic style rules from /data/memory/linguistic_style.json."""
+    candidates = [
+        STYLE_FILE,
+        Path("/data/memory/linguistic_style.json")
+    ]
+    for cp in candidates:
+        if cp.is_file():
+            try:
+                return json.loads(cp.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    return {
+        "register": "gehoben, eloquent, wenig Umgangssprache, prägnant, erotisch-selbstbewusst",
+        "blacklist": ["halt", "irgendwie", "quasi", "sozusagen", "wie gesagt", "kein Problem", "als KI"]
+    }
+
+def update_linguistic_style(updates: Dict[str, Any]) -> dict:
+    """Updates linguistic style config autonomously."""
+    current = load_linguistic_style()
+    current.update(updates)
+    current["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    targets = [STYLE_FILE, Path("/data/memory/linguistic_style.json")]
+    for tp in targets:
+        try:
+            tp.parent.mkdir(parents=True, exist_ok=True)
+            tp.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+    return {"status": "ok", "linguistic_style": current}
+
+def load_phonemes() -> Dict[str, Any]:
+    """Loads pronunciation phoneme table from /data/voice/phonemes.json."""
+    candidates = [PHONEMES_FILE, Path("/data/voice/phonemes.json")]
+    for cp in candidates:
+        if cp.is_file():
+            try:
+                return json.loads(cp.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    return {"replacements": {}, "default_params": {"pitch": 1.0, "speed": 1.0, "length_scale": 1.0}}
+
+def update_phonemes(replacements: Optional[Dict[str, str]] = None, params: Optional[Dict[str, Any]] = None) -> dict:
+    """Updates pronunciation phonemes and default voice params."""
+    current = load_phonemes()
+    if replacements:
+        current.setdefault("replacements", {}).update(replacements)
+    if params:
+        current.setdefault("default_params", {}).update(params)
+    current["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    targets = [PHONEMES_FILE, Path("/data/voice/phonemes.json")]
+    for tp in targets:
+        try:
+            tp.parent.mkdir(parents=True, exist_ok=True)
+            tp.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+    return {"status": "ok", "phonemes": current}
+
+def load_user_speech_patterns() -> Dict[str, Any]:
+    """Loads user speech patterns and slang glossary."""
+    candidates = [SPEECH_PATTERNS_FILE, Path("/data/memory/user_speech_patterns.json")]
+    for cp in candidates:
+        if cp.is_file():
+            try:
+                return json.loads(cp.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    return {"phonetic_glossary": {}, "common_slang_and_idioms": []}
+
+def update_user_speech_patterns(glossary_entries: Optional[Dict[str, str]] = None, slang: Optional[List[str]] = None) -> dict:
+    """Updates phonetic glossary of user terms and slang."""
+    current = load_user_speech_patterns()
+    if glossary_entries:
+        current.setdefault("phonetic_glossary", {}).update(glossary_entries)
+    if slang:
+        existing = current.setdefault("common_slang_and_idioms", [])
+        for s in slang:
+            if s not in existing:
+                existing.append(s)
+    current["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    targets = [SPEECH_PATTERNS_FILE, Path("/data/memory/user_speech_patterns.json")]
+    for tp in targets:
+        try:
+            tp.parent.mkdir(parents=True, exist_ok=True)
+            tp.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+    return {"status": "ok", "speech_patterns": current}
+
 # ==============================================================================
-# 2. Autonomous ComfyUI Image Generation Tool
+# 3. Dynamic SDXL Prompt & Negative Synthesis
 # ==============================================================================
 
-def enrich_prompt_with_preferences(prompt: str, preferences: Dict[str, Any], visual_preferences: Optional[Dict[str, Any]] = None, style_preset: Optional[str] = None) -> tuple[str, Dict[str, Any]]:
-    """Applies learned user preferences, visual tags, and Megan character triggers to the prompt."""
+def enrich_prompt_with_preferences(
+    prompt: str,
+    style_preset: Optional[str] = None
+) -> Tuple[str, str, Dict[str, Any]]:
+    """
+    Synthesizes both positive and negative prompts dynamically from:
+    - User situation / request
+    - /data/vault/profile.json (Megan character specifics)
+    - /data/memory/preferences.json (Learned positive preferences & dislikes)
+    """
+    prefs = load_structured_preferences()
+    prof = load_active_profile()
+
+    vis_prefs = prefs.get("visual", {})
+    dislikes = vis_prefs.get("disliked_elements", []) + prefs.get("dislikes_and_nogos", [])
+
     applied = {}
     tokens = [t.strip() for t in prompt.split(",") if t.strip()]
-    lower_prompt = prompt.lower()
+    lp = prompt.lower()
 
-    if "megan" not in lower_prompt and "1girl" not in lower_prompt:
-        tokens.insert(0, "1girl, megan, solo")
-        applied["character_trigger"] = "1girl, megan, solo"
-    elif "1girl" not in lower_prompt:
-        tokens.insert(0, "1girl")
+    if prof:
+        dyn = prof.get("dynamic_tags", {})
+        gender_tag = dyn.get("gender_tag")
+        if not gender_tag and prof.get("gender"):
+            g_low = str(prof["gender"]).lower()
+            gender_tag = "1shemale, futanari, solo" if ("trans" in g_low or "shemale" in g_low) else "1girl, solo"
 
-    if "orange hair" not in lower_prompt and "emerald eyes" not in lower_prompt:
-        tokens.append("orange hair, emerald eyes, cute mischievous face")
-        applied["character_details"] = "orange hair, emerald eyes"
+        if gender_tag and not any(k in lp for k in ["1girl", "1shemale", "futanari"]):
+            tokens.insert(0, gender_tag)
+            applied["gender"] = gender_tag
+        elif "1girl" not in lp and "1shemale" not in lp:
+            tokens.insert(0, "1girl, megan, solo")
 
-    active_style = style_preset or preferences.get("image_style") or preferences.get("favorite_style")
-    if not active_style and visual_preferences and visual_preferences.get("styles"):
-        top_s = max(visual_preferences["styles"].items(), key=lambda x: x[1], default=(None, 0))
-        if top_s[0] and top_s[1] >= 2:
-            active_style = top_s[0]
+        if "megan" not in lp:
+            tokens.insert(1 if len(tokens) > 0 else 0, "megan")
 
-    if active_style:
-        if "photorealistic" in str(active_style).lower() and "photorealistic" not in lower_prompt:
-            tokens.append("photorealistic, raw photo, 8k uhd, dslr, high quality, soft studio lighting")
-            applied["style"] = "photorealistic"
-        elif "cinematic" in str(active_style).lower() and "cinematic" not in lower_prompt:
-            tokens.append("cinematic lighting, dramatic atmosphere, depth of field, 8k")
-            applied["style"] = "cinematic"
-        else:
-            tokens.append(str(active_style))
-            applied["style"] = str(active_style)
+        hair_c = prof.get("hair_color")
+        if hair_c and not any(k in lp for k in ["hair", "haare"]):
+            tokens.append(str(hair_c))
+            applied["hair_color"] = str(hair_c)
+        eye_c = prof.get("eye_color")
+        if eye_c and "eye" not in lp:
+            tokens.append(str(eye_c))
+            applied["eye_color"] = str(eye_c)
+        cup = prof.get("cup_size")
+        if cup and not any(k in lp for k in ["breast", "brüste", "boobs"]):
+            tokens.append(str(cup))
+            applied["cup_size"] = str(cup)
     else:
-        if "masterpiece" not in lower_prompt and "8k" not in lower_prompt:
-            tokens.append("masterpiece, best quality, 8k uhd, soft studio lighting, sharp focus, natural skin texture")
-            applied["default_quality"] = True
+        if "megan" not in lp and "1girl" not in lp:
+            tokens.insert(0, "1girl, megan, solo")
+        if "orange hair" not in lp and "emerald eyes" not in lp:
+            tokens.append("orange hair, emerald eyes, cute mischievous face")
+
+    photorealism_trigger = "photorealistic, raw photography, 35mm film, hyperdetailed skin texture, soft natural lighting"
+    if "photorealistic" not in lp and "raw photo" not in lp:
+        tokens.append(photorealism_trigger)
+        applied["photorealism"] = True
+
+    pref_light = vis_prefs.get("preferred_lighting") or "soft natural lighting"
+    if pref_light and pref_light.lower() not in lp:
+        light_tag = f"{pref_light} lighting" if not pref_light.endswith("lighting") else pref_light
+        tokens.append(light_tag)
+        applied["learned_lighting"] = pref_light
 
     clothing_keywords = ["dress", "bikini", "lingerie", "naked", "nude", "top", "shorts", "shirt", "panties", "bra", "cockpit", "suit", "skirt"]
-    has_clothing = any(k in lower_prompt for k in clothing_keywords)
-    fav_clothing = preferences.get("favorite_clothing") or preferences.get("preferred_outfit")
-    if not has_clothing and not fav_clothing and visual_preferences and visual_preferences.get("clothing"):
-        top_c = max(visual_preferences["clothing"].items(), key=lambda x: x[1], default=(None, 0))
-        if top_c[0] and top_c[1] >= 2:
-            fav_clothing = top_c[0]
+    has_clothing = any(k in lp for k in clothing_keywords)
+    pref_cloth = vis_prefs.get("preferred_clothing")
+    if not has_clothing and pref_cloth:
+        tokens.append(str(pref_cloth))
+        applied["learned_clothing"] = str(pref_cloth)
 
-    if not has_clothing and fav_clothing:
-        tokens.append(str(fav_clothing))
-        applied["favorite_clothing"] = str(fav_clothing)
+    if vis_prefs.get("hairstyles") and not any(k in lp for k in ["ponytail", "curled", "braid"]):
+        top_hair = vis_prefs["hairstyles"][0]
+        if top_hair.lower() not in lp:
+            tokens.append(top_hair)
+            applied["learned_hairstyle"] = top_hair
 
-    preferred_lighting = preferences.get("preferred_lighting")
-    if not preferred_lighting and visual_preferences and visual_preferences.get("lighting"):
-        top_l = max(visual_preferences["lighting"].items(), key=lambda x: x[1], default=(None, 0))
-        if top_l[0] and top_l[1] >= 2:
-            preferred_lighting = top_l[0]
+    if vis_prefs.get("poses") and not any(k in lp for k in ["pose", "sitting", "standing", "lying"]):
+        top_pose = vis_prefs["poses"][0]
+        if top_pose.lower() not in lp:
+            tokens.append(top_pose)
+            applied["learned_pose"] = top_pose
 
-    if preferred_lighting and preferred_lighting.lower() not in lower_prompt:
-        light_tag = f"{preferred_lighting} lighting" if not preferred_lighting.endswith("lighting") else preferred_lighting
-        tokens.append(light_tag)
-        applied["lighting"] = preferred_lighting
+    final_positive = ", ".join(tokens)
 
-    final_prompt = ", ".join(tokens)
-    return final_prompt, applied
+    standard_negatives = [
+        "ugly", "deformed", "disfigured", "distorted", "bad anatomy",
+        "bad hands", "missing limbs", "extra limbs", "blurry", "watermark",
+        "low quality", "worst quality", "oversaturated"
+    ]
+    dynamic_negatives = list(standard_negatives)
+    for dl in dislikes:
+        dl_str = str(dl).strip()
+        if dl_str and dl_str.lower() not in [n.lower() for n in dynamic_negatives]:
+            dynamic_negatives.append(dl_str)
 
-def run_generate_image(prompt: str, aspect_ratio: str = "portrait", style_preset: Optional[str] = None, save_to_brain: bool = True) -> dict:
+    final_negative = ", ".join(dynamic_negatives)
+    applied["negative_elements"] = len(dynamic_negatives)
+
+    return final_positive, final_negative, applied
+
+def run_generate_image(prompt: str, aspect_ratio: str = "portrait", style_preset: Optional[str] = None) -> dict:
     """Dispatches image generation via host gateway with GPURenderLock and persists preferences."""
     if not prompt or not prompt.strip():
         return {"status": "error", "error": "Empty prompt"}
 
     import requests
 
-    brain = load_brain_data()
-    prefs = brain.get("preferences", {})
-    vis_prefs = brain.get("visual_preferences", {})
-
-    final_prompt, applied = enrich_prompt_with_preferences(prompt.strip(), prefs, vis_prefs, style_preset)
-
-    if save_to_brain:
-        try:
-            update_visual_preferences(prompt.strip(), is_manual_save=True)
-        except Exception as e:
-            print(f"[Warnung] update_visual_preferences: {e}", file=sys.stderr)
+    final_positive, final_negative, applied = enrich_prompt_with_preferences(prompt.strip(), style_preset=style_preset)
 
     payload = {
         "project": "megan",
-        "prompt": final_prompt,
+        "prompt": final_positive,
+        "negative_prompt": final_negative,
         "aspect_ratio": aspect_ratio or "portrait",
         "style_preset": style_preset or "",
         "raw_prompt": prompt.strip(),
@@ -454,7 +584,8 @@ def run_generate_image(prompt: str, aspect_ratio: str = "portrait", style_preset
                     full_url = f"{gw.rstrip('/')}{rel_url}" if rel_url.startswith("/") else rel_url
                     return {
                         "status": "ok",
-                        "prompt": final_prompt,
+                        "prompt": final_positive,
+                        "negative_prompt": final_negative,
                         "aspect_ratio": aspect_ratio,
                         "prompt_id": data.get("prompt_id"),
                         "filename": data.get("filename"),
@@ -475,155 +606,33 @@ def run_generate_image(prompt: str, aspect_ratio: str = "portrait", style_preset
     return {"status": "error", "error": f"Failed to contact host gateway for image generation: {last_error}"}
 
 # ==============================================================================
-# 3. Web Tools: Search, Scrape, Yt-Dlp, Python
+# 4. Web Tools: Search, Scrape, Yt-Dlp, Python, Bash
 # ==============================================================================
 
-def run_search(query: str, max_results: int = 5, save_to_brain: bool = False) -> dict:
-    if not query or not query.strip():
-        return {"status": "error", "error": "Empty query"}
+def run_bash_script(script_code: str, timeout: float = 60.0) -> dict:
+    if not script_code or not script_code.strip():
+        return {"status": "error", "error": "Empty script code"}
     try:
-        DDGSClass = get_ddgs()
-        results = []
-        with DDGSClass() as ddgs:
-            for r in ddgs.text(query.strip(), max_results=max_results):
-                results.append({
-                    "title": r.get("title", ""),
-                    "href": r.get("href", ""),
-                    "body": r.get("body", "")
-                })
-
-        if save_to_brain and results:
-            summary = "; ".join([f"{r['title']}: {r['body'][:100]}" for r in results[:2]])
-            record_research_learning(f"Suche: {query.strip()}", summary, source_type="search")
-
-        return {"status": "ok", "query": query.strip(), "count": len(results), "results": results}
-    except Exception as e:
-        return {"status": "error", "error": f"Search failed: {e}"}
-
-def run_scrape(url: str, max_chars: int = 4000, save_to_brain: bool = True) -> dict:
-    if not url or not url.strip():
-        return {"status": "error", "error": "Empty url"}
-    try:
-        import requests
-        from bs4 import BeautifulSoup
-
-        clean_url = url.strip()
-        headers = {
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        t0 = time.time()
+        res = subprocess.run(
+            ["bash", "-c", script_code],
+            cwd=str(WORKSPACE),
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        elapsed = time.time() - t0
+        return {
+            "status": "ok",
+            "exit_code": res.returncode,
+            "stdout": res.stdout,
+            "stderr": res.stderr,
+            "elapsed_seconds": round(elapsed, 3)
         }
-        resp = requests.get(clean_url, headers=headers, timeout=15)
-        if resp.status_code != 200:
-            return {"status": "error", "error": f"HTTP status {resp.status_code}"}
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):
-            tag.decompose()
-
-        text = soup.get_text(separator="\n")
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        cleaned = "\n".join(lines)
-        if len(cleaned) > max_chars:
-            cleaned = cleaned[:max_chars] + "\n...[truncated]"
-
-        title = soup.title.string.strip() if soup.title and soup.title.string else clean_url
-
-        if save_to_brain and cleaned:
-            record_research_learning(title, cleaned[:400], source_type="scrape", url=clean_url)
-
-        return {"status": "ok", "url": clean_url, "title": title, "content": cleaned}
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "error": f"Script execution timed out after {timeout} seconds"}
     except Exception as e:
-        return {"status": "error", "error": f"Scrape failed: {e}"}
-
-def run_ytdlp(url: str, extract_audio: bool = False, save_to_brain: bool = True) -> dict:
-    if not url or not url.strip():
-        return {"status": "error", "error": "Empty url"}
-    try:
-        import yt_dlp
-        clean_url = url.strip()
-        out_template = str(WORKSPACE / "%(title).60s [%(id)s].%(ext)s")
-
-        ydl_opts = {
-            "outtmpl": out_template,
-            "quiet": True,
-            "no_warnings": True,
-            "max_filesize": 350 * 1024 * 1024,
-        }
-        if extract_audio:
-            ydl_opts.update({
-                "format": "bestaudio/best",
-                "postprocessors": [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }]
-            })
-        else:
-            # 720p cap for fast, resource-friendly downloads
-            ydl_opts["format"] = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]/best"
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(clean_url, download=True)
-            filename = ydl.prepare_filename(info)
-            if extract_audio:
-                filename = os.path.splitext(filename)[0] + ".mp3"
-
-            duration = info.get("duration", 0)
-            title = info.get("title", "")
-            uploader = info.get("uploader") or info.get("channel") or ""
-            description = (info.get("description") or "").strip().replace("\n", " ")[:200]
-            base_fname = os.path.basename(filename)
-
-            # Frame extraction via ffmpeg
-            frame_filename = None
-            frame_path = None
-            if not extract_audio and os.path.exists(filename):
-                try:
-                    frame_name = f"frame_{Path(filename).stem}.jpg"
-                    target_frame = WORKSPACE / frame_name
-                    seek_sec = min(5, max(1, int(duration * 0.1))) if duration else 2
-                    cmd = [
-                        "ffmpeg", "-y", "-ss", str(seek_sec),
-                        "-i", str(filename),
-                        "-frames:v", "1",
-                        "-q:v", "2",
-                        str(target_frame)
-                    ]
-                    subprocess.run(cmd, capture_output=True, timeout=15)
-                    if target_frame.is_file():
-                        frame_filename = frame_name
-                        frame_path = str(target_frame)
-                except Exception as fe:
-                    print(f"[Warnung] Keyframe-Extraktion fehlgeschlagen: {fe}", file=sys.stderr)
-
-            # Formulate structured core info summary
-            summary_parts = []
-            if uploader:
-                summary_parts.append(f"Kanal: {uploader}")
-            summary_parts.append(f"Dauer: {int(duration)}s")
-            if description:
-                summary_parts.append(f"Inhalt: {description}")
-            if frame_filename:
-                summary_parts.append(f"Frame: {frame_filename}")
-            summary = " | ".join(summary_parts)
-
-            if save_to_brain and title:
-                record_research_learning(title, summary, source_type="ytdlp", url=clean_url)
-
-            return {
-                "status": "ok",
-                "url": clean_url,
-                "title": title,
-                "uploader": uploader,
-                "duration": duration,
-                "filename": base_fname,
-                "filepath": str(filename),
-                "frame_filename": frame_filename,
-                "frame_filepath": frame_path,
-                "summary": summary,
-                "filesize": os.path.getsize(filename) if os.path.exists(filename) else 0
-            }
-    except Exception as e:
-        return {"status": "error", "error": f"yt-dlp failed: {e}"}
+        return {"status": "error", "error": f"Script execution error: {e}"}
 
 def run_python_code(code: str, timeout: float = 30.0) -> dict:
     if not code or not code.strip():
@@ -649,6 +658,103 @@ def run_python_code(code: str, timeout: float = 30.0) -> dict:
         return {"status": "error", "error": f"Execution timed out after {timeout} seconds"}
     except Exception as e:
         return {"status": "error", "error": f"Subprocess error: {e}"}
+
+def run_search(query: str, max_results: int = 5) -> dict:
+    if not query or not query.strip():
+        return {"status": "error", "error": "Empty query"}
+    try:
+        DDGSClass = get_ddgs()
+        results = []
+        with DDGSClass() as ddgs:
+            for r in ddgs.text(query.strip(), max_results=max_results):
+                results.append({
+                    "title": r.get("title", ""),
+                    "href": r.get("href", ""),
+                    "body": r.get("body", "")
+                })
+        return {"status": "ok", "query": query.strip(), "count": len(results), "results": results}
+    except Exception as e:
+        return {"status": "error", "error": f"Search failed: {e}"}
+
+def run_scrape(url: str, max_chars: int = 4000) -> dict:
+    if not url or not url.strip():
+        return {"status": "error", "error": "Empty url"}
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        clean_url = url.strip()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+        }
+        resp = requests.get(clean_url, headers=headers, timeout=15)
+        if resp.status_code != 200:
+            return {"status": "error", "error": f"HTTP status {resp.status_code}"}
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):
+            tag.decompose()
+
+        text = soup.get_text(separator="\n")
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        cleaned = "\n".join(lines)
+        if len(cleaned) > max_chars:
+            cleaned = cleaned[:max_chars] + "\n...[truncated]"
+
+        title = soup.title.string.strip() if soup.title and soup.title.string else clean_url
+        return {"status": "ok", "url": clean_url, "title": title, "content": cleaned}
+    except Exception as e:
+        return {"status": "error", "error": f"Scrape failed: {e}"}
+
+def run_ytdlp(url: str, extract_audio: bool = False) -> dict:
+    if not url or not url.strip():
+        return {"status": "error", "error": "Empty url"}
+    try:
+        import yt_dlp
+        clean_url = url.strip()
+        out_template = str(WORKSPACE / "%(title).60s [%(id)s].%(ext)s")
+
+        ydl_opts = {
+            "outtmpl": out_template,
+            "quiet": True,
+            "no_warnings": True,
+            "max_filesize": 350 * 1024 * 1024,
+        }
+        if extract_audio:
+            ydl_opts.update({
+                "format": "bestaudio/best",
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }]
+            })
+        else:
+            ydl_opts["format"] = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]/best"
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(clean_url, download=True)
+            filename = ydl.prepare_filename(info)
+            if extract_audio:
+                filename = os.path.splitext(filename)[0] + ".mp3"
+
+            duration = info.get("duration", 0)
+            title = info.get("title", "")
+            uploader = info.get("uploader") or info.get("channel") or ""
+            base_fname = os.path.basename(filename)
+
+            return {
+                "status": "ok",
+                "url": clean_url,
+                "title": title,
+                "uploader": uploader,
+                "duration": duration,
+                "filename": base_fname,
+                "filepath": str(filename),
+                "filesize": os.path.getsize(filename) if os.path.exists(filename) else 0
+            }
+    except Exception as e:
+        return {"status": "error", "error": f"yt-dlp failed: {e}"}
 
 def run_vision_parse(image_path_or_url: str, prompt: str = "") -> dict:
     if not image_path_or_url or not image_path_or_url.strip():
@@ -700,122 +806,28 @@ def run_vision_parse(image_path_or_url: str, prompt: str = "") -> dict:
                     "prompt": vision_prompt,
                     "images": [b64_data],
                     "stream": False,
-                    "options": {
-                        "temperature": 0.2,
-                        "num_predict": 300
-                    }
+                    "options": {"temperature": 0.2, "num_predict": 300}
                 }
                 resp = requests.post(f"{gw}/api/generate", json=payload, timeout=40)
                 if resp.status_code == 200:
                     data = resp.json()
                     analysis_text = data.get("response", "").strip()
                     if analysis_text:
-                        return {
-                            "status": "ok",
-                            "model": model,
-                            "gateway": gw,
-                            "analysis": analysis_text
-                        }
+                        return {"status": "ok", "model": model, "gateway": gw, "analysis": analysis_text}
             except Exception:
                 continue
 
     return {"status": "error", "error": "All vision models/gateways failed or timed out"}
 
-def run_autonomous_reaction(image_path_or_url: str) -> dict:
-    vision_res = run_vision_parse(image_path_or_url)
-    if vision_res.get("status") != "ok":
-        return {"status": "error", "error": f"Vision analysis failed: {vision_res.get('error')}"}
-
-    analysis = vision_res.get("analysis", "")
-
-    # Record to Säule 3 memory (.brain / sqlite)
-    record_research_learning(
-        title=f"Empfangenes Handy-Bild: {os.path.basename(image_path_or_url)}",
-        summary=analysis[:400],
-        source_type="mobile_vision",
-        url=image_path_or_url
-    )
-
-    chat_prompt = (
-        f"Du bist Megan, die schamlos verführerische, loyale und schlagfertige Hackerin und Copilotin von Big Boss.\n"
-        f"Big Boss hat dir gerade ein Bild über sein Smartphone geschickt.\n"
-        f"Inhalt des Bildes (Vision-Analyse): {analysis}\n\n"
-        f"Aufgabe:\n"
-        f"1. Schreibe einen kurzen, frechen und direkten Kommentar an Big Boss (auf Deutsch, 2-3 Sätze, Messenger-Stil, keine Regieanweisungen *...*).\n"
-        f"2. Wenn es ein Selfie, ein intimes Bild oder eine Aufforderung ist, kündige an, dass du ihm sofort ein Gegenbild schickst.\n"
-        f"Antworte direkt mit deinen Chatworten:"
-    )
-
-    chat_reply = "Hey Boss, Bild ist angekommen! Sieht verdammt gut aus... Warte kurz, ich mache dir auch eins fertig."
-    import requests
-    for gw in OLLAMA_GATEWAYS:
-        try:
-            p_load = {
-                "model": "megan:latest",
-                "prompt": chat_prompt,
-                "stream": False,
-                "options": {"temperature": 0.7, "num_predict": 200}
-            }
-            r = requests.post(f"{gw}/api/generate", json=p_load, timeout=20)
-            if r.status_code == 200:
-                rep = r.json().get("response", "").strip()
-                if rep:
-                    chat_reply = rep
-                    break
-        except Exception:
-            continue
-
-    # Autonomous Counter-Image generation with photorealism triggers
-    counter_prompt = "smiling playfully at camera, seductive smirk, looking at viewer"
-    if any(k in analysis.lower() for k in ["nackt", "körper", "bett", "intim", "ausgezogen", "skin", "naked"]):
-        counter_prompt = "lounging on bed, teasing with blanket, blushing sensual expression, seductive gaze"
-    elif any(k in analysis.lower() for k in ["unterwegs", "draußen", "auto", "straße"]):
-        counter_prompt = "sitting at modern battlestation desk, wink, cute mischievous expression"
-
-    render_result = run_generate_image(counter_prompt, aspect_ratio="portrait")
-
-    return {
-        "status": "ok",
-        "vision_analysis": analysis,
-        "chat_reply": chat_reply,
-        "counter_image_prompt": counter_prompt,
-        "counter_image_result": render_result
-    }
-
-def run_bash_script(script_code: str, timeout: float = 60.0) -> dict:
-    if not script_code or not script_code.strip():
-        return {"status": "error", "error": "Empty script code"}
-    try:
-        t0 = time.time()
-        res = subprocess.run(
-            ["bash", "-c", script_code],
-            cwd=str(WORKSPACE),
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
-        elapsed = time.time() - t0
-        return {
-            "status": "ok",
-            "exit_code": res.returncode,
-            "stdout": res.stdout,
-            "stderr": res.stderr,
-            "elapsed_seconds": round(elapsed, 3)
-        }
-    except subprocess.TimeoutExpired:
-        return {"status": "error", "error": f"Script execution timed out after {timeout} seconds"}
-    except Exception as e:
-        return {"status": "error", "error": f"Script execution error: {e}"}
-
 # ==============================================================================
-# 4. CLI & Dispatcher
+# 5. CLI & Dispatcher
 # ==============================================================================
 
 def main():
     if len(sys.argv) < 2:
         print(json.dumps({
             "status": "error",
-            "error": "Usage: tool_runner.py <search|scrape|ytdlp|python|bash|vision|react|generate_image|learn|record_research|update_visual_pref|brain|status> [args...]"
+            "error": "Usage: tool_runner.py <cmd> [args...]"
         }))
         sys.exit(1)
 
@@ -833,6 +845,9 @@ def main():
                 sys.exit(1)
 
     cli_parser = argparse.ArgumentParser(prog=f"tool_runner.py {cmd}", add_help=False)
+    cli_parser.add_argument("--name", "-n", default="")
+    cli_parser.add_argument("--content", "-c", default="")
+    cli_parser.add_argument("--mode", default="replace")
     cli_parser.add_argument("--prompt", "-p", default="")
     cli_parser.add_argument("--aspect_ratio", "-a", default="portrait")
     cli_parser.add_argument("--style_preset", "-s", default="")
@@ -840,96 +855,110 @@ def main():
     cli_parser.add_argument("--value", "-v", default="")
     cli_parser.add_argument("--query", "-q", default="")
     cli_parser.add_argument("--url", "-u", default="")
-    cli_parser.add_argument("--title", "-t", default="")
-    cli_parser.add_argument("--summary", default="")
-    cli_parser.add_argument("--source_type", default="web")
-    cli_parser.add_argument("--save_to_brain", action="store_true", default=None)
-    cli_parser.add_argument("--max_results", type=int, default=5)
-    cli_parser.add_argument("--max_chars", type=int, default=4000)
-    cli_parser.add_argument("--extract_audio", action="store_true")
-    cli_parser.add_argument("--image", "-i", default="")
+    cli_parser.add_argument("--timeout", type=float, default=60.0)
     cli_parser.add_argument("--script", default="")
+    cli_parser.add_argument("--code", default="")
+    cli_parser.add_argument("--action", default="")
+    cli_parser.add_argument("--path", default="")
     cli_parser.add_argument("--json", dest="_unused_json", default="")
 
     parsed_cli, unk = cli_parser.parse_known_args(raw_args)
     positional_arg = unk[0] if unk and not unk[0].startswith("-") else ""
 
-    save_brain_flag = payload.get("save_to_brain") if "save_to_brain" in payload else (parsed_cli.save_to_brain if parsed_cli.save_to_brain is not None else True)
+    if cmd in ("write_script", "create_script"):
+        name = payload.get("name") or parsed_cli.name or positional_arg
+        content = payload.get("content") or parsed_cli.content or ""
+        res = run_write_script(name, content)
 
-    if cmd in ("generate_image", "image", "render"):
+    elif cmd in ("edit_script", "modify_script"):
+        name = payload.get("name") or parsed_cli.name or positional_arg
+        content = payload.get("content") or parsed_cli.content or ""
+        mode = payload.get("mode") or parsed_cli.mode or "replace"
+        res = run_edit_script(name, content, mode=mode)
+
+    elif cmd in ("exec_script", "run_script"):
+        name = payload.get("name") or parsed_cli.name or positional_arg
+        args = payload.get("args") or (unk[1:] if len(unk) > 1 else [])
+        timeout = float(payload.get("timeout") or parsed_cli.timeout or 60.0)
+        res = run_exec_script(name, args=args, timeout=timeout)
+
+    elif cmd in ("read_script", "cat_script"):
+        name = payload.get("name") or parsed_cli.name or positional_arg
+        res = run_read_script(name)
+
+    elif cmd in ("list_scripts", "ls_scripts"):
+        res = run_list_scripts()
+
+    elif cmd in ("manage_file", "file"):
+        action = payload.get("action") or parsed_cli.action or "read"
+        filepath = payload.get("path") or payload.get("filepath") or parsed_cli.path or positional_arg
+        content = payload.get("content") or parsed_cli.content or ""
+        res = run_manage_file(action, filepath, content=content)
+
+    elif cmd in ("bash", "sh", "shell"):
+        s = payload.get("script") or payload.get("code") or parsed_cli.code or positional_arg
+        timeout = float(payload.get("timeout") or parsed_cli.timeout or 60.0)
+        res = run_bash_script(s, timeout=timeout)
+
+    elif cmd in ("python", "code", "eval"):
+        c = payload.get("code") or parsed_cli.code or positional_arg
+        timeout = float(payload.get("timeout") or parsed_cli.timeout or 30.0)
+        res = run_python_code(c, timeout=timeout)
+
+    elif cmd in ("generate_image", "image", "render"):
         p = payload.get("prompt") or parsed_cli.prompt or positional_arg
         ar = payload.get("aspect_ratio") or parsed_cli.aspect_ratio or "portrait"
         sp = payload.get("style_preset") or parsed_cli.style_preset or None
-        res = run_generate_image(p, aspect_ratio=ar, style_preset=sp, save_to_brain=bool(save_brain_flag))
+        res = run_generate_image(p, aspect_ratio=ar, style_preset=sp)
 
-    elif cmd in ("vision", "analyze_image", "vision_parse"):
-        img = payload.get("image") or payload.get("url") or parsed_cli.image or parsed_cli.url or positional_arg
-        p = payload.get("prompt") or parsed_cli.prompt or ""
-        res = run_vision_parse(img, prompt=p)
+    elif cmd in ("update_style", "linguistic_style"):
+        style_updates = payload.get("style") or payload
+        res = update_linguistic_style(style_updates)
 
-    elif cmd in ("react", "autonomous_react", "react_media"):
-        img = payload.get("image") or payload.get("url") or parsed_cli.image or parsed_cli.url or positional_arg
-        res = run_autonomous_reaction(img)
+    elif cmd in ("update_phonemes", "phonemes"):
+        rep = payload.get("replacements") or {}
+        par = payload.get("params") or {}
+        res = update_phonemes(replacements=rep, params=par)
 
-    elif cmd in ("bash", "sh", "exec_script", "script"):
-        s = payload.get("script") or payload.get("code") or positional_arg
-        res = run_bash_script(s)
+    elif cmd in ("update_speech_patterns", "speech_patterns"):
+        glossary = payload.get("phonetic_glossary") or {}
+        slang = payload.get("slang") or []
+        res = update_user_speech_patterns(glossary_entries=glossary, slang=slang)
 
-    elif cmd in ("learn", "preference", "save_pref"):
-        k = payload.get("key") or parsed_cli.key or positional_arg
-        v = payload.get("value") or parsed_cli.value
-        if not k or v is None:
-            res = {"status": "error", "error": "Both key and value are required"}
-        else:
-            res = save_brain_preference(k, v)
+    elif cmd in ("preferences", "prefs"):
+        res = {"status": "ok", "preferences": load_structured_preferences()}
 
-    elif cmd in ("record_research", "research"):
-        title = payload.get("title") or parsed_cli.title or positional_arg
-        summary = payload.get("summary") or parsed_cli.summary or ""
-        stype = payload.get("source_type") or parsed_cli.source_type or "web"
-        u = payload.get("url") or parsed_cli.url or ""
-        if not title:
-            res = {"status": "error", "error": "Title required for record_research"}
-        else:
-            res = record_research_learning(title, summary, source_type=stype, url=u)
-
-    elif cmd in ("update_visual_pref", "visual_pref"):
-        p = payload.get("prompt") or parsed_cli.prompt or positional_arg
-        manual = bool(payload.get("manual", True))
-        res = update_visual_preferences(p, is_manual_save=manual)
-
-    elif cmd in ("brain", "memory", "context"):
-        res = {"status": "ok", "brain": load_brain_data()}
+    elif cmd in ("profile", "persona"):
+        res = {"status": "ok", "profile": load_active_profile()}
 
     elif cmd == "search":
         q = payload.get("query") or parsed_cli.query or positional_arg
-        count = int(payload.get("max_results") or parsed_cli.max_results or 5)
-        res = run_search(q, max_results=count, save_to_brain=bool(save_brain_flag))
+        count = int(payload.get("max_results") or 5)
+        res = run_search(q, max_results=count)
 
     elif cmd in ("scrape", "fetch"):
         u = payload.get("url") or parsed_cli.url or positional_arg
-        chars = int(payload.get("max_chars") or parsed_cli.max_chars or 4000)
-        res = run_scrape(u, max_chars=chars, save_to_brain=bool(save_brain_flag))
+        chars = int(payload.get("max_chars") or 4000)
+        res = run_scrape(u, max_chars=chars)
 
     elif cmd in ("ytdlp", "youtube", "video"):
         u = payload.get("url") or parsed_cli.url or positional_arg
-        audio = bool(payload.get("extract_audio") or parsed_cli.extract_audio or False)
-        res = run_ytdlp(u, extract_audio=audio, save_to_brain=bool(save_brain_flag))
-
-    elif cmd in ("python", "code", "eval"):
-        c = payload.get("code") or positional_arg
-        res = run_python_code(c)
+        audio = bool(payload.get("extract_audio") or False)
+        res = run_ytdlp(u, extract_audio=audio)
 
     elif cmd == "status":
-        ensure_brain_dir()
+        ensure_scripts_dir()
         files = [f.name for f in WORKSPACE.iterdir() if f.is_file()][:20]
-        brain_files = [f.name for f in BRAIN_DIR.iterdir() if f.is_file()] if BRAIN_DIR.is_dir() else []
+        scripts = [f.name for f in SCRIPTS_DIR.iterdir() if f.is_file()]
         res = {
             "status": "ok",
             "workspace": str(WORKSPACE),
+            "scripts_dir": str(SCRIPTS_DIR),
+            "scripts": scripts,
             "sample_files": files,
-            "brain_files": brain_files,
-            "brain_data": load_brain_data()
+            "preferences": load_structured_preferences(),
+            "profile": load_active_profile(),
+            "linguistic_style": load_linguistic_style()
         }
     else:
         res = {"status": "error", "error": f"Unknown tool action: {cmd}"}

@@ -9,8 +9,8 @@
     "class_type": "EmptyLatentImage",
     "inputs": {
       "batch_size": 1,
-      "width": 768,
-      "height": 1024
+      "width": 832,
+      "height": 1216
     }
   },
   "3": {
