@@ -43,11 +43,38 @@ TIMESTAMP="$(date '+%Y-%m-%d_%H:%M:%S')"
 
 clear 2>/dev/null || true
 echo -e "${BOLD}${CYAN}======================================================================${RESET}"
-echo -e "${BOLD}${CYAN}   💾  OUTER HEAVEN // ONE-CLICK GIT CHECKPOINT (SAVEGAME)            ${RESET}"
+echo -e "${BOLD}${CYAN}   💾  OUTER HEAVEN // CHECKPOINT & SAVEGAME MANAGER                 ${RESET}"
 echo -e "${BOLD}${CYAN}======================================================================${RESET}"
 echo -e " Lokales Repo:  ${BOLD}${REPO_DIR}${RESET}"
 echo -e " Branch:        ${BOLD}${MAGENTA}${CURRENT_BRANCH}${RESET}"
 echo -e " Zeitstempel:   ${TIMESTAMP}"
+echo -e "${CYAN}----------------------------------------------------------------------${RESET}"
+
+# 0. Outer Heaven ComfyUI Checkpoints & Speicherauslastung
+echo -e "${BOLD}${CYAN}📦 ComfyUI Checkpoints & Speicherauslastung (Outer Heaven):${RESET}"
+OH_CP_REMOTE="/home/outerheaven/ComfyUI/models/checkpoints/"
+OH_CP_LOCAL="/mnt/storage-beta/models (comfy)/checkpoints"
+
+if [ -d "${OH_CP_LOCAL}" ]; then
+    DISK_INFO=$(df -h "${OH_CP_LOCAL}" | awk 'NR==2 {print "Gesamt: " $2 ", Belegt: " $3 " (" $5 "), Frei: " $4}')
+    CP_COUNT=$(find "${OH_CP_LOCAL}" -maxdepth 2 -type f \( -name "*.safetensors" -o -name "*.ckpt" \) 2>/dev/null | wc -l)
+    echo -e " Pfad (Remote): ${BOLD}${OH_CP_REMOTE}${RESET}"
+    echo -e " Pfad (NFS):    ${BOLD}${OH_CP_LOCAL}${RESET}"
+    echo -e " Speicher:      ${GREEN}${DISK_INFO}${RESET}"
+    echo -e " Checkpoints:   ${BOLD}${CP_COUNT} Modelle gefunden${RESET}"
+    
+    # Zeige die wichtigsten aktiven Checkpoints
+    echo -e " Top-Modelle:   ${CYAN}$(ls -1 "${OH_CP_LOCAL}"/*.safetensors 2>/dev/null | head -n 4 | xargs -n 1 basename | paste -sd ', ' -)${RESET}"
+else
+    echo -e " ${YELLOW}⚠ NFS-Pfad ${OH_CP_LOCAL} nicht eingehängt. Prüfe via SSH...${RESET}"
+    if ssh -o BatchMode=yes -o ConnectTimeout=3 outerheaven 'true' 2>/dev/null; then
+        REMOTE_DISK=$(ssh -o BatchMode=yes -o ConnectTimeout=3 outerheaven 'df -h /mnt/storage-beta 2>/dev/null | awk "NR==2 {print \$2 \" gesamt, \" \$4 \" frei (\" \$5 \" belegt)\"}"' 2>/dev/null || echo "k.A.")
+        echo -e " Remote-Speicher (/mnt/storage-beta): ${GREEN}${REMOTE_DISK}${RESET}"
+        echo -e " Pfad: ${BOLD}${OH_CP_REMOTE}${RESET}"
+    else
+        echo -e " ${RED}✖ Outer Heaven offline oder SSH nicht erreichbar.${RESET}"
+    fi
+fi
 echo -e "${CYAN}----------------------------------------------------------------------${RESET}"
 
 # 1. Prüfe auf Änderungen im Repo
@@ -86,13 +113,29 @@ fi
 
 echo -e "\n${CYAN}======================================================================${RESET}"
 echo -e "${BOLD}Aktionen:${RESET}"
-echo -e " [${BOLD}${YELLOW}R${RESET}]  Rollback auf letzten Checkpoint (Wiederherstellung)"
+echo -e " [${BOLD}${YELLOW}O${RESET}]  ComfyUI Checkpoints-Ordner im Dateimanager öffnen"
+echo -e " [${BOLD}${YELLOW}L${RESET}]  Alle ComfyUI Checkpoint-Dateien detailliert auflisten"
+echo -e " [${BOLD}${YELLOW}R${RESET}]  Rollback auf letzten Git-Checkpoint (Wiederherstellung)"
 echo -e " [${BOLD}Enter${RESET}] Beenden & Fenster schließen"
 echo -e "${CYAN}----------------------------------------------------------------------${RESET}"
 read -rp "Auswahl: " -n 1 ACTION
 echo ""
 
-if [[ "${ACTION}" =~ ^[Rr]$ ]]; then
+if [[ "${ACTION}" =~ ^[Oo]$ ]]; then
+    if [ -d "${OH_CP_LOCAL}" ]; then
+        echo -e "${GREEN}Öffne ${OH_CP_LOCAL}...${RESET}"
+        xdg-open "${OH_CP_LOCAL}" >/dev/null 2>&1 &
+    else
+        echo -e "${RED}NFS-Pfad ${OH_CP_LOCAL} nicht verfügbar.${RESET}"
+    fi
+elif [[ "${ACTION}" =~ ^[Ll]$ ]]; then
+    echo -e "\n${BOLD}${CYAN}Aktuelle ComfyUI Checkpoints auf Outer Heaven:${RESET}"
+    if [ -d "${OH_CP_LOCAL}" ]; then
+        ls -lh "${OH_CP_LOCAL}" | grep -E '\.(safetensors|ckpt)$' | awk '{print $9, "("$5")"}'
+    else
+        ssh outerheaven 'ls -lh /home/outerheaven/ComfyUI/models/checkpoints/' | grep -E '\.(safetensors|ckpt)$' | awk '{print $9, "("$5")"}'
+    fi
+elif [[ "${ACTION}" =~ ^[Rr]$ ]]; then
     echo -e "\n${BOLD}${YELLOW}⚠️  ROLLBACK-MENÜ:${RESET}"
     echo -e " 1) Letzten Commit rückgängig machen (git reset --hard HEAD~1)"
     echo -e " 2) Alle ungespeicherten Dateien verwerfen (git restore . && git clean -fd)"

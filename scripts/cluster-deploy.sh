@@ -32,6 +32,7 @@ REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OH_HOST="outerheaven"
 OH_IP="100.116.38.29"
 OH_TARGET_MC="/home/outerheaven/mission-control/"
+OH_TARGET_STREAMLIT="/home/outerheaven/streamlit-apps/"
 
 FOX_HOST="fox"
 FOX_IP="100.93.184.87"
@@ -42,6 +43,7 @@ FOX_TARGET_HERMES="/home/fox/.hermes/"
 OH_ONLINE=0
 FOX_ONLINE=0
 OH_SYNC_OK=0
+OH_STREAMLIT_OK=0
 FOX_SYNC_OK=0
 OH_RESTART_OK=0
 FOX_RESTART_OK=0
@@ -130,11 +132,12 @@ else
 fi
 
 # ==============================================================================
-# 3. RSYNC MISSION CONTROL -> OUTER HEAVEN
+# 3. RSYNC MISSION CONTROL & STREAMLIT APPS -> OUTER HEAVEN
 # ==============================================================================
-log_step "3/5" "Synchronisiere Mission Control -> outerheaven..."
+log_step "3/5" "Synchronisiere Mission Control & Streamlit-Apps -> outerheaven..."
 
 if [ "${OH_ONLINE}" -eq 1 ]; then
+    # 3a. Mission Control synchronisieren
     if [ -d "${REPO_DIR}/mission-control" ]; then
         log_info "Übertrage /mission-control/ nach ${OH_HOST}:${OH_TARGET_MC}..."
         
@@ -152,10 +155,27 @@ if [ "${OH_ONLINE}" -eq 1 ]; then
             log_ok "Mission Control erfolgreich nach outerheaven synchronisiert."
             OH_SYNC_OK=1
         else
-            log_fail "Rsync zu outerheaven fehlgeschlagen!"
+            log_fail "Rsync zu outerheaven (Mission Control) fehlgeschlagen!"
         fi
     else
         log_fail "Verzeichnis '${REPO_DIR}/mission-control' existiert lokal nicht."
+    fi
+
+    # 3b. Streamlit Apps (Leitstand) synchronisieren
+    if [ -d "${REPO_DIR}/streamlit-apps" ]; then
+        log_info "Übertrage /streamlit-apps/ nach ${OH_HOST}:${OH_TARGET_STREAMLIT}..."
+        ssh -o BatchMode=yes -o ConnectTimeout=5 "${OH_HOST}" "mkdir -p ${OH_TARGET_STREAMLIT}" 2>/dev/null || true
+        if rsync -avz \
+            --exclude '__pycache__' \
+            --exclude '*.pyc' \
+            --exclude '.git' \
+            --exclude 'venv/' \
+            "${REPO_DIR}/streamlit-apps/" "${OH_HOST}:${OH_TARGET_STREAMLIT}"; then
+            log_ok "Streamlit-Apps (Leitstand) erfolgreich nach outerheaven synchronisiert."
+            OH_STREAMLIT_OK=1
+        else
+            log_fail "Rsync zu outerheaven (Streamlit-Apps) fehlgeschlagen!"
+        fi
     fi
 else
     log_warn "Überspringe Outer Heaven Sync, da Knoten offline ist."
@@ -247,6 +267,9 @@ echo -e "${BOLD}${CYAN}=========================================================
 # Outer Heaven Status
 if [ "${OH_ONLINE}" -eq 1 ] && [ "${OH_SYNC_OK}" -eq 1 ] && [ "${OH_RESTART_OK}" -eq 1 ]; then
     echo -e " Node Outer Heaven (HP Z620): [ ${GREEN}${BOLD}ERFOLGREICH SYNCHRONISIERT & NEU GESTARTET${RESET} ]"
+    if [ "${OH_STREAMLIT_OK}" -eq 1 ]; then
+        echo -e "   └── Streamlit Leitstand:   [ ${GREEN}SYNCHRONISIERT${RESET} ]"
+    fi
 elif [ "${OH_ONLINE}" -eq 0 ]; then
     echo -e " Node Outer Heaven (HP Z620): [ ${RED}${BOLD}OFFLINE / NICHT ERREICHBAR${RESET} ]"
 else
