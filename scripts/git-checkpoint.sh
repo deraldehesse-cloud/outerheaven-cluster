@@ -64,7 +64,8 @@ if [ -d "${OH_CP_LOCAL}" ]; then
     echo -e " Checkpoints:   ${BOLD}${CP_COUNT} Modelle gefunden${RESET}"
     
     # Zeige die wichtigsten aktiven Checkpoints
-    echo -e " Top-Modelle:   ${CYAN}$(ls -1 "${OH_CP_LOCAL}"/*.safetensors 2>/dev/null | head -n 4 | xargs -n 1 basename | paste -sd ', ' -)${RESET}"
+    TOP_MODELS=$(find "${OH_CP_LOCAL}" -maxdepth 1 -name "*.safetensors" -printf "%f\n" 2>/dev/null | head -n 4 | paste -sd ', ' -)
+    echo -e " Top-Modelle:   ${CYAN}${TOP_MODELS}${RESET}"
 else
     echo -e " ${YELLOW}⚠ NFS-Pfad ${OH_CP_LOCAL} nicht eingehängt. Prüfe via SSH...${RESET}"
     if ssh -o BatchMode=yes -o ConnectTimeout=3 outerheaven 'true' 2>/dev/null; then
