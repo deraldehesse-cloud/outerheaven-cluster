@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Megan Studio // Autonomous Companion</title>
+  <title>Megan Studio // Autonomous Companion & Tools Leitstand</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -17,6 +17,18 @@
               600: '#db2777',
               900: '#831843',
               950: '#500724'
+            },
+            amber: {
+              400: '#fbbf24',
+              500: '#f59e0b',
+              600: '#d97706',
+              950: '#451a03'
+            },
+            cyan: {
+              400: '#22d3ee',
+              500: '#06b6d4',
+              600: '#0891b2',
+              950: '#083344'
             }
           }
         }
@@ -25,8 +37,9 @@
   </script>
   <style>
     .glow-pink { box-shadow: 0 0 15px rgba(236, 72, 153, 0.25); }
+    .glow-cyan { box-shadow: 0 0 15px rgba(6, 182, 212, 0.25); }
     .scrollbar-thin::-webkit-scrollbar { width: 5px; height: 5px; }
-    .scrollbar-thin::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans select-none">
@@ -39,9 +52,10 @@
         <div class="flex items-center space-x-2">
           <h1 class="text-sm font-extrabold tracking-wider text-pink-300 font-mono">MEGAN STUDIO</h1>
           <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-pink-950/80 border border-pink-700/60 text-pink-300">PORT 8080 // DEDICATED</span>
+          <span id="gpuLockBadge" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950 border border-cyan-700 text-cyan-300">GPU: UNLOCKED</span>
           <span id="autonomyBadge" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-900 border border-slate-700 text-slate-300">AUTONOMIE: REAKTIV</span>
         </div>
-        <p class="text-[11px] text-slate-400 font-mono">Android Sync • Lovense LAN Bridge • ComfyUI Engine • Canonical Vault</p>
+        <p class="text-[11px] text-slate-400 font-mono">Hermes Tool-Stack • Voice-First Chat • ComfyUI Arc A770 • Canonical Vault</p>
       </div>
     </div>
     <div class="flex items-center space-x-2 text-xs font-mono">
@@ -57,14 +71,14 @@
   </header>
 
   <!-- Main 3-Column Layout -->
-  <main class="flex-1 p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 overflow-hidden">
+  <main class="flex-1 p-3 grid grid-cols-1 lg:grid-cols-3 gap-3 overflow-hidden">
 
-    <!-- Column 1: Lovense Haptic & Chat -->
-    <div class="bg-slate-900/60 border border-pink-950 rounded-lg p-3.5 flex flex-col justify-between space-y-3 shadow-xl overflow-hidden">
+    <!-- Column 1: Voice-First Chat & Lovense -->
+    <div class="bg-slate-900/60 border border-pink-950 rounded-lg p-3 flex flex-col justify-between space-y-2.5 shadow-xl overflow-hidden">
       <div class="flex items-center justify-between pb-2 border-b border-slate-800 shrink-0">
         <div class="flex items-center space-x-2">
           <span class="w-2.5 h-2.5 rounded-full bg-pink-500 animate-pulse"></span>
-          <h2 class="text-xs font-bold text-pink-300 uppercase tracking-wider font-mono">💬 Megan Chat & Haptic</h2>
+          <h2 class="text-xs font-bold text-pink-300 uppercase tracking-wider font-mono">🎙️ Voice-First Chat (Megan)</h2>
         </div>
         <div class="flex items-center space-x-2 text-[10px] font-mono">
           <label class="flex items-center space-x-1 cursor-pointer">
@@ -75,120 +89,193 @@
       </div>
 
       <!-- Messages Area -->
-      <div id="chatMessages" class="flex-1 overflow-y-auto space-y-2.5 p-2 bg-black/50 rounded border border-slate-800/80 scrollbar-thin text-xs">
-        <div class="p-2.5 bg-pink-950/30 border border-pink-900/40 rounded text-pink-200">
-          <span class="font-bold font-mono text-[10px] text-pink-400 block mb-1">💋 MEGAN:</span>
-          Hey Big Boss! Ich bin bereit. Was steht heute an?
-        </div>
+      <div id="chatMessages" class="flex-1 overflow-y-auto space-y-2 p-2 bg-black/50 rounded border border-slate-800/80 scrollbar-thin text-xs">
+        <div class="text-[10px] text-slate-500 text-center py-2">Lade gemeinsamen Chat-Verlauf...</div>
       </div>
 
       <!-- Chat Input -->
       <div class="pt-2 border-t border-slate-800/80 space-y-2 shrink-0">
         <div class="flex items-center space-x-2">
-          <input type="text" id="chatInput" placeholder="Nachricht an Megan..."
+          <input type="text" id="chatInput" placeholder="Nachricht an Megan (z.B. 'Prüfe Systemstatus' oder 'Termine heute')..."
                  onkeydown="if(event.key==='Enter') sendMessage()"
                  class="flex-1 bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-pink-500">
-          <button onclick="sendMessage()" class="px-3 py-1.5 bg-pink-600 hover:bg-pink-500 text-white rounded text-xs font-bold font-mono transition">
+          <button id="sendBtn" onclick="sendMessage()" class="px-3.5 py-1.5 bg-pink-600 hover:bg-pink-500 text-white rounded text-xs font-bold font-mono transition">
             Senden
           </button>
         </div>
         <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 bg-black/40 p-1.5 rounded border border-slate-800">
-          <span>Lovense Bridge: <span class="text-emerald-400 font-bold">{{ lovense_ip }}</span></span>
+          <span>Lovense LAN: <span class="text-emerald-400 font-bold">{{ lovense_ip }}</span></span>
           <button onclick="triggerHaptic(5)" class="text-pink-400 hover:text-pink-300 transition">Test Buzz 📳</button>
         </div>
       </div>
     </div>
 
-    <!-- Column 2: ComfyUI Prompt-Studio & Android Dropzone -->
-    <div class="bg-slate-900/60 border border-pink-950 rounded-lg p-3.5 flex flex-col justify-between space-y-3 shadow-xl overflow-hidden">
+    <!-- Column 2: ComfyUI Render-Studio & Parameter-Steuerung -->
+    <div class="bg-slate-900/60 border border-pink-950 rounded-lg p-3 flex flex-col justify-between space-y-2.5 shadow-xl overflow-hidden">
       <div class="flex items-center justify-between pb-2 border-b border-slate-800 shrink-0">
         <div class="flex items-center space-x-2">
           <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
-          <h2 class="text-xs font-bold text-cyan-300 uppercase tracking-wider font-mono">🎨 Prompt-Studio & Android Ingest</h2>
+          <h2 class="text-xs font-bold text-cyan-300 uppercase tracking-wider font-mono">🎨 ComfyUI Bildparameter</h2>
         </div>
-        <span class="text-[10px] font-mono text-slate-400">ComfyUI Arc A770</span>
+        <span id="arcGpuStatus" class="text-[10px] font-mono text-slate-400">Intel Arc A770 (16GB)</span>
       </div>
 
-      <!-- Prompt Inputs -->
-      <div class="space-y-2 text-xs">
+      <!-- Sampling Parameters Panel (Euler / Sampler / Steps / CFG) -->
+      <div class="space-y-2 text-xs bg-black/40 p-2.5 rounded border border-slate-800/80">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[9px] uppercase font-bold text-slate-400 font-mono mb-0.5">Sampler</label>
+            <select id="botRenderSampler" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200">
+              <option value="euler">euler</option>
+              <option value="euler_ancestral" selected>euler_ancestral</option>
+              <option value="dpmpp_2m">dpmpp_2m</option>
+              <option value="lcm">lcm</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[9px] uppercase font-bold text-slate-400 font-mono mb-0.5">Scheduler</label>
+            <select id="botRenderScheduler" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200">
+              <option value="normal" selected>normal</option>
+              <option value="karras">karras</option>
+              <option value="sgm_uniform">sgm_uniform</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-4 gap-1.5 text-center">
+          <div>
+            <label class="block text-[9px] uppercase text-slate-400 font-mono">Steps</label>
+            <input type="number" id="botRenderSteps" min="4" max="50" value="14"
+                   class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-amber-300 text-center font-mono">
+          </div>
+          <div>
+            <label class="block text-[9px] uppercase text-slate-400 font-mono">CFG Scale</label>
+            <input type="number" id="botRenderCfg" min="1.0" max="15.0" step="0.5" value="6.5"
+                   class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-amber-300 text-center font-mono">
+          </div>
+          <div>
+            <label class="block text-[9px] uppercase text-slate-400 font-mono">Breite</label>
+            <input type="number" id="botRenderWidth" value="512" step="64"
+                   class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200 text-center font-mono">
+          </div>
+          <div>
+            <label class="block text-[9px] uppercase text-slate-400 font-mono">Höhe</label>
+            <input type="number" id="botRenderHeight" value="768" step="64"
+                   class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200 text-center font-mono">
+          </div>
+        </div>
+
         <div>
-          <label class="block text-[10px] text-slate-400 font-mono mb-1">Prompt:</label>
-          <textarea id="renderPrompt" rows="3" placeholder="1girl, megan, solo, smiling, cozy room, soft cinematic lighting..."
-                    class="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-200 focus:border-pink-500 focus:outline-none resize-none"></textarea>
+          <label class="block text-[9px] uppercase font-bold text-slate-400 font-mono mb-0.5">Prompt:</label>
+          <textarea id="renderPrompt" rows="2" placeholder="1girl, megan, solo, smiling, couch pov, cozy room, soft cinematic lighting..."
+                    class="w-full bg-slate-950 border border-slate-700 rounded p-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none resize-none"></textarea>
         </div>
-        <div class="flex items-center space-x-2">
-          <button onclick="triggerRender()" class="flex-1 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold font-mono shadow transition">
-            ⚡ ComfyUI Render ausführen
-          </button>
-        </div>
+
+        <button onclick="triggerRender()" class="w-full py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded text-xs font-bold font-mono shadow transition">
+          ⚡ ComfyUI Render ausführen
+        </button>
       </div>
 
       <!-- Android Upload Dropzone -->
-      <div class="p-3 bg-black/40 rounded border border-dashed border-slate-700 hover:border-pink-500/60 transition text-center cursor-pointer space-y-1"
+      <div class="p-2.5 bg-black/40 rounded border border-dashed border-slate-700 hover:border-pink-500/60 transition text-center cursor-pointer space-y-0.5"
            onclick="document.getElementById('androidFileInput').click()">
         <input type="file" id="androidFileInput" class="hidden" onchange="uploadAndroidFile(this.files)">
-        <span class="text-base">📱</span>
-        <div class="text-xs font-bold text-slate-300">Android Upload Dropzone</div>
-        <p class="text-[10px] text-slate-500 font-mono">Videos & Bilder (OkHttp kompatibel)</p>
+        <span class="text-sm">📱</span>
+        <div class="text-[11px] font-bold text-slate-300">Android Upload Dropzone</div>
+        <p class="text-[9px] text-slate-500 font-mono">Videos & Fotos synchronisieren</p>
       </div>
 
       <!-- Gallery Preview -->
-      <div class="flex-1 overflow-hidden flex flex-col space-y-1.5">
+      <div class="flex-1 overflow-hidden flex flex-col space-y-1">
         <div class="flex items-center justify-between text-[10px] font-mono text-slate-400">
           <span>Letzte Renders:</span>
           <button onclick="loadGallery()" class="text-cyan-400 hover:underline">Aktualisieren</button>
         </div>
-        <div id="galleryGrid" class="flex-1 grid grid-cols-3 gap-1.5 overflow-y-auto scrollbar-thin p-1 bg-black/30 rounded border border-slate-800">
-          <div class="text-[10px] text-slate-500 text-center col-span-3 py-4">Lade Galerie...</div>
+        <div id="galleryGrid" class="flex-1 grid grid-cols-3 gap-1 overflow-y-auto scrollbar-thin p-1 bg-black/30 rounded border border-slate-800">
+          <div class="text-[10px] text-slate-500 text-center col-span-3 py-3">Lade Galerie...</div>
         </div>
       </div>
     </div>
 
-    <!-- Column 3: Canonical Vault Live-Binding -->
-    <div class="bg-slate-900/60 border border-pink-950 rounded-lg p-3.5 flex flex-col justify-between space-y-3 shadow-xl overflow-hidden">
+    <!-- Column 3: Charakter-Auswahl, System-Prompt & Tools Leitstand -->
+    <div class="bg-slate-900/60 border border-pink-950 rounded-lg p-3 flex flex-col justify-between space-y-2.5 shadow-xl overflow-hidden">
       <div class="flex items-center justify-between pb-2 border-b border-slate-800 shrink-0">
         <div class="flex items-center space-x-2">
           <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
-          <h2 class="text-xs font-bold text-amber-300 uppercase tracking-wider font-mono">🔐 Canonical Vault // Lore</h2>
+          <h2 class="text-xs font-bold text-amber-300 uppercase tracking-wider font-mono">🔐 Lore & Tool-Leitstand</h2>
         </div>
-        <span id="vaultStatus" class="text-[10px] font-mono text-slate-400">character.json</span>
+        <span id="vaultStatus" class="text-[10px] font-mono text-slate-400">~/.hermes/</span>
       </div>
 
-      <div class="flex-1 flex flex-col space-y-2 overflow-hidden">
+      <!-- Character Presets Selector -->
+      <div class="bg-black/40 p-2 rounded border border-slate-800/80 space-y-1.5 shrink-0">
+        <div class="flex items-center justify-between text-[10px] font-mono text-slate-400">
+          <span>Charakter-Preset wählen:</span>
+          <span class="text-pink-400 font-bold">Megan Canonical</span>
+        </div>
+        <select id="charPresetSelect" onchange="applyCharPreset(this.value)" class="w-full bg-slate-950 border border-pink-700/50 rounded px-2 py-1 text-xs text-pink-200 font-mono">
+          <option value="">Lade Presets...</option>
+        </select>
+      </div>
+
+      <!-- System Prompt / Lore Live-Editor -->
+      <div class="flex-1 flex flex-col space-y-1.5 overflow-hidden">
         <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-          <span>System-Prompt & Rollen-Definition:</span>
-          <span id="charCount">0 Zeichen</span>
+          <span>System-Prompt & Rollen-Justierung:</span>
+          <span id="charCount" class="text-slate-500">0 Zeichen</span>
         </div>
-        <textarea id="vaultLoreText" rows="18"
+        <textarea id="vaultLoreText" rows="7"
                   oninput="document.getElementById('charCount').textContent = this.value.length + ' Zeichen'"
-                  class="flex-1 w-full bg-slate-950 border border-slate-700 rounded p-2.5 text-xs text-pink-100 font-mono focus:border-pink-500 focus:outline-none resize-none leading-relaxed scrollbar-thin"></textarea>
+                  class="flex-1 w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-pink-100 font-mono focus:border-pink-500 focus:outline-none resize-none leading-relaxed scrollbar-thin"></textarea>
+        <div class="flex items-center space-x-2 shrink-0">
+          <button onclick="loadVaultLore()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-mono transition">
+            ⟳ Neu laden
+          </button>
+          <button onclick="saveVaultLore()" class="flex-1 py-1 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold font-mono shadow transition">
+            💾 Lore speichern
+          </button>
+        </div>
       </div>
 
-      <div class="pt-2 border-t border-slate-800 flex items-center justify-between space-x-2 shrink-0">
-        <button onclick="loadVaultLore()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-bold font-mono transition">
-          ⟳ Neu laden
-        </button>
-        <button onclick="saveVaultLore()" class="flex-1 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold font-mono shadow transition">
-          💾 character.json speichern
-        </button>
+      <!-- Central Hermes Tools Switcher -->
+      <div class="bg-black/40 p-2 rounded border border-slate-800/80 space-y-1 shrink-0">
+        <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 pb-1 border-b border-slate-800">
+          <span class="text-amber-300 font-bold uppercase">🛠️ Aktive Cluster-Tools:</span>
+          <button onclick="loadHermesTools()" class="text-cyan-400 hover:underline">⟳ Sync</button>
+        </div>
+        <div id="toolsList" class="space-y-1 max-h-28 overflow-y-auto scrollbar-thin text-[11px] font-mono pt-1">
+          <div class="text-[10px] text-slate-500">Lade Tools...</div>
+        </div>
       </div>
+
     </div>
 
   </main>
 
   <script>
     async function refreshData() {
-      await Promise.all([loadVaultLore(), loadGallery(), loadStatus()]);
+      await Promise.all([loadVaultLore(), loadGallery(), loadStatus(), loadChatHistory(), loadHermesTools(), loadCharPresets()]);
     }
 
     async function loadStatus() {
       try {
-        const res = await fetch('/api/status');
+        const res = await fetch('/api/gpu/status');
         const data = await res.json();
-        const badge = document.getElementById('autonomyBadge');
+        const badge = document.getElementById('gpuLockBadge');
         if (badge) {
-          badge.textContent = `AUTONOMIE: ${data.autonomy.toUpperCase()}`;
-          document.getElementById('chkAutonomy').checked = (data.autonomy === 'proactive');
+          const isLocked = data.render_lock || (data.gpu_lock && data.gpu_lock.locked);
+          badge.textContent = `GPU: ${isLocked ? 'LOCKED' : 'READY'}`;
+          badge.className = isLocked
+            ? "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-950 border border-rose-700 text-rose-300"
+            : "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950 border border-emerald-700 text-emerald-300";
+        }
+
+        const autoRes = await fetch('/api/status');
+        const autoData = await autoRes.json();
+        const aBadge = document.getElementById('autonomyBadge');
+        if (aBadge) {
+          aBadge.textContent = `AUTONOMIE: ${autoData.autonomy ? autoData.autonomy.toUpperCase() : 'REAKTIV'}`;
+          document.getElementById('chkAutonomy').checked = (autoData.autonomy === 'proactive');
         }
       } catch (e) {
         console.error("Status load failed", e);
@@ -205,6 +292,131 @@
       loadStatus();
     }
 
+    // --------------------------------------------------------------------------
+    // Chat History & Voice-First Rendering
+    // --------------------------------------------------------------------------
+    async function loadChatHistory() {
+      try {
+        const res = await fetch('/api/chat/history');
+        const data = await res.json();
+        const container = document.getElementById('chatMessages');
+        container.innerHTML = '';
+
+        if (data.messages && data.messages.length > 0) {
+          data.messages.forEach(msg => appendMessageBubble(msg));
+        } else {
+          container.innerHTML = `
+            <div class="p-2.5 bg-pink-950/30 border border-pink-900/40 rounded text-pink-200">
+              <span class="font-bold font-mono text-[10px] text-pink-400 block mb-1">💋 MEGAN:</span>
+              Bereit, Big Boss! Taktische Verbindung und Tool-Stack stehen. Was kann ich für dich tun?
+            </div>
+          `;
+        }
+        container.scrollTop = container.scrollHeight;
+      } catch (e) {
+        console.error("History load error", e);
+      }
+    }
+
+    function appendMessageBubble(msg) {
+      const container = document.getElementById('chatMessages');
+      const isUser = (msg.sender === 'USER' || msg.sender === 'user');
+
+      if (isUser) {
+        const userBubble = document.createElement('div');
+        userBubble.className = "p-2 bg-slate-800 rounded text-slate-100 text-right ml-6 border border-slate-700/60";
+        userBubble.innerHTML = `<span class="font-mono text-[9px] text-amber-400 block">BIG BOSS:</span>${escapeHtml(msg.text)}`;
+        container.appendChild(userBubble);
+      } else {
+        const botBubble = document.createElement('div');
+        botBubble.className = "p-2.5 bg-pink-950/40 border border-pink-900/40 rounded text-pink-200 mr-6 space-y-1.5";
+
+        let audioHtml = '';
+        if (msg.audio_url) {
+          audioHtml = `
+            <div class="bg-black/60 p-1.5 rounded border border-pink-800/40 flex items-center space-x-2">
+              <span class="text-xs">🔊</span>
+              <audio controls src="${msg.audio_url}" class="h-7 w-full accent-pink-500"></audio>
+            </div>
+          `;
+        }
+
+        const msgId = 'text_' + Math.random().toString(36).substring(2, 9);
+        const textCollapsed = msg.audio_url ? 'hidden' : '';
+        const toggleBtnHtml = msg.audio_url ? `
+          <button onclick="toggleText('${msgId}', this)" class="text-[10px] text-pink-400 hover:text-pink-300 font-mono flex items-center space-x-1">
+            <span>▾ Text anzeigen</span>
+          </button>
+        ` : '';
+
+        botBubble.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="font-bold font-mono text-[10px] text-pink-400">💋 MEGAN (VOICE)</span>
+            ${toggleBtnHtml}
+          </div>
+          ${audioHtml}
+          <div id="${msgId}" class="${textCollapsed} text-xs text-pink-100 leading-relaxed pt-1 border-t border-pink-900/30 whitespace-pre-wrap">
+            ${escapeHtml(msg.text)}
+          </div>
+        `;
+        container.appendChild(botBubble);
+      }
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function toggleText(elementId, btn) {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      if (el.classList.contains('hidden')) {
+        el.classList.remove('hidden');
+        btn.innerHTML = '<span>▴ Text verbergen</span>';
+      } else {
+        el.classList.add('hidden');
+        btn.innerHTML = '<span>▾ Text anzeigen</span>';
+      }
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById('chatInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const container = document.getElementById('chatMessages');
+      const userBubble = document.createElement('div');
+      userBubble.className = "p-2 bg-slate-800 rounded text-slate-100 text-right ml-6 border border-slate-700/60";
+      userBubble.innerHTML = `<span class="font-mono text-[9px] text-amber-400 block">BIG BOSS:</span>${escapeHtml(text)}`;
+      container.appendChild(userBubble);
+      input.value = '';
+      container.scrollTop = container.scrollHeight;
+
+      const sendBtn = document.getElementById('sendBtn');
+      sendBtn.disabled = true;
+      sendBtn.textContent = '...';
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message: text})
+        });
+        const data = await res.json();
+        const reply = data.response || "Keine Antwort erhalten.";
+        appendMessageBubble({
+          sender: 'MEGAN',
+          text: reply,
+          audio_url: data.audio_url || null
+        });
+      } catch (e) {
+        console.error("Chat error", e);
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Senden';
+      }
+    }
+
+    // --------------------------------------------------------------------------
+    // Character Lore & Presets
+    // --------------------------------------------------------------------------
     async function loadVaultLore() {
       try {
         const res = await fetch('/api/bot/lore');
@@ -228,63 +440,89 @@
         });
         const data = await res.json();
         if (data.success) {
-          alert("character.json erfolgreich gespeichert!");
+          alert("character.json erfolgreich aktualisiert!");
         }
       } catch (e) {
         alert("Fehler beim Speichern der Lore.");
       }
     }
 
-    async function sendMessage() {
-      const input = document.getElementById('chatInput');
-      const text = input.value.trim();
-      if (!text) return;
-
-      const container = document.getElementById('chatMessages');
-      const userBubble = document.createElement('div');
-      userBubble.className = "p-2 bg-slate-800 rounded text-slate-100 text-right";
-      userBubble.innerHTML = `<span class="font-mono text-[9px] text-slate-400 block">DU:</span>${text}`;
-      container.appendChild(userBubble);
-      input.value = '';
-      container.scrollTop = container.scrollHeight;
-
+    async function loadCharPresets() {
       try {
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({message: text})
-        });
+        const res = await fetch('/api/bot/appearance/presets');
         const data = await res.json();
-        const reply = data.response || "Keine Antwort erhalten.";
+        const select = document.getElementById('charPresetSelect');
+        select.innerHTML = '<option value="">Standard Megan (Canonical)</option>';
+        if (data.presets) {
+          data.presets.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id || p.name;
+            opt.textContent = p.name || p.id;
+            select.appendChild(opt);
+          });
+        }
+      } catch (e) {}
+    }
 
-        const botBubble = document.createElement('div');
-        botBubble.className = "p-2.5 bg-pink-950/40 border border-pink-900/40 rounded text-pink-200";
-        botBubble.innerHTML = `<span class="font-bold font-mono text-[10px] text-pink-400 block mb-1">💋 MEGAN:</span>${reply}`;
-        container.appendChild(botBubble);
-        container.scrollTop = container.scrollHeight;
+    function applyCharPreset(presetId) {
+      if (!presetId) return;
+      alert("Preset geladen: " + presetId);
+    }
+
+    // --------------------------------------------------------------------------
+    // Central Hermes Tools Integration
+    // --------------------------------------------------------------------------
+    async function loadHermesTools() {
+      try {
+        const res = await fetch('/api/tools');
+        const data = await res.json();
+        const list = document.getElementById('toolsList');
+        list.innerHTML = '';
+
+        const tools = (data.tools && data.tools.builtin_tools) ? data.tools.builtin_tools : {};
+        for (const [name, meta] of Object.entries(tools)) {
+          const row = document.createElement('div');
+          row.className = "flex items-center justify-between py-0.5 border-b border-slate-800/60";
+          row.innerHTML = `
+            <span class="text-slate-300 font-bold truncate max-w-[180px]" title="${meta.description}">${name}</span>
+            <input type="checkbox" ${meta.enabled ? 'checked' : ''} onchange="toggleHermesTool('${name}', this.checked)" class="accent-amber-500 rounded cursor-pointer">
+          `;
+          list.appendChild(row);
+        }
       } catch (e) {
-        console.error("Chat error", e);
+        console.error("Tools load failed", e);
       }
     }
 
-    async function triggerHaptic(strength) {
-      await fetch('/api/bot/haptic/test', {
+    async function toggleHermesTool(name, enabled) {
+      await fetch('/api/tools/toggle', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({strength})
+        body: JSON.stringify({category: 'builtin_tools', name, enabled})
       });
     }
 
+    // --------------------------------------------------------------------------
+    // ComfyUI Render & Gallery
+    // --------------------------------------------------------------------------
     async function triggerRender() {
       const prompt = document.getElementById('renderPrompt').value;
       if (!prompt) return alert("Prompt eingeben!");
+
+      const sampler = document.getElementById('botRenderSampler').value;
+      const scheduler = document.getElementById('botRenderScheduler').value;
+      const steps = parseInt(document.getElementById('botRenderSteps').value) || 14;
+      const cfg = parseFloat(document.getElementById('botRenderCfg').value) || 6.5;
+      const width = parseInt(document.getElementById('botRenderWidth').value) || 512;
+      const height = parseInt(document.getElementById('botRenderHeight').value) || 768;
+
       await fetch('/api/render', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({prompt})
+        body: JSON.stringify({prompt, sampler, scheduler, steps, cfg, width, height})
       });
-      alert("Render-Auftrag an ComfyUI übergeben!");
-      loadGallery();
+      alert("ComfyUI Render erfolgreich eingereiht!");
+      setTimeout(loadGallery, 3000);
     }
 
     async function loadGallery() {
@@ -303,7 +541,7 @@
             grid.appendChild(el);
           });
         } else {
-          grid.innerHTML = '<div class="text-[10px] text-slate-500 text-center col-span-3 py-4">Keine Bilder in Galerie.</div>';
+          grid.innerHTML = '<div class="text-[10px] text-slate-500 text-center col-span-3 py-3">Keine Bilder in Galerie.</div>';
         }
       } catch (e) {
         console.error("Gallery load failed", e);
@@ -327,6 +565,19 @@
       } catch (e) {
         alert("Upload fehlgeschlagen.");
       }
+    }
+
+    async function triggerHaptic(strength) {
+      await fetch('/api/bot/haptic/test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({strength})
+      });
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
     window.addEventListener('DOMContentLoaded', () => {

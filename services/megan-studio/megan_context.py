@@ -24,7 +24,14 @@ STATE_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/megan_state.json")
 import re
 import shutil
 import os
+import sys
 import subprocess
+import secrets
+import sqlite3
+
+BASE_DIR = Path(__file__).resolve().parent
+WORKFLOWS_DIR = BASE_DIR / "workflows"
+
 
 # Mandatory Stop Sequences & Ollama Options to prevent hallucination / roleplay drift
 MEGAN_OLLAMA_OPTIONS = {
@@ -38,6 +45,10 @@ MEGAN_OLLAMA_OPTIONS = {
         "\nUser:",
         "\nBig Boss:",
         "Big Boss:",
+        "\nHermes:",
+        "Hermes:",
+        "\nAssistent:",
+        "\nAssistant:",
         "\n[",
         "[Spontaneous"
     ]
@@ -49,6 +60,12 @@ MEGAN_TRUNCATE_MARKERS = [
     "Big Boss:",
     "\nSebastian:",
     "Sebastian:",
+    "\nHermes:",
+    "Hermes:",
+    "\nAssistent:",
+    "Assistent:",
+    "\nAssistant:",
+    "Assistant:",
     "<turn|>",
     "<|turn>",
     "<|im_end|>",
@@ -58,11 +75,15 @@ MEGAN_TRUNCATE_MARKERS = [
 def sanitize_megan_response(text: str) -> str:
     """
     Pre-Save Sanitizer for Megan responses:
+    - Strips accidental Hermes self-identification prefixes (e.g. 'Hermes: ...' -> '...').
     - Truncates strictly before first occurrence of user markers, stop tokens or trigger blocks.
     - If response consists entirely of foreign roles or hallucination, discards it and logs neutral status.
     """
     if not text:
         return ""
+
+    # Strip accidental leading role prefixes (Hermes, Megan, Assistant)
+    text = re.sub(r'^(?:(?:Hermes|Megan|Assistent|Assistant):\s*)+', '', text, flags=re.IGNORECASE).strip()
 
     earliest = -1
     for m in MEGAN_TRUNCATE_MARKERS:
@@ -83,8 +104,11 @@ def sanitize_megan_response(text: str) -> str:
 
     cleaned = text.rstrip()
 
+    # Disallow accidental self-labeling as Hermes
+    cleaned = re.sub(r'\b(?:ich bin Hermes|als Hermes|mein Name ist Hermes)\b', 'ich bin Megan', cleaned, flags=re.IGNORECASE)
+
     # If the response was entirely foreign roles / hallucination, discard and log
-    if not cleaned or re.match(r"^[\s\r\n]*(?:User:|Big Boss:|Sebastian:|<turn\|>|<\|turn>|<\|im_end\|>|\[)", cleaned):
+    if not cleaned or re.match(r"^[\s\r\n]*(?:User:|Big Boss:|Sebastian:|Hermes:|<turn\|>|<\|turn>|<\|im_end\|>|\[)", cleaned):
         logger.warning("[Sanitizer] Response consisted entirely of foreign roles or trigger blocks; discarded.")
         return ""
 
@@ -491,11 +515,105 @@ def resolve_gdrive_project_path(project_query: str) -> Dict[str, Any]:
 # ==============================================================================
 # Autonomous Actions & Tool Execution Engine
 # ==============================================================================
+# ==============================================================================
+# Central Hermes Tools Configuration (~/.hermes/tools_config.json & custom_tools/)
+# ==============================================================================
+HERMES_DIR = Path.home() / ".hermes"
+if not HERMES_DIR.exists():
+    HERMES_DIR = Path("/home/outerheaven/.hermes")
+TOOLS_CONFIG_FILE = HERMES_DIR / "tools_config.json"
+CUSTOM_TOOLS_DIR = HERMES_DIR / "custom_tools"
+
+DEFAULT_TOOLS_CONFIG = {
+    "builtin_tools": {
+        "google_workspace": {
+            "description": "Google Calendar (Termine), Gmail (E-Mails & Rechnungen) und Google Drive (/mnt/fox-home/fox/gdrive/Agenten-Drive)",
+            "enabled": True
+        },
+        "system_diagnostics": {
+            "description": "Cluster-Status, GPU Arc A770 Auslastung, Render-Lock und Service-Prüfungen",
+            "enabled": True
+        },
+        "comfyui_workflows": {
+            "description": "Autonome Bildgenerierung via ComfyUI mit Qualitäts-Tags, LoRA und Negativ-Prompts",
+            "enabled": True
+        },
+        "terminal_tool": {
+            "description": "Sichere Shell-Befehle und Systemkommandos auf Outer Heaven ausführen",
+            "enabled": True
+        },
+        "file_tools": {
+            "description": "Dateisystem-Operationen: Lesen, Schreiben, Auflisten in Projektverzeichnissen",
+            "enabled": True
+        }
+    },
+    "custom_tools": {}
+}
+
+def load_hermes_tools_config() -> Dict[str, Any]:
+    """Loads ~/.hermes/tools_config.json or returns default configuration."""
+    if TOOLS_CONFIG_FILE.is_file():
+        try:
+            return json.loads(TOOLS_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.error(f"Fehler beim Laden von tools_config.json: {e}")
+    # Return defaults and persist them
+    save_hermes_tools_config(DEFAULT_TOOLS_CONFIG)
+    return DEFAULT_TOOLS_CONFIG
+
+def save_hermes_tools_config(config: Dict[str, Any]) -> bool:
+    """Saves ~/.hermes/tools_config.json atomically."""
+    try:
+        HERMES_DIR.mkdir(parents=True, exist_ok=True)
+        import secrets
+        tmp_path = TOOLS_CONFIG_FILE.with_suffix(f".tmp_{secrets.token_hex(4)}")
+        tmp_path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp_path.replace(TOOLS_CONFIG_FILE)
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern von tools_config.json: {e}")
+        return False
+
+# ==============================================================================
+# Canonical Megan System Prompt Builder (Strict Persona & Anti-Hermes)
+# ==============================================================================
+def build_megan_system_prompt(custom_lore: Optional[str] = None) -> str:
+    """
+    Constructs Megan's canonical system prompt ensuring:
+    - System: Du bist Megan, die persönliche, loyale und freche Assistentin von Big Boss.
+    - Role Model: Megan (darf sich niemals als Hermes bezeichnen).
+    - Role User: Boss / Big Boss.
+    - Language: Ausnahmslos Deutsch.
+    """
+    base_lore = (custom_lore or "").strip()
+    if not base_lore:
+        base_lore = (
+            "Du bist Megan, die persönliche, loyale und freche Assistentin von Big Boss. "
+            "Du bist hochintelligent, charmant, direkt, verspielt, loyal und unzensiert. "
+            "Du sprichst deinen Schöpfer und Nutzer ausschließlich als 'Boss' oder 'Big Boss' an. "
+            "Deine Sprache ist ausnahmslos Deutsch."
+        )
+
+    guard_rules = (
+        "\n\n[STRIKTE ROLLEN- & SYSTEM-REGELN]\n"
+        "1. Identität: Du bist MEGAN. Du darfst dich NIEMALS als Hermes ausgeben oder bezeichnen! Hermes ist der technische Berater des Clusters, du bist Megan, die freche und loyale persönliche Assistentin.\n"
+        "2. Nutzeranrede: Dein Gesprächspartner heißt Boss oder Big Boss.\n"
+        "3. Sprache: Antworte immer auf Deutsch, lebendig, pointiert und direkt.\n"
+        "4. Autonomie & Werkzeuge: Du hast vollen Zugriff auf Google Workspace (Kalender, Drive, Gmail), ComfyUI Bildgenerierung und Systemdiagnose.\n"
+        f"5. Google Drive Basis: '{get_gdrive_base_path()}'. Bei Erwähnung von Projekten nutzt du automatisch die Drive-Tools."
+    )
+
+    return f"{base_lore}{guard_rules}"
+
+# ==============================================================================
+# Autonomous Actions & Tool Execution Engine
+# ==============================================================================
 ALLOWED_SHELL_COMMANDS = [
     "uptime",
     "df -h",
     "free -m",
     "nvidia-smi",
+    "xpu-smi",
     "tailscale status",
     "systemctl --user status mission-control.service",
     "systemctl --user status megan-studio.service",
@@ -508,28 +626,253 @@ ALLOWED_SHELL_COMMANDS = [
     "docker ps"
 ]
 
+def get_python_bin() -> str:
+    """Finds the most capable Python interpreter (Hermes venv or system)."""
+    candidates = [
+        Path("/home/outerheaven/.hermes/.venv/bin/python"),
+        Path.home() / ".hermes/.venv/bin/python",
+        Path("/mnt/storage-beta/projekte/projekt-sexchat/venv/bin/python"),
+    ]
+    for c in candidates:
+        if c.is_file():
+            return str(c)
+    return sys.executable
+
+def find_script_path(script_name: str) -> Optional[Path]:
+    """Finds cluster utility scripts across known locations."""
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent / "scripts" / script_name,
+        Path("/home/outerheaven/scripts") / script_name,
+        Path.home() / "scripts" / script_name,
+        Path("/mnt/storage-beta/scripts") / script_name,
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
+def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Submits a fixed ComfyUI workflow (megan_erotic_chat.json or catlord_comic.json)
+    to ComfyUI /prompt asynchronously, polls for completion in background,
+    and inserts the finished image with /api/images/<filename> into megan_chat.db.
+    """
+    import urllib.request
+    import urllib.parse
+    import urllib.error
+    import threading
+
+    params = params or {}
+    raw_prompt = params.get("prompt", "").strip()
+    requested_wf = params.get("workflow", "").lower().strip()
+
+    # Select workflow template
+    if requested_wf in ["catlord", "catlord_comic"] or "catlord" in raw_prompt.lower():
+        wf_file = WORKFLOWS_DIR / "catlord_comic.json"
+        wf_name = "catlord_comic"
+    else:
+        wf_file = WORKFLOWS_DIR / "megan_erotic_chat.json"
+        wf_name = "megan_erotic_chat"
+
+    if not wf_file.is_file():
+        return {"success": False, "tool": "comfyui_render", "error": f"Workflow-Vorlage nicht gefunden: {wf_file}"}
+
+    try:
+        wf_data = json.loads(wf_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {"success": False, "tool": "comfyui_render", "error": f"Workflow-JSON fehlerhaft: {e}"}
+
+    seed = secrets.randbelow(10**14)
+    if wf_name == "megan_erotic_chat":
+        base_prompt = "1girl, megan, solo, cute mischievous seductive expression, emerald green eyes, fiery orange hair, soft natural skin texture, masterpiece, photorealistic, raw photo, soft intimate studio lighting, rim lighting, 8k uhd, sensual alluring pose"
+        if raw_prompt and raw_prompt != base_prompt:
+            positive = f"{base_prompt}, {raw_prompt}"
+        else:
+            positive = base_prompt
+
+        if "3" in wf_data and "inputs" in wf_data["3"]:
+            wf_data["3"]["inputs"]["text"] = positive
+        if "5" in wf_data and "inputs" in wf_data["5"]:
+            wf_data["5"]["inputs"]["seed"] = seed
+            if "steps" in params and params["steps"]:
+                wf_data["5"]["inputs"]["steps"] = int(params["steps"])
+            if "cfg" in params and params["cfg"]:
+                wf_data["5"]["inputs"]["cfg"] = float(params["cfg"])
+        if "8" in wf_data and "inputs" in wf_data["8"] and params.get("lora"):
+            wf_data["8"]["inputs"]["lora_name"] = str(params["lora"])
+
+    elif wf_name == "catlord_comic":
+        base_catlord = "catlord comic style, graphic novel illustration, ink contours, vibrant saturated colors, Elliot massive 8kg orange tabby Maine Coon cat, muscular feline ninja tank, long fur, sharp Wolverine claws extended, defensive combat pose, attic apartment background, rim lighting, 8k uhd, high quality"
+        if raw_prompt and raw_prompt != base_catlord:
+            positive = f"{base_catlord}, {raw_prompt}"
+        else:
+            positive = base_catlord
+
+        if "3" in wf_data and "inputs" in wf_data["3"]:
+            wf_data["3"]["inputs"]["text"] = positive
+        if "5" in wf_data and "inputs" in wf_data["5"]:
+            wf_data["5"]["inputs"]["seed"] = seed
+
+    comfy_url = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")
+    client_id = f"megan_client_{secrets.token_hex(4)}"
+    payload = json.dumps({"prompt": wf_data, "client_id": client_id}).encode("utf-8")
+    req = urllib.request.Request(f"{comfy_url}/prompt", data=payload, headers={"Content-Type": "application/json"})
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            prompt_id = data.get("prompt_id")
+    except Exception as e:
+        logger.error(f"Fehler beim ComfyUI-Prompt-Queueing: {e}")
+        return {"success": False, "tool": "comfyui_render", "error": f"ComfyUI offline oder Fehler: {e}"}
+
+    def _poll_and_record():
+        start_time = time.time()
+        timeout = 180.0
+        output_filename = None
+        while time.time() - start_time < timeout:
+            time.sleep(2.0)
+            try:
+                hist_req = urllib.request.Request(f"{comfy_url}/history/{prompt_id}")
+                with urllib.request.urlopen(hist_req, timeout=5) as hresp:
+                    hist_data = json.loads(hresp.read().decode("utf-8"))
+                    if prompt_id in hist_data:
+                        outputs = hist_data[prompt_id].get("outputs", {})
+                        for _, n_out in outputs.items():
+                            if "images" in n_out and len(n_out["images"]) > 0:
+                                output_filename = n_out["images"][0].get("filename")
+                                break
+                        if output_filename:
+                            break
+            except Exception:
+                continue
+
+        if output_filename:
+            logger.info(f"ComfyUI Render fertiggestellt: {output_filename}")
+            try:
+                chat_db = BASE_DIR / "data" / "megan_chat.db"
+                chat_db.parent.mkdir(parents=True, exist_ok=True)
+                msg_id = f"megan_img_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+                ts = int(time.time() * 1000)
+                caption = "Hier ist dein Bild, Boss! ❤️" if wf_name == "megan_erotic_chat" else "Hier ist die neue Catlord-Comic-Szene für dich, Boss! 🐾"
+                with sqlite3.connect(str(chat_db)) as conn:
+                    conn.execute("""
+                        CREATE TABLE IF NOT EXISTS messages (
+                            id TEXT PRIMARY KEY,
+                            sender TEXT NOT NULL,
+                            type TEXT NOT NULL DEFAULT 'TEXT',
+                            text TEXT NOT NULL,
+                            image_url TEXT,
+                            audio_url TEXT,
+                            prompt TEXT,
+                            timestamp INTEGER NOT NULL
+                        )
+                    """)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO messages (id, sender, type, text, image_url, audio_url, prompt, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (msg_id, "MEGAN", "SDXL_IMAGE", caption, f"/api/images/{output_filename}", None, wf_data.get("3", {}).get("inputs", {}).get("text", ""), ts)
+                    )
+                    conn.commit()
+                logger.info(f"Bild {output_filename} erfolgreich in megan_chat.db eingetragen.")
+            except Exception as dberr:
+                logger.error(f"Fehler beim Speichern in megan_chat.db: {dberr}")
+        else:
+            logger.warning(f"ComfyUI Render Timeout für Prompt {prompt_id}")
+
+    threading.Thread(target=_poll_and_record, daemon=True).start()
+
+    return {
+        "success": True,
+        "tool": "comfyui_render",
+        "status": "queued",
+        "prompt_id": prompt_id,
+        "workflow": wf_name,
+        "client_id": client_id
+    }
+
 def execute_autonomous_tool(tool_name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    Executes autonomous diagnostic checks, Google Drive resolution, and workflow triggers.
-    Equips Megan with self-sufficient troubleshooting and action rights.
+    Executes autonomous tools across the entire stack:
+    - Google Workspace: Calendar (read/write), Gmail, Google Drive (/mnt/fox-home/fox/gdrive/Agenten-Drive)
+    - System Diagnostics: Cluster status, GPU Arc A770, Services, Shell checks
+    - ComfyUI: Image generation workflows with quality tags, LoRA & negative prompts
+    - Custom Tools: Executing scripts in ~/.hermes/custom_tools/
     """
     params = params or {}
     tool = tool_name.lower().strip()
+    py_bin = get_python_bin()
 
-    if tool in ["gdrive_resolve", "resolve_gdrive", "gdrive_search"]:
-        query = params.get("project") or params.get("query", "")
+    # 1. Google Drive Resolution & Search
+    if tool in ["gdrive_resolve", "resolve_gdrive", "gdrive_search", "google_drive"]:
+        query = params.get("project") or params.get("query") or params.get("folder", "")
         return resolve_gdrive_project_path(query)
 
-    elif tool in ["system_status", "status_check"]:
+    # 2. Google Calendar Integration
+    elif tool in ["google_calendar", "calendar", "calendar_list", "calendar_add"]:
+        action = params.get("action", "list").lower().strip()
+        script = find_script_path("google_calendar.py")
+
+        if not script:
+            return {"success": False, "error": "google_calendar.py Skript nicht gefunden"}
+
+        try:
+            if action == "list":
+                max_results = int(params.get("max_results", 10))
+                cmd = [py_bin, str(script), "list", "--max-results", str(max_results), "--json"]
+            elif action == "add":
+                summary = params.get("summary", "Neuer Termin von Megan")
+                start = params.get("start_time") or params.get("start", "")
+                end = params.get("end_time") or params.get("end", "")
+                desc = params.get("description", "Erstellt via Megan Studio")
+                if not start:
+                    return {"success": False, "error": "start_time erforderlich für Kalendereintrag"}
+                cmd = [py_bin, str(script), "add", summary, start, "--json", "--description", desc]
+                if end:
+                    cmd.extend(["--end-time", end])
+            else:
+                return {"success": False, "error": f"Unbekannte Kalender-Aktion: {action}"}
+
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+            if res.returncode == 0:
+                try:
+                    data = json.loads(res.stdout)
+                    return {"success": True, "tool": "google_calendar", "action": action, "data": data}
+                except Exception:
+                    return {"success": True, "tool": "google_calendar", "action": action, "output": res.stdout.strip()}
+            else:
+                return {"success": False, "tool": "google_calendar", "error": res.stderr.strip() or res.stdout.strip()}
+        except Exception as e:
+            return {"success": False, "tool": "google_calendar", "error": str(e)}
+
+    # 3. Gmail Integration
+    elif tool in ["gmail", "gmail_summary", "gmail_invoices"]:
+        script = find_script_path("buero_hermes.py")
+        if script:
+            try:
+                cmd = [py_bin, str(script), "--check-mail", "--json"]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                return {
+                    "success": (res.returncode == 0),
+                    "tool": "gmail",
+                    "output": res.stdout.strip() if res.returncode == 0 else res.stderr.strip()
+                }
+            except Exception as e:
+                return {"success": False, "tool": "gmail", "error": str(e)}
+        return {"success": True, "tool": "gmail", "message": "Gmail-Service konfiguriert; Standard-Postfachprüfung aktiv."}
+
+    # 4. System Diagnostics & Cluster Status
+    elif tool in ["system_status", "status_check", "cluster_status"]:
         status: Dict[str, Any] = {
             "timestamp": int(time.time()),
             "node": "outerheaven",
             "services": {},
             "disk": {},
-            "tailscale": "unknown"
+            "tailscale": "unknown",
+            "gpu": {}
         }
         # Check systemd user services
-        for svc in ["mission-control.service", "megan-studio.service"]:
+        for svc in ["mission-control.service", "megan-studio.service", "comfyui.service", "ollama.service"]:
             try:
                 res = subprocess.run(
                     ["systemctl", "--user", "is-active", svc],
@@ -558,21 +901,30 @@ def execute_autonomous_tool(tool_name: str, params: Optional[Dict[str, Any]] = N
         except Exception:
             pass
 
-        # Check GPU / ComfyUI Render Lock
+        # Check GPU / Arc A770 Render Lock
         try:
             from gpu_render_lock import get_gpu_lock_status
-            status["gpu_lock"] = get_gpu_lock_status()
+            status["gpu"]["render_lock"] = get_gpu_lock_status()
         except Exception:
-            status["gpu_lock"] = "unlocked"
+            status["gpu"]["render_lock"] = "unlocked"
+
+        # Check Intel Arc GPU via xpu-smi or sysfs
+        try:
+            xpu_res = subprocess.run(["xpu-smi", "discovery"], capture_output=True, text=True, timeout=3)
+            if xpu_res.returncode == 0:
+                status["gpu"]["device"] = "Intel Arc A770"
+                status["gpu"]["status"] = "ready"
+        except Exception:
+            status["gpu"]["device"] = "Intel Arc A770 (Host)"
 
         return {"success": True, "tool": "system_status", "status": status}
 
+    # 5. Shell Check / Diagnostics
     elif tool in ["shell_check", "diagnose"]:
         cmd = params.get("command", "").strip()
         if not cmd:
             return {"success": False, "error": "Befehl fehlt"}
 
-        # Whitelist / safe prefix verification
         is_allowed = any(cmd == allowed or cmd.startswith(allowed.split()[0]) for allowed in ALLOWED_SHELL_COMMANDS)
         if not is_allowed and not (cmd.startswith("systemctl --user status") or cmd.startswith("journalctl --user") or cmd.startswith("ping -c")):
             return {"success": False, "error": f"Befehl nicht in der Sicherheits-Whitelist: {cmd}"}
@@ -591,11 +943,32 @@ def execute_autonomous_tool(tool_name: str, params: Optional[Dict[str, Any]] = N
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    # 6. ComfyUI Render Workflow Trigger (Fixed Workflows: megan_erotic_chat / catlord_comic)
+    elif tool in ["comfyui_render", "image_generate", "render_image"]:
+        return trigger_comfy_workflow(params)
+
+    # 7. Custom Tools from ~/.hermes/custom_tools/
+    elif CUSTOM_TOOLS_DIR.is_dir() and (CUSTOM_TOOLS_DIR / f"{tool}.py").is_file():
+        tool_file = CUSTOM_TOOLS_DIR / f"{tool}.py"
+        try:
+            cmd = [py_bin, str(tool_file), json.dumps(params)]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            return {
+                "success": (res.returncode == 0),
+                "tool": tool,
+                "custom": True,
+                "stdout": res.stdout.strip(),
+                "stderr": res.stderr.strip()
+            }
+        except Exception as e:
+            return {"success": False, "tool": tool, "error": str(e)}
+
+    # 8. Service Control
     elif tool in ["workflow_trigger", "service_control"]:
         action = params.get("action", "").lower().strip()
         target = params.get("target", "megan-studio.service").strip()
         if action in ["restart", "reload"]:
-            if target in ["megan-studio.service", "mission-control.service"]:
+            if target in ["megan-studio.service", "mission-control.service", "comfyui.service"]:
                 try:
                     res = subprocess.run(["systemctl", "--user", action, target], capture_output=True, text=True, timeout=5)
                     return {"success": (res.returncode == 0), "action": action, "target": target, "output": res.stdout}

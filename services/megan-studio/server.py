@@ -22,6 +22,7 @@ import asyncio
 import logging
 import secrets
 import shutil
+import sqlite3
 import urllib.parse
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -42,6 +43,8 @@ BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
+AUDIO_TTS_DIR = DATA_DIR / "audio" / "tts"
+CHAT_DB_PATH = DATA_DIR / "megan_chat.db"
 
 PORT = int(os.environ.get("PORT", 8080))
 LOCAL_TS_IP = os.environ.get("OUTERHEAVEN_TS_IP", "100.116.38.29")
@@ -74,7 +77,77 @@ if not COMFYUI_OUTPUT_DIR.is_dir():
 VIDEO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 APPEARANCE_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+AUDIO_TTS_DIR.mkdir(parents=True, exist_ok=True)
 TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+
+# Central Chat Database Initializer
+def init_chat_db() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(str(CHAT_DB_PATH)) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id TEXT PRIMARY KEY,
+                sender TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'TEXT',
+                text TEXT NOT NULL,
+                image_url TEXT,
+                audio_url TEXT,
+                prompt TEXT,
+                timestamp INTEGER NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_msg_ts ON messages(timestamp)")
+        conn.commit()
+
+init_chat_db()
+
+def save_chat_message(
+    msg_id: str,
+    sender: str,
+    text: str,
+    msg_type: str = "TEXT",
+    image_url: Optional[str] = None,
+    audio_url: Optional[str] = None,
+    prompt: Optional[str] = None,
+    timestamp: Optional[int] = None
+) -> Dict[str, Any]:
+    init_chat_db()
+    ts = timestamp or int(time.time() * 1000)
+    with sqlite3.connect(str(CHAT_DB_PATH)) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO messages (id, sender, type, text, image_url, audio_url, prompt, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (msg_id, sender, msg_type, text, image_url, audio_url, prompt, ts)
+        )
+        conn.commit()
+    return {
+        "id": msg_id,
+        "sender": sender,
+        "type": msg_type,
+        "text": text,
+        "image_url": image_url,
+        "audio_url": audio_url,
+        "prompt": prompt,
+        "timestamp": ts
+    }
+
+def load_chat_messages(limit: int = 150) -> List[Dict[str, Any]]:
+    init_chat_db()
+    with sqlite3.connect(str(CHAT_DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(
+            """
+            SELECT id, sender, type, text, image_url, audio_url, prompt, timestamp
+            FROM messages
+            ORDER BY timestamp ASC
+            LIMIT ?
+            """,
+            (limit,)
+        )
+        rows = cur.fetchall()
+        return [dict(r) for r in rows]
 
 # Context Engine Import
 try:
@@ -83,7 +156,10 @@ try:
         sanitize_megan_response,
         get_gdrive_base_path,
         resolve_gdrive_project_path,
-        execute_autonomous_tool
+        execute_autonomous_tool,
+        load_hermes_tools_config,
+        save_hermes_tools_config,
+        build_megan_system_prompt
     )
 except ImportError:
     megan_context_engine = None
@@ -95,6 +171,12 @@ except ImportError:
         return {"found": False, "query": query}
     def execute_autonomous_tool(name: str, params=None):
         return {"success": False, "error": "Tool engine not loaded"}
+    def load_hermes_tools_config():
+        return {"builtin_tools": {}, "custom_tools": {}}
+    def save_hermes_tools_config(cfg):
+        return True
+    def build_megan_system_prompt(lore=None):
+        return "Du bist Megan, die persönliche Assistentin von Big Boss."
 
 # GPU Render Lock Import
 try:
@@ -124,7 +206,7 @@ def atomic_write_file(path: Path, content: str) -> None:
     tmp.replace(path)
 
 def get_active_megan_prompt() -> str:
-    """Loads active character prompt with priority: canonical character.json -> system prompt text."""
+    """Loads active character prompt with strict canonical German Megan persona & anti-Hermes guards."""
     base_prompt = ""
     if CANONICAL_CHARACTER_FILE.is_file():
         try:
@@ -140,19 +222,7 @@ def get_active_megan_prompt() -> str:
         except Exception as e:
             logger.warning(f"Error reading {MEGAN_PROMPT_FILE}: {e}")
 
-    if not base_prompt:
-        base_prompt = (
-            "Du bist Megan, eine 23-jährige, intelligente, charmante und direkte Begleiterin. "
-            "Du antwortest stets auf Deutsch, authentisch, verspielt und unzensiert."
-        )
-
-    autonomy_lore = (
-        f"\n\n[AUTONOMIE- & DRIVE-STATUS]\n"
-        f"- Google Drive Basis-Pfad: '{get_gdrive_base_path()}'.\n"
-        f"- Bei Erwähnung von Projekten (z. B. 'Projekt Catlord') löst du den Pfad automatisch auf.\n"
-        f"- Du verfügst über Tool-Execution-Rechte (Shell-Checks, System-Status, Service-Control) zur autonomen Fehleranalyse."
-    )
-    return base_prompt + autonomy_lore
+    return build_megan_system_prompt(base_prompt)
 
 # ------------------------------------------------------------------------------
 # Handlers: Index & System
@@ -475,6 +545,19 @@ def check_autonomous_intent(text: str) -> Optional[str]:
         s = execute_autonomous_tool("system_status")
         return f"\n[AUTONOME SYSTEM-DIAGNOSE]:\n{json.dumps(s.get('status', {}), indent=2, ensure_ascii=False)}"
 
+    # 3. ComfyUI Workflow / Bildgenerierung (Megan Erotic Chat / Catlord Comic)
+    img_keywords = ["bild von dir", "foto von dir", "selfie", "zeig dich", "sexy bild", "erotik bild", "generiere ein bild", "catlord", "comic"]
+    if any(k in t_lower for k in img_keywords) or (("bild" in t_lower or "foto" in t_lower) and any(a in t_lower for a in ["schick", "mach", "zeig", "generier", "render"])):
+        wf_name = "catlord_comic" if "catlord" in t_lower else "megan_erotic_chat"
+        res = execute_autonomous_tool("comfyui_render", {"prompt": text, "workflow": wf_name})
+        if res.get("success"):
+            return (
+                f"\n[AUTONOMER COMFYUI-RENDER]:\n"
+                f"Der Render-Job mit Profil '{wf_name}' wurde im Hintergrund gestartet (Status: queued, Prompt-ID: {res.get('prompt_id')}).\n"
+                f"Das Bild wird automatisch nach Fertigstellung über /api/images/<filename> in den Chat eingebunden.\n"
+                f"Antworte dem Boss charmant und kündige an, dass das Bild gleich im Chat erscheint!"
+            )
+
     return None
 
 # ------------------------------------------------------------------------------
@@ -595,10 +678,132 @@ async def handle_bot_haptic_test(request: web.Request) -> web.Response:
 # ------------------------------------------------------------------------------
 # Handlers: Chat (Megan LLM Inference)
 # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Piper Neural TTS Engine
+# ------------------------------------------------------------------------------
+PIPER_MODELS = [
+    Path("/mnt/storage-beta/models/piper/de_DE-kerstin-low.onnx"),
+    Path("/mnt/storage-beta/models/piper/de_DE-thorsten-medium.onnx"),
+    Path("/home/outerheaven/models/piper/de_DE-kerstin-low.onnx"),
+    Path("/home/outerheaven/models/piper/de_DE-thorsten-medium.onnx"),
+    Path.home() / "models/piper/de_DE-kerstin-low.onnx",
+    Path.home() / ".local/share/piper/de_DE-kerstin-low.onnx"
+]
+
+def clean_text_for_tts(text: str) -> str:
+    if not text:
+        return ""
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'www\.\S+', '', text)
+    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+    text = re.sub(r'\[.*?\]', '', text)
+    text = re.sub(r'\*[^*]+\*', '', text)
+    text = text.replace('*', '')
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'```[\w]*\n(.*?)```', '', text, flags=re.DOTALL)
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+    text = re.sub(r'[\u2600-\u27BF]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+async def generate_piper_tts(text: str) -> Optional[str]:
+    cleaned = clean_text_for_tts(text)
+    if not cleaned:
+        return None
+
+    # Phoneme pronunciation table if available
+    try:
+        from megan_memory import load_phonemes
+        phon_cfg = load_phonemes()
+        repls = phon_cfg.get("replacements", {})
+        for word, replacement in repls.items():
+            pattern = r'\b' + re.escape(word) + r'\b'
+            cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+    except Exception:
+        pass
+
+    model_file = None
+    for p in PIPER_MODELS:
+        if p.is_file():
+            model_file = str(p)
+            break
+
+    audio_id = f"megan_voice_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+    out_wav = AUDIO_TTS_DIR / f"{audio_id}.wav"
+    piper_bin = shutil.which("piper") or str(Path.home() / ".local/bin/piper")
+
+    if model_file and (shutil.which(piper_bin) or Path(piper_bin).is_file()):
+        try:
+            cmd = [piper_bin, "-m", model_file, "-f", str(out_wav)]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate(input=cleaned.encode("utf-8"))
+            if proc.returncode == 0 and out_wav.is_file() and out_wav.stat().st_size > 0:
+                logger.info(f"[megan-tts] Piper TTS generiert: {out_wav.name} ({out_wav.stat().st_size} bytes)")
+                return audio_id
+            else:
+                logger.warning(f"[megan-tts] Piper Warnung ({proc.returncode}): {stderr.decode('utf-8', errors='ignore')}")
+        except Exception as pe:
+            logger.error(f"[megan-tts] Piper execution error: {pe}")
+
+    # Fallback to edge_tts if installed
+    try:
+        import edge_tts
+        communicate = edge_tts.Communicate(text=cleaned, voice="de-DE-SeraphinaMultilingualNeural")
+        await communicate.save(str(out_wav))
+        if out_wav.is_file() and out_wav.stat().st_size > 0:
+            logger.info(f"[megan-tts] Edge-TTS Fallback generiert: {out_wav.name}")
+            return audio_id
+    except Exception:
+        pass
+
+    return None
+
+async def handle_audio_serve(request: web.Request) -> web.StreamResponse:
+    """GET /api/audio/{filename} & GET /api/audio/tts/{filename} - Serves WAV audio with HTTP Range support."""
+    raw_name = request.match_info.get("filename", "").strip()
+    if not raw_name.endswith(".wav"):
+        raw_name += ".wav"
+    target = (AUDIO_TTS_DIR / raw_name).resolve()
+    if not target.is_file() or not str(target).startswith(str(AUDIO_TTS_DIR.resolve())):
+        return web.HTTPNotFound(text="Audio file not found")
+
+    return web.FileResponse(
+        target,
+        headers={
+            "Content-Type": "audio/wav",
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600"
+        }
+    )
+
+# ------------------------------------------------------------------------------
+# Handlers: Central Chat (Megan LLM Inference & SQLite Persistence)
+# ------------------------------------------------------------------------------
+async def handle_chat_history(request: web.Request) -> web.Response:
+    """GET /api/chat/history - Returns all persistent messages from data/megan_chat.db."""
+    limit = int(request.query.get("limit", 150))
+    msgs = load_chat_messages(limit=limit)
+    return web.json_response({
+        "success": True,
+        "messages": msgs,
+        "count": len(msgs)
+    })
+
 async def handle_chat(request: web.Request) -> web.Response:
     """
     POST /api/chat - REST Chat with Megan using local Ollama (megan:latest).
+    Reads & writes to central SQLite database (data/megan_chat.db).
     """
+    if request.method == "GET":
+        return await handle_chat_history(request)
+
     try:
         body = await request.json()
     except Exception:
@@ -608,20 +813,30 @@ async def handle_chat(request: web.Request) -> web.Response:
     if not user_msg:
         return web.json_response({"error": "Message required"}, status=400)
 
+    # 1. Save user message to central SQLite DB
+    user_msg_id = body.get("id") or f"user_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+    user_ts = int(time.time() * 1000)
+    save_chat_message(
+        msg_id=user_msg_id,
+        sender="USER",
+        text=user_msg,
+        msg_type="TEXT",
+        timestamp=user_ts
+    )
+
     system_instruction = get_active_megan_prompt()
     intent_context = check_autonomous_intent(user_msg)
     if intent_context:
         system_instruction += f"\n\n{intent_context}"
 
-    history = body.get("history", [])
-
+    # Load recent context from central SQLite
+    recent_msgs = load_chat_messages(limit=10)
     messages = [{"role": "system", "content": system_instruction}]
-    for h in history[-8:]:
-        r = h.get("role", "user")
-        c = str(h.get("content", "")).strip()
-        if r in ["user", "assistant"] and c:
+    for m in recent_msgs:
+        r = "user" if m.get("sender") == "USER" else "assistant"
+        c = str(m.get("text", "")).strip()
+        if c:
             messages.append({"role": r, "content": c})
-    messages.append({"role": "user", "content": user_msg})
 
     payload = {
         "model": MEGAN_MODEL,
@@ -642,10 +857,30 @@ async def handle_chat(request: web.Request) -> web.Response:
                 data = await resp.json()
                 raw_text = data.get("message", {}).get("content", "")
                 clean_text = sanitize_megan_response(raw_text)
+
+                # 2. Piper TTS Audio Generation
+                audio_id = await generate_piper_tts(clean_text)
+                audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
+
+                # 3. Save Megan's response to central SQLite DB
+                megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+                megan_ts = int(time.time() * 1000)
+                save_chat_message(
+                    msg_id=megan_msg_id,
+                    sender="MEGAN",
+                    text=clean_text,
+                    msg_type="TEXT",
+                    audio_url=audio_url,
+                    timestamp=megan_ts
+                )
+
                 return web.json_response({
                     "success": True,
+                    "id": megan_msg_id,
                     "response": clean_text,
-                    "model": MEGAN_MODEL
+                    "audio_url": audio_url,
+                    "model": MEGAN_MODEL,
+                    "timestamp": megan_ts
                 })
     except Exception as e:
         logger.error(f"Chat request failed: {e}", exc_info=True)
@@ -664,20 +899,36 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 if not user_text:
                     continue
 
+                user_msg_id = f"user_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+                user_ts = int(time.time() * 1000)
+                save_chat_message(
+                    msg_id=user_msg_id,
+                    sender="USER",
+                    text=user_text,
+                    msg_type="TEXT",
+                    timestamp=user_ts
+                )
+
                 system_prompt = get_active_megan_prompt()
                 intent_context = check_autonomous_intent(user_text)
                 if intent_context:
                     system_prompt += f"\n\n{intent_context}"
 
+                recent_msgs = load_chat_messages(limit=10)
+                messages = [{"role": "system", "content": system_prompt}]
+                for m in recent_msgs:
+                    r = "user" if m.get("sender") == "USER" else "assistant"
+                    c = str(m.get("text", "")).strip()
+                    if c:
+                        messages.append({"role": r, "content": c})
+
                 payload = {
                     "model": MEGAN_MODEL,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_text}
-                    ],
+                    "messages": messages,
                     "stream": True
                 }
 
+                accumulated_text = ""
                 async with aiohttp.ClientSession() as session:
                     async with session.post(f"{LOCAL_OLLAMA_URL}/api/chat", json=payload) as resp:
                         async for chunk in resp.content:
@@ -686,13 +937,88 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                     parsed = json.loads(chunk.decode("utf-8"))
                                     token = parsed.get("message", {}).get("content", "")
                                     if token:
+                                        accumulated_text += token
                                         await ws.send_json({"type": "token", "content": token})
                                 except Exception:
                                     pass
-                await ws.send_json({"type": "done"})
+
+                clean_text = sanitize_megan_response(accumulated_text)
+                audio_id = await generate_piper_tts(clean_text)
+                audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
+
+                megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+                megan_ts = int(time.time() * 1000)
+                save_chat_message(
+                    msg_id=megan_msg_id,
+                    sender="MEGAN",
+                    text=clean_text,
+                    msg_type="TEXT",
+                    audio_url=audio_url,
+                    timestamp=megan_ts
+                )
+
+                await ws.send_json({
+                    "type": "done",
+                    "id": megan_msg_id,
+                    "text": clean_text,
+                    "audio_url": audio_url
+                })
     finally:
         logger.info("WebSocket Chat Client getrennt")
     return ws
+
+# ------------------------------------------------------------------------------
+# Handlers: Tools Leitstand & GPU Status
+# ------------------------------------------------------------------------------
+async def handle_tools_list(request: web.Request) -> web.Response:
+    """GET /api/tools - Lists builtin & custom tools from ~/.hermes/tools_config.json."""
+    cfg = load_hermes_tools_config()
+    return web.json_response({"success": True, "tools": cfg})
+
+async def handle_tools_toggle(request: web.Request) -> web.Response:
+    """POST /api/tools/toggle - Toggles a tool in ~/.hermes/tools_config.json."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    category = data.get("category", "builtin_tools")
+    name = data.get("name", "").strip()
+    enabled = data.get("enabled")
+
+    if not name or enabled is None:
+        return web.json_response({"success": False, "error": "name und enabled erforderlich"}, status=400)
+
+    cfg = load_hermes_tools_config()
+    if category not in cfg:
+        cfg[category] = {}
+
+    if name in cfg[category]:
+        cfg[category][name]["enabled"] = bool(enabled)
+    else:
+        cfg[category][name] = {"description": name, "enabled": bool(enabled)}
+
+    if save_hermes_tools_config(cfg):
+        return web.json_response({
+            "success": True,
+            "category": category,
+            "name": name,
+            "enabled": bool(enabled),
+            "config": cfg
+        })
+    return web.json_response({"success": False, "error": "Fehler beim Speichern"}, status=500)
+
+async def handle_gpu_status(request: web.Request) -> web.Response:
+    """GET /api/gpu/status - Returns GPU status & Render Lock for Android Companion and Web UI."""
+    lock_status = get_gpu_lock_status()
+    return web.json_response({
+        "success": True,
+        "status": "online",
+        "device": "Intel Arc A770 16GB",
+        "gpu_lock": lock_status,
+        "render_lock": lock_status.get("locked", False) if isinstance(lock_status, dict) else False,
+        "timestamp": int(time.time())
+    })
 
 # ------------------------------------------------------------------------------
 # Handlers: ComfyUI Render & Gallery
@@ -704,13 +1030,9 @@ async def handle_render(request: web.Request) -> web.Response:
         if not prompt_text:
             return web.json_response({"error": "Prompt erforderlich"}, status=400)
 
-        # Trigger ComfyUI workflow
-        logger.info(f"ComfyUI Render angefordert: {prompt_text[:60]}...")
-        return web.json_response({
-            "success": True,
-            "prompt_id": f"prompt_{int(time.time())}",
-            "status": "queued"
-        })
+        # Trigger ComfyUI workflow via autonomous tool
+        result = execute_autonomous_tool("comfyui_render", body)
+        return web.json_response(result)
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
@@ -739,16 +1061,35 @@ async def handle_gallery_file(request: web.Request) -> web.Response:
         return web.HTTPNotFound(text="Bild nicht gefunden")
     return web.FileResponse(path)
 
+async def start_background_worker(app: web.Application):
+    """Starts autonomous Megan housekeeping & cataloging agent worker in background."""
+    try:
+        from megan_agent_worker import MeganAgentWorker
+        worker = MeganAgentWorker(interval_sec=180)
+        task = asyncio.create_task(worker.start())
+        yield
+        worker.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    except Exception as e:
+        logger.error(f"Fehler im Background Worker Lifecycle: {e}")
+        yield
+
 # ------------------------------------------------------------------------------
 # App Factory & Lifecycle
 # ------------------------------------------------------------------------------
 def create_app() -> web.Application:
     app = web.Application()
+    app.cleanup_ctx.append(start_background_worker)
 
     # Index & Health
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/status", handle_status)
+    app.router.add_get("/api/gpu/status", handle_gpu_status)
 
     # Megan Android Endpoints (OkHttp Upload & Sync)
     app.router.add_post("/api/megan/video/upload", handle_megan_video_upload)
@@ -760,7 +1101,9 @@ def create_app() -> web.Application:
     app.router.add_post("/api/megan/autonomy", handle_megan_autonomy_post)
     app.router.add_get("/api/megan/context", handle_megan_context_get)
 
-    # Autonomous Docker, Google Drive & Execution Tools
+    # Central Tool Engine (~/.hermes/tools_config.json)
+    app.router.add_get("/api/tools", handle_tools_list)
+    app.router.add_post("/api/tools/toggle", handle_tools_toggle)
     app.router.add_get("/api/megan/tools/status", handle_megan_tool_status)
     app.router.add_post("/api/megan/tools/search", handle_megan_tool_search)
     app.router.add_post("/api/megan/tools/scrape", handle_megan_tool_scrape)
@@ -772,6 +1115,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/megan/gdrive/search", handle_megan_gdrive_search)
     app.router.add_get("/api/megan/system/status", handle_megan_system_status)
     app.router.add_post("/api/megan/tools/execute", handle_megan_tools_execute)
+    app.router.add_post("/api/tools/execute", handle_megan_tools_execute)
 
     # Character & Lore
     app.router.add_get("/api/bot/config", handle_bot_config_get)
@@ -787,13 +1131,20 @@ def create_app() -> web.Application:
     app.router.add_get("/api/lovense/status", handle_lovense_status)
     app.router.add_post("/api/bot/haptic/test", handle_bot_haptic_test)
 
-    # Chat & ComfyUI Render
+    # Central Chat & Audio Pipeline
+    app.router.add_get("/api/chat", handle_chat)
     app.router.add_post("/api/chat", handle_chat)
+    app.router.add_get("/api/chat/history", handle_chat_history)
     app.router.add_get("/ws/chat", handle_chat_ws)
+    app.router.add_get("/api/audio/{filename}", handle_audio_serve)
+    app.router.add_get("/api/audio/tts/{filename}", handle_audio_serve)
+
+    # ComfyUI Render & Gallery
     app.router.add_post("/api/render", handle_render)
     app.router.add_post("/api/render/direct", handle_render)
     app.router.add_get("/api/gallery", handle_gallery_list)
     app.router.add_get("/api/gallery/{filename:.+}", handle_gallery_file)
+    app.router.add_get("/api/images/{filename:.+}", handle_gallery_file)
 
     # Static assets
     if STATIC_DIR.is_dir():
