@@ -218,6 +218,110 @@ def save_hermes_tools_config(config: dict) -> bool:
         logger.error(f"Fehler beim Speichern von tools_config.json: {e}")
         return False
 
+# --- Mission Control Task Management (Kanban DB) ---
+KANBAN_DB = HERMES_DIR / "kanban.db"
+
+def init_mission_tasks_db():
+    try:
+        HERMES_DIR.mkdir(parents=True, exist_ok=True)
+        import sqlite3
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS mission_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                project TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                details TEXT,
+                status TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                assignee TEXT DEFAULT 'Hermes'
+            )
+        """)
+        c.execute("PRAGMA table_info(mission_tasks)")
+        columns = [row[1] for row in c.fetchall()]
+        if "assignee" not in columns:
+            c.execute("ALTER TABLE mission_tasks ADD COLUMN assignee TEXT DEFAULT 'Hermes'")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Fehler bei DB-Initialisierung mission_tasks: {e}")
+
+def get_mission_tasks() -> List[Dict[str, Any]]:
+    import sqlite3
+    init_mission_tasks_db()
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM mission_tasks ORDER BY id DESC")
+        rows = c.fetchall()
+        tasks = []
+        for r in rows:
+            tasks.append({
+                "id": r["id"],
+                "title": r["title"],
+                "project": r["project"],
+                "task_type": r["task_type"],
+                "details": r["details"] or "",
+                "status": r["status"],
+                "priority": r["priority"],
+                "created_at": r["created_at"],
+                "assignee": r["assignee"] if "assignee" in r.keys() and r["assignee"] else "Hermes"
+            })
+        conn.close()
+        return tasks
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen von mission_tasks: {e}")
+        return []
+
+def add_mission_task(title: str, project: str, task_type: str, details: str, status: str, priority: str, assignee: str) -> Optional[int]:
+    import sqlite3
+    init_mission_tasks_db()
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("""
+            INSERT INTO mission_tasks (title, project, task_type, details, status, priority, created_at, assignee)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (title, project, task_type, details, status, priority, now_str, assignee))
+        task_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        return task_id
+    except Exception as e:
+        logger.error(f"Fehler beim Hinzufügen der Aufgabe: {e}")
+        return None
+
+def update_mission_task_status(task_id: int, new_status: str) -> bool:
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        c.execute("UPDATE mission_tasks SET status = ? WHERE id = ?", (new_status, task_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Aktualisieren von Task {task_id}: {e}")
+        return False
+
+def delete_mission_task(task_id: int) -> bool:
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        c.execute("DELETE FROM mission_tasks WHERE id = ?", (task_id,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Löschen von Task {task_id}: {e}")
+        return False
+
 def get_active_ollama_model() -> str:
     """
     Returns the configured active Ollama model from bot_config.json,
@@ -6256,6 +6360,90 @@ async def handle_tools_create(request: web.Request) -> web.Response:
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
+# --- Mission Control Task Management Endpoints ---
+
+async def handle_tasks_list(request: web.Request) -> web.Response:
+    """GET /api/tasks - Liefert alle Aufgaben aus ~/.hermes/kanban.db (mission_tasks)."""
+    tasks = await asyncio.to_thread(get_mission_tasks)
+    return web.json_response({"success": True, "tasks": tasks})
+
+async def handle_tasks_create(request: web.Request) -> web.Response:
+    """POST /api/tasks - Erstellt eine neue Agenten-Aufgabe in mission_tasks."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    title = (data.get("title") or "").strip()
+    if not title:
+        return web.json_response({"success": False, "error": "Bitte einen Aufgaben-Titel angeben"}, status=400)
+
+    project = (data.get("project") or "Catlord Project").strip()
+    task_type = (data.get("task_type") or "Bild-Render (SDXL / LoRA)").strip()
+    details = (data.get("details") or "").strip()
+    status = (data.get("status") or "Zu erledigen").strip()
+    priority = (data.get("priority") or "Normal").strip()
+    assignee = (data.get("assignee") or "Hermes").strip()
+
+    task_id = await asyncio.to_thread(
+        add_mission_task, title, project, task_type, details, status, priority, assignee
+    )
+    if task_id:
+        return web.json_response({
+            "success": True,
+            "task_id": task_id,
+            "task": {
+                "id": task_id,
+                "title": title,
+                "project": project,
+                "task_type": task_type,
+                "details": details,
+                "status": status,
+                "priority": priority,
+                "assignee": assignee
+            }
+        })
+    return web.json_response({"success": False, "error": "Fehler beim Hinzufügen der Aufgabe"}, status=500)
+
+async def handle_tasks_status_update(request: web.Request) -> web.Response:
+    """POST /api/tasks/status - Ändert den Kanban-Status einer Aufgabe."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    task_id = data.get("id")
+    new_status = data.get("status")
+    if task_id is None or not new_status:
+        return web.json_response({"success": False, "error": "id und status erforderlich"}, status=400)
+
+    try:
+        task_id = int(task_id)
+    except (ValueError, TypeError):
+        return web.json_response({"success": False, "error": "Ungültige Task-ID"}, status=400)
+
+    ok = await asyncio.to_thread(update_mission_task_status, task_id, str(new_status))
+    if ok:
+        return web.json_response({"success": True, "id": task_id, "status": new_status})
+    return web.json_response({"success": False, "error": "Fehler beim Aktualisieren des Status"}, status=500)
+
+async def handle_tasks_delete(request: web.Request) -> web.Response:
+    """DELETE /api/tasks/{id} - Entfernt eine Aufgabe."""
+    task_id = request.match_info.get("id")
+    if not task_id:
+        return web.json_response({"success": False, "error": "id erforderlich"}, status=400)
+
+    try:
+        task_id = int(task_id)
+    except (ValueError, TypeError):
+        return web.json_response({"success": False, "error": "Ungültige Task-ID"}, status=400)
+
+    ok = await asyncio.to_thread(delete_mission_task, task_id)
+    if ok:
+        return web.json_response({"success": True, "id": task_id})
+    return web.json_response({"success": False, "error": "Fehler beim Löschen der Aufgabe"}, status=500)
+
+
 # --- Dual-Agent WebSocket Chat ---
 
 async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
@@ -7128,6 +7316,13 @@ def create_app() -> web.Application:
     app.router.add_get("/api/tools", handle_tools_list)
     app.router.add_post("/api/tools/toggle", handle_tools_toggle)
     app.router.add_post("/api/tools/create", handle_tools_create)
+
+    # Mission Control Task Management Endpoints (~/.hermes/kanban.db)
+    init_mission_tasks_db()
+    app.router.add_get("/api/tasks", handle_tasks_list)
+    app.router.add_post("/api/tasks", handle_tasks_create)
+    app.router.add_post("/api/tasks/status", handle_tasks_status_update)
+    app.router.add_delete("/api/tasks/{id}", handle_tasks_delete)
 
     # Direct static outputs route
     app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)

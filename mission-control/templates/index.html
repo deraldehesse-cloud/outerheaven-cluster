@@ -132,28 +132,28 @@
     </svg>
   </div>
 
-  <!-- Top Header Navigation -->
-  <header class="border-b border-cyan-dim bg-slate-950/90 backdrop-blur sticky top-0 z-30 px-4 py-3 shadow-xl relative">
-    <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 relative">
+  <!-- Top Header Navigation (Non-Sticky, scrolls away naturally) -->
+  <header class="border-b border-cyan-dim bg-slate-950/90 backdrop-blur px-4 py-3 shadow-xl relative z-20">
+    <div class="w-full px-2 sm:px-4 flex flex-col md:flex-row items-center justify-between gap-3 lg:gap-4 relative">
       
       <!-- Left: Branding & Logo (Clean Emblem without Border/Dots & Stacked Text) -->
-      <div class="flex items-center space-x-3.5 shrink-0 select-none">
-        <img src="/static/img/cat_hound_logo.jpg" alt="Cat Hound" class="h-20 w-auto max-h-[80px] object-contain drop-shadow-[0_0_15px_rgba(6,182,212,0.3)] cursor-pointer">
+      <div class="flex items-center space-x-3 shrink-0 select-none">
+        <img src="/static/img/cat_hound_logo.jpg" alt="Cat Hound" class="h-16 sm:h-20 w-auto max-h-[80px] object-contain drop-shadow-[0_0_15px_rgba(6,182,212,0.3)] cursor-pointer">
         <div class="flex flex-col justify-center">
           <span class="text-xl font-black tracking-wider text-cyan-400 lowercase leading-tight">outerheaven</span>
           <span class="text-xs font-bold tracking-widest text-amber-400 uppercase leading-tight mt-1">MISSION CONTROL</span>
         </div>
       </div>
 
-      <!-- Center: Tactical Motto (Centered in Available Space between Left Branding and Right Actions) -->
-      <div class="flex-1 flex items-center justify-center px-4 relative min-w-0">
-        <div class="relative select-none text-center inline-block">
+      <!-- Center: Tactical Motto (Bounded width, no overlap with left or right) -->
+      <div class="flex-1 min-w-0 px-2 lg:px-4 flex items-center justify-center relative overflow-hidden">
+        <div class="relative select-none text-center max-w-[320px] sm:max-w-[400px] md:max-w-md lg:max-w-lg xl:max-w-xl">
           <div id="btnTacticalMotto" onclick="toggleMottoTooltip(event)"
-               class="font-tactical-motto tracking-[0.25em] text-sm sm:text-base md:text-lg font-extrabold text-amber-300/90 hover:text-amber-200 transition duration-200 glow-gold-motto uppercase flex items-center justify-center space-x-2 cursor-pointer"
+               class="font-tactical-motto tracking-[0.12em] sm:tracking-[0.16em] md:tracking-[0.2em] text-xs sm:text-sm md:text-base font-extrabold text-amber-300/90 hover:text-amber-200 transition duration-200 glow-gold-motto uppercase flex items-center justify-center space-x-1.5 cursor-pointer truncate"
                title="Klicken für lateinische Übersetzung">
-            <span class="text-amber-500/60 text-xs hidden sm:inline">❖</span>
+            <span class="text-amber-500/60 text-xs hidden sm:inline shrink-0">❖</span>
             <span class="truncate">NEMO NUNTIUM MALORUM AMAT</span>
-            <span class="text-amber-500/60 text-xs hidden sm:inline">❖</span>
+            <span class="text-amber-500/60 text-xs hidden sm:inline shrink-0">❖</span>
           </div>
 
           <!-- Centered Dark Tactical Tooltip: Strict Word-by-Word Translation Only (Click-Toggled) -->
@@ -213,7 +213,7 @@
           </a>
         </div>
 
-        <!-- Bottom Row: [ REFRESH ] [ CONSOLE ] [ LOCK ] Flush to Right -->
+        <!-- Bottom Row: [ REFRESH ] [ TOOLS ] [ LOCK ] Flush to Right -->
         <div class="flex items-center space-x-2 text-xs">
           <button type="button" id="btnGlobalRefresh" onclick="refreshAllDashboardData()"
                   class="px-2.5 py-1 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-700/60 hover:border-cyan-400 text-cyan-300 text-xs rounded transition flex items-center space-x-1.5 font-mono font-bold glow-cyan"
@@ -224,10 +224,10 @@
             <span>REFRESH</span>
           </button>
           <button type="button" id="btnToggleAgentDrawer" onclick="toggleAgentDrawer()"
-                  class="px-2.5 py-1 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-700/60 hover:border-cyan-400 text-cyan-300 text-xs rounded transition flex items-center space-x-1.5 font-mono font-bold glow-cyan"
-                  title="Tactical Agent Konsole öffnen / schließen">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
-            <span>CONSOLE</span>
+                  class="px-2.5 py-1 bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-700/60 hover:border-emerald-400 text-emerald-300 text-xs rounded transition flex items-center space-x-1.5 font-mono font-bold glow-emerald"
+                  title="Tool-Leitstand & Fähigkeiten öffnen / schließen">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3" stroke-width="2"/></svg>
+            <span>TOOLS</span>
           </button>
           <form action="/logout" method="post" class="inline" onsubmit="document.cookie='mc_session=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';">
             <button type="submit" class="px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 text-xs rounded transition flex items-center space-x-1 font-mono font-bold" title="Sitzung beenden / Logout">
@@ -247,11 +247,11 @@
     <span id="sidebarToggleIcon" class="group-hover:scale-125 transition-transform">❯</span>
   </button>
 
-  <!-- 3-Zone Cockpit Layout -->
-  <div class="flex-1 flex overflow-hidden w-full relative min-h-[calc(100vh-62px)]">
+  <!-- 3-Zone Cockpit Layout (Natural Page Scroll) -->
+  <div class="flex-1 flex w-full relative">
 
     <!-- ZONE 1: Linke Seitenleiste (Navigation: Workspaces) - standardmäßig eingeklappt -->
-    <aside id="cockpitSidebar" class="hidden w-56 lg:w-60 bg-slate-950/95 border-r border-slate-800 flex flex-col justify-between shrink-0 z-30 transition-all duration-300 font-mono select-none">
+    <aside id="cockpitSidebar" class="hidden w-56 lg:w-60 bg-slate-950/95 border-r border-slate-800 flex flex-col justify-between shrink-0 z-30 transition-all duration-300 font-mono select-none sticky top-0 max-h-screen overflow-y-auto">
       <div class="p-3 space-y-4">
         <!-- Sidebar Header -->
         <div class="flex items-center justify-between pb-2 border-b border-slate-800/80">
@@ -309,8 +309,8 @@
       </div>
     </aside>
 
-    <!-- ZONE 2: Mittlerer Hauptbereich (Main Stage) -->
-    <main class="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 min-w-0">
+    <!-- ZONE 2: Mittlerer Hauptbereich (Main Stage - Natural Scroll) -->
+    <main class="flex-1 p-3 sm:p-4 space-y-4 min-w-0">
 
       <!-- Symmetrische Node-Karten (Raster 7 & 8) -->
       <section id="nodesOverview" class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -526,51 +526,197 @@
       </section>
 
       <!-- ===================================================================== -->
-      <!-- ⚙️ TOOL-LEITSTAND // HERMES FÄHIGKEITEN & ASYNCHRONE TOGGLES           -->
+      <!-- 📋 AUFGABEN-BOARD & AGENT-PIPELINE (KANBAN & TASK MANAGEMENT)        -->
       <!-- ===================================================================== -->
-      <section id="hermesToolsSection" class="bg-slate-950/95 border border-slate-800 rounded-lg p-4 space-y-4 shadow-xl font-mono">
-        <div class="flex flex-wrap items-center justify-between pb-2.5 border-b border-slate-800/80 gap-2">
+      <section id="taskManagementSection" class="bg-slate-950/95 border border-cyan-500/30 rounded-lg p-4 space-y-4 shadow-xl font-mono">
+        <!-- Section Header -->
+        <div class="flex flex-wrap items-center justify-between pb-3 border-b border-slate-800/80 gap-3">
           <div class="flex items-center space-x-2.5">
-            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
             <div>
               <div class="flex items-center space-x-2">
-                <h2 class="text-sm font-bold text-slate-100 uppercase tracking-wider">⚙️ TOOL-LEITSTAND & FÄHIGKEITEN</h2>
-                <span id="toolsConfigPathBadge" class="text-[10px] px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400">~/.hermes/tools_config.json</span>
+                <h2 class="text-sm font-bold text-slate-100 uppercase tracking-wider">📋 AUFGABEN-BOARD & AGENT-PIPELINE</h2>
+                <span class="text-[10px] px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-700/60 text-cyan-300 font-bold">KANBAN // ~/.hermes/kanban.db</span>
               </div>
-              <p class="text-[10px] text-slate-400">Asynchrone Toggles ohne WebSocket-Abriss • Sofortige Dateisynchronisation</p>
+              <p class="text-[10px] text-slate-400">Geführte Aufgabenerstellung für ComfyUI, Catlord, Hermes & Megan</p>
             </div>
           </div>
           <div class="flex items-center space-x-2">
-            <button type="button" onclick="loadHermesTools()" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1" title="Tools neu laden">
+            <button type="button" onclick="loadMissionTasks()" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1" title="Aufgaben aktualisieren">
               <span>⟳</span> <span>REFRESH</span>
             </button>
-            <button type="button" onclick="openToolCreatorModal()" class="px-3 py-1 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white rounded text-xs font-bold transition shadow flex items-center space-x-1.5">
-              <span>➕</span> <span>NEUES TOOL ERSTELLEN</span>
+            <button type="button" onclick="toggleTaskCreatorForm()" id="btnToggleTaskForm" class="px-3 py-1 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded text-xs font-bold transition shadow flex items-center space-x-1.5">
+              <span id="taskFormToggleIcon">➕</span> <span id="taskFormToggleText">NEUE AUFGABE</span>
             </button>
           </div>
         </div>
 
-        <!-- 2-Column Grid: Built-in & Custom Tools -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <!-- Column 1: Built-in Tools -->
-          <div class="space-y-2.5 bg-slate-900/40 p-3 rounded-lg border border-slate-800/80">
-            <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
-              <span class="text-xs font-bold text-cyan-300">🛠️ BUILT-IN TOOLS</span>
-              <span id="builtinCountBadge" class="text-[10px] text-slate-500">12 Werkzeuge</span>
+        <!-- Geführte Aufgabenerstellung (Collapsible Form) -->
+        <div id="taskCreatorCard" class="hidden bg-slate-900/50 p-4 rounded-lg border border-cyan-800/40 space-y-3">
+          <div class="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
+            <span class="font-bold text-cyan-300 flex items-center space-x-1.5">
+              <span>➕</span> <span>GEFÜHRTE AUFGABENERSTELLUNG</span>
+            </span>
+            <span class="text-[10px] text-slate-400">Erstelle Pipeline-Aufträge für ComfyUI, Catlord oder Megan</span>
+          </div>
+
+          <form id="newTaskForm" onsubmit="event.preventDefault(); submitNewTask();" class="space-y-3 text-xs">
+            <!-- Row 1: Titel -->
+            <div>
+              <label class="block text-[11px] text-slate-300 font-bold mb-1">Aufgaben-Titel / Kurzbeschreibung: *</label>
+              <input type="text" id="taskTitleInput" required placeholder="z. B. Catlord Szene 01: Cash Dach-Render"
+                     class="w-full bg-black/70 border border-slate-700 rounded px-3 py-2 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition font-mono">
             </div>
-            <div id="builtinToolsList" class="space-y-2 max-h-[320px] overflow-y-auto scrollbar-thin pr-1 text-xs">
-              <div class="p-3 text-center text-slate-500 italic">Lade Built-in Tools...</div>
+
+            <!-- Row 2: Zuweisung, Projekt, Typ, Priorität -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <!-- Zuweisung (Agent) -->
+              <div>
+                <label class="block text-[11px] text-slate-300 font-bold mb-1">Zuweisung (Agent):</label>
+                <select id="taskAssigneeSelect" class="w-full bg-slate-950 border border-cyan-500/50 rounded px-2.5 py-1.5 text-cyan-300 focus:outline-none focus:border-cyan-400 font-mono cursor-pointer font-bold">
+                  <option value="Hermes">⚡ Hermes</option>
+                  <option value="Megan">💋 Megan</option>
+                </select>
+              </div>
+
+              <!-- Projekt -->
+              <div>
+                <label class="block text-[11px] text-slate-300 font-bold mb-1">Projekt:</label>
+                <select id="taskProjectSelect" class="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-400 font-mono cursor-pointer">
+                  <option value="Catlord Project">Catlord Project</option>
+                  <option value="Megan Companion">Megan Companion</option>
+                  <option value="ComfyUI / Arc A770">ComfyUI / Arc A770</option>
+                  <option value="Android App (OpenUp / Megan)">Android App (OpenUp / Megan)</option>
+                  <option value="Server & Infrastruktur">Server & Infrastruktur</option>
+                </select>
+              </div>
+
+              <!-- Aufgaben-Typ -->
+              <div>
+                <label class="block text-[11px] text-slate-300 font-bold mb-1">Aufgaben-Typ:</label>
+                <select id="taskTypeSelect" onchange="onTaskTypeChange(this.value)" class="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-400 font-mono cursor-pointer">
+                  <option value="Bild-Render (SDXL / LoRA)">Bild-Render (SDXL / LoRA)</option>
+                  <option value="3D-Mesh Rekonstruktion">3D-Mesh Rekonstruktion</option>
+                  <option value="LLM / Prompt-Optimierung">LLM / Prompt-Optimierung</option>
+                  <option value="Audio / TTS Pipeline">Audio / TTS Pipeline</option>
+                  <option value="System-Wartung">System-Wartung</option>
+                </select>
+              </div>
+
+              <!-- Priorität & Start-Status -->
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-[11px] text-slate-300 font-bold mb-1">Priorität:</label>
+                  <select id="taskPrioritySelect" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-400 font-mono cursor-pointer">
+                    <option value="Normal">Normal</option>
+                    <option value="Hoch">Hoch</option>
+                    <option value="Kritisch">Kritisch</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-300 font-bold mb-1">Start-Status:</label>
+                  <select id="taskStatusSelect" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-400 font-mono cursor-pointer">
+                    <option value="Zu erledigen">Zu erledigen</option>
+                    <option value="In Bearbeitung">In Bearbeitung</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Quick Preset Controls (wenn Bild-Render aktiv) -->
+            <div id="renderPresetRow" class="p-2.5 rounded bg-black/40 border border-slate-800 space-y-2">
+              <div class="flex items-center justify-between text-[11px] text-slate-400">
+                <span class="font-bold text-amber-300">🎨 SDXL Preset-Schnellauswahl:</span>
+                <button type="button" onclick="applySdxlPreset()" class="text-cyan-400 hover:text-cyan-200 text-[10px] underline">In Details übernehmen</button>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div>
+                  <label class="block text-[10px] text-slate-500 mb-0.5">SDXL-Auflösung:</label>
+                  <select id="presetResolution" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs">
+                    <option value="832x1216 (Hochformat)">832x1216 (Hochformat)</option>
+                    <option value="1024x1024 (Quadrat)">1024x1024 (Quadrat)</option>
+                    <option value="1216x832 (Querformat)">1216x832 (Querformat)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[10px] text-slate-500 mb-0.5">Steps (12 - 30):</label>
+                  <input type="number" id="presetSteps" min="12" max="30" value="18" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs">
+                </div>
+              </div>
+            </div>
+
+            <!-- Row 3: Details / Prompt / Pfade -->
+            <div>
+              <label class="block text-[11px] text-slate-300 font-bold mb-1">Details / Prompt / Pfade:</label>
+              <textarea id="taskDetailsInput" rows="3" placeholder="Zusätzliche Workflow-Parameter, Prompts, Dateipfade oder Notizen..."
+                        class="w-full bg-black/70 border border-slate-700 rounded p-2.5 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-mono text-xs"></textarea>
+            </div>
+
+            <!-- Submit & Status message -->
+            <div class="flex items-center justify-between pt-1">
+              <div id="taskFormMsg" class="hidden text-xs font-mono"></div>
+              <button type="submit" id="btnSubmitTask" class="ml-auto px-4 py-2 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white rounded text-xs font-bold transition shadow flex items-center space-x-1.5">
+                <span>Aufgabe ins Board einhängen</span> <span>🚀</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Kanban-Board (4 Spalten) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3.5">
+          <!-- Spalte 1: Zu erledigen -->
+          <div class="bg-slate-900/40 rounded-lg border border-slate-800/80 p-3 flex flex-col space-y-2.5 min-h-[260px]">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div class="flex items-center space-x-2">
+                <span>⏳</span>
+                <span class="text-xs font-bold text-slate-200">Zu erledigen</span>
+              </div>
+              <span id="count_todo" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono font-bold">0</span>
+            </div>
+            <div id="col_tasks_todo" class="space-y-2 flex-1 overflow-y-auto max-h-[500px] scrollbar-thin pr-1 text-xs">
+              <div class="p-4 text-center text-slate-500 italic text-[11px]">Keine Aufgaben</div>
             </div>
           </div>
 
-          <!-- Column 2: Custom Tools -->
-          <div class="space-y-2.5 bg-slate-900/40 p-3 rounded-lg border border-slate-800/80">
-            <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
-              <span class="text-xs font-bold text-emerald-300">🧩 CUSTOM TOOLS (~/.hermes/custom_tools/)</span>
-              <span id="customCountBadge" class="text-[10px] text-slate-500">0 Werkzeuge</span>
+          <!-- Spalte 2: In Bearbeitung -->
+          <div class="bg-slate-900/40 rounded-lg border border-slate-800/80 p-3 flex flex-col space-y-2.5 min-h-[260px]">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div class="flex items-center space-x-2">
+                <span>⚙️</span>
+                <span class="text-xs font-bold text-cyan-300">In Bearbeitung</span>
+              </div>
+              <span id="count_in_progress" class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 font-mono font-bold border border-cyan-800/50">0</span>
             </div>
-            <div id="customToolsList" class="space-y-2 max-h-[320px] overflow-y-auto scrollbar-thin pr-1 text-xs">
-              <div class="p-3 text-center text-slate-500 italic">Lade Custom Tools...</div>
+            <div id="col_tasks_in_progress" class="space-y-2 flex-1 overflow-y-auto max-h-[500px] scrollbar-thin pr-1 text-xs">
+              <div class="p-4 text-center text-slate-500 italic text-[11px]">Keine Aufgaben</div>
+            </div>
+          </div>
+
+          <!-- Spalte 3: Render / Review -->
+          <div class="bg-slate-900/40 rounded-lg border border-slate-800/80 p-3 flex flex-col space-y-2.5 min-h-[260px]">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div class="flex items-center space-x-2">
+                <span>🎨</span>
+                <span class="text-xs font-bold text-amber-300">Render / Review</span>
+              </div>
+              <span id="count_review" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-950 text-amber-400 font-mono font-bold border border-amber-800/50">0</span>
+            </div>
+            <div id="col_tasks_review" class="space-y-2 flex-1 overflow-y-auto max-h-[500px] scrollbar-thin pr-1 text-xs">
+              <div class="p-4 text-center text-slate-500 italic text-[11px]">Keine Aufgaben</div>
+            </div>
+          </div>
+
+          <!-- Spalte 4: Erledigt -->
+          <div class="bg-slate-900/40 rounded-lg border border-slate-800/80 p-3 flex flex-col space-y-2.5 min-h-[260px]">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div class="flex items-center space-x-2">
+                <span>✅</span>
+                <span class="text-xs font-bold text-emerald-300">Erledigt</span>
+              </div>
+              <span id="count_done" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 font-mono font-bold border border-emerald-800/50">0</span>
+            </div>
+            <div id="col_tasks_done" class="space-y-2 flex-1 overflow-y-auto max-h-[500px] scrollbar-thin pr-1 text-xs">
+              <div class="p-4 text-center text-slate-500 italic text-[11px]">Keine Aufgaben</div>
             </div>
           </div>
         </div>
@@ -1153,105 +1299,80 @@
 
     </main>
 
-    <!-- Fixer Pfeil-Button Rechte Seitenleiste (Agent Console Toggle) -->
+    <!-- Fixer Pfeil-Button Rechte Seitenleiste (Tool-Leitstand Toggle) -->
     <button id="btnToggleRightDrawer" onclick="toggleAgentDrawer()" type="button"
             class="fixed right-0 top-1/2 -translate-y-1/2 z-40 bg-slate-900/90 hover:bg-slate-800 text-cyan-400 border border-r-0 border-slate-700/80 hover:border-cyan-400 rounded-l-md px-1.5 py-3 shadow-2xl transition-all duration-300 flex items-center justify-center font-bold text-xs group select-none"
-            title="Agent Console ein-/ausklappen (❮ / ❯)">
+            title="Tool-Leitstand ein-/ausklappen (❮ / ❯)">
       <span id="drawerToggleIcon" class="group-hover:scale-125 transition-transform">❮</span>
     </button>
 
-    <!-- ZONE 3: Rechte Seitenleiste (Kontext-Panel / Agent-Console Drawer) - standardmäßig eingeklappt -->
-    <aside id="agentDrawer" data-alias="agentConsole" class="agent-console hidden w-80 md:w-96 bg-slate-950/95 border-l border-slate-800 flex flex-col h-full shrink-0 z-30 shadow-2xl transition-all duration-300 overflow-hidden font-mono">
-      <!-- Agent Console Header -->
-      <div class="p-3 border-b border-slate-800 bg-slate-900/70 flex items-center justify-between gap-2 shrink-0">
+    <!-- ZONE 3: Rechte Seitenleiste (Tool-Leitstand & Fähigkeiten Drawer) - standardmäßig eingeklappt -->
+    <aside id="agentDrawer" data-alias="agentConsole" class="agent-console hidden w-80 sm:w-96 md:w-[420px] lg:w-[460px] bg-slate-950/95 border-l border-slate-800 flex flex-col shrink-0 z-30 shadow-2xl transition-all duration-300 font-mono sticky top-0 max-h-screen overflow-y-auto">
+      <!-- Tool-Leitstand Header -->
+      <div class="p-3 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between gap-2 shrink-0">
         <div class="flex items-center space-x-2">
-          <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-          <span class="text-xs font-bold tracking-wider text-cyan-300">AGENT CONSOLE</span>
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <div>
+            <div class="flex items-center space-x-1.5">
+              <span class="text-xs font-bold tracking-wider text-emerald-300">⚙️ TOOL-LEITSTAND</span>
+              <span id="toolsConfigPathBadge" class="text-[9px] px-1.5 py-0.2 rounded bg-slate-900 border border-slate-700 text-slate-400">~/.hermes/</span>
+            </div>
+            <div class="text-[9px] text-slate-500">Built-in & Custom Tools</div>
+          </div>
         </div>
         <div class="flex items-center space-x-1.5">
-          <button type="button" onclick="toggleAgentDrawer()"
-                  class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white text-xs transition"
-                  title="Konsole einklappen">
+          <button type="button" onclick="loadHermesTools()" class="p-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs transition" title="Tools neu laden">
+            ⟳
+          </button>
+          <button type="button" onclick="openToolCreatorModal()" class="px-2.5 py-1 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white rounded text-[11px] font-bold transition shadow flex items-center space-x-1" title="Neues Custom Tool erstellen">
+            <span>➕</span> <span>NEU</span>
+          </button>
+          <button type="button" onclick="toggleAgentDrawer()" class="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white text-xs transition" title="Leiste schließen">
             ✕
           </button>
         </div>
       </div>
 
-      <!-- Node Switcher & Chat Controls -->
-      <div class="p-2 border-b border-slate-800/80 bg-slate-900/40 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
-        <div class="flex items-center space-x-1 bg-black/60 p-0.5 rounded border border-slate-800 text-[11px]">
-          <button id="btnNodeOH" onclick="setChatNode('outerheaven')" class="px-2.5 py-1 rounded font-bold transition bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow">
-            <span id="btnNodeOHLabel">OH // {{ local_model }}</span>
-          </button>
-          <button id="btnNodeFox" onclick="setChatNode('fox')" class="px-2.5 py-1 rounded font-bold transition text-slate-400 hover:text-slate-200 border border-transparent">
-            <span id="btnNodeFoxLabel">FOX // Hermes-3</span>
-          </button>
-        </div>
-        <div class="flex items-center space-x-2">
-          <!-- TTS Toggle Switch -->
-          <label class="flex items-center cursor-pointer space-x-1.5 px-2 py-0.5 bg-black/60 border border-slate-800 rounded hover:border-cyan-500/50 transition text-[11px]" title="Antworten auf Deutsch vorlesen">
-            <input type="checkbox" id="ttsToggle" class="sr-only peer">
-            <div class="w-6 h-3.5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 peer-checked:after:bg-cyan-400 after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-cyan-950 peer-checked:border-cyan-500 relative"></div>
-            <span class="text-slate-400 peer-checked:text-cyan-300 font-bold select-none text-[10px]">🔊 TTS</span>
-          </label>
-          <button onclick="clearChat()" class="text-[11px] text-slate-500 hover:text-rose-400 transition flex items-center space-x-1 px-1.5 py-0.5">
-            <span>CLEAR</span>
-          </button>
-        </div>
+      <!-- Quick Search in Sidebar -->
+      <div class="p-2 border-b border-slate-800/80 bg-slate-900/40 shrink-0">
+        <input type="text" id="toolSearchInput" oninput="filterToolsList(this.value)" placeholder="Tools durchsuchen..."
+               class="w-full bg-black/60 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition font-mono">
       </div>
 
-      <!-- Chat Stream Area -->
-      <div id="chatMessages" class="flex-1 p-3 overflow-y-auto space-y-3 scrollbar-thin text-xs">
-        <div id="tacticalChatWelcomeCard" class="p-2.5 bg-slate-900/50 border border-slate-800/80 rounded-lg text-slate-400 text-[11px]">
-          <div class="text-cyan-400 font-bold mb-1 flex items-center space-x-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-            <span id="tacticalChatStatusTitle">TACTICAL AGENT READY</span>
+      <!-- Tool Lists Container -->
+      <div class="flex-1 p-3 space-y-4 overflow-y-auto scrollbar-thin text-xs">
+        <!-- Section 1: Built-in Tools -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
+            <span class="text-[11px] font-bold text-cyan-300 flex items-center space-x-1">
+              <span>🛠️</span> <span>BUILT-IN TOOLS</span>
+            </span>
+            <span id="builtinCountBadge" class="text-[10px] text-slate-500 font-bold">12 Werkzeuge</span>
           </div>
-          <div id="tacticalChatStatusDesc">
-            Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">{{ local_model }}</span> auf Outer Heaven führt Inferenz auf Deutsch aus. Fox (Qwen:VRAM & DarkIdol:RAM) bietet schnelle & tiefe Assistenz.
+          <div id="builtinToolsList" class="space-y-2 text-xs">
+            <div class="p-3 text-center text-slate-500 italic">Lade Built-in Tools...</div>
           </div>
         </div>
-      </div>
 
-      <!-- Thinking Indicator -->
-      <div id="thinkingBadge" class="hidden px-3 py-1.5 bg-cyan-950/40 border-t border-cyan-800/40 text-[10px] text-cyan-300 flex items-center space-x-2">
-        <span class="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
-        <span id="thinkingBadgeText">{{ local_model }} reasoning in progress...</span>
-      </div>
-
-      <!-- MGS Codec Frequency Voice Stream Indicator -->
-      <div id="codecVoiceIndicator" class="hidden px-3 py-1.5 bg-emerald-950/70 border-t border-emerald-700/60 text-[10px] text-emerald-400 flex items-center justify-between">
-        <div class="flex items-center space-x-1.5">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-          <span class="font-bold tracking-wider">CODEC 140.85 MHz // AUDIO STREAM</span>
-        </div>
-        <div class="flex items-end space-x-1 h-4">
-          <span class="inline-block w-1 bg-emerald-400 codec-bar-1 rounded-sm"></span>
-          <span class="inline-block w-1 bg-emerald-400 codec-bar-2 rounded-sm"></span>
-          <span class="inline-block w-1 bg-emerald-400 codec-bar-3 rounded-sm"></span>
+        <!-- Section 2: Custom Tools -->
+        <div class="space-y-2 pt-2 border-t border-slate-800/80">
+          <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
+            <span class="text-[11px] font-bold text-emerald-300 flex items-center space-x-1">
+              <span>🧩</span> <span>CUSTOM TOOLS</span>
+            </span>
+            <span id="customCountBadge" class="text-[10px] text-slate-500 font-bold">0 Werkzeuge</span>
+          </div>
+          <div class="text-[9px] text-slate-500 font-mono">📁 ~/.hermes/custom_tools/</div>
+          <div id="customToolsList" class="space-y-2 text-xs">
+            <div class="p-3 text-center text-slate-500 italic">Lade Custom Tools...</div>
+          </div>
         </div>
       </div>
 
-      <!-- Chat Input Bar -->
-      <div class="p-2.5 border-t border-slate-800 bg-slate-900/60 shrink-0">
-        <form id="chatForm" class="flex items-center space-x-2">
-          <button type="button" id="micBtn" onclick="toggleSpeechRecognition()"
-            title="MGS Codec Sprachaufnahme (Web Speech API - de-DE)"
-            class="p-2 rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition flex items-center justify-center relative select-none shrink-0">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
-            </svg>
-            <span id="micPulseRing" class="hidden absolute inset-0 rounded border-2 border-emerald-400 animate-ping pointer-events-none"></span>
-          </button>
-          <input type="text" id="chatInput" autocomplete="off"
-            placeholder="Nachricht an Agenten..."
-            class="flex-1 bg-black/70 border border-slate-700 rounded px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition font-mono">
-          <button type="submit" id="sendBtn"
-            class="bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-2 rounded text-xs tracking-wider uppercase transition shadow shrink-0">
-            SEND
-          </button>
-        </form>
+      <!-- Sidebar Footer -->
+      <div class="p-2.5 border-t border-slate-900 bg-black/60 text-[10px] text-slate-500 flex items-center justify-between shrink-0">
+        <span>Asynchrone Dateisynchronisation</span>
+        <span class="text-emerald-400 font-bold">AKTIV</span>
       </div>
     </aside>
 
@@ -3450,65 +3571,74 @@
       const input = document.getElementById('chatInput');
 
       if (active) {
-        btn.className = "p-2 rounded border border-emerald-500 bg-emerald-950/80 text-emerald-300 transition flex items-center justify-center relative select-none shadow glow-cyan";
-        ring.classList.remove('hidden');
-        indicator.classList.remove('hidden');
-        input.setAttribute('placeholder', '🎙️ Sprich jetzt... Codec Link aktiv');
+        if (btn) btn.className = "p-2 rounded border border-emerald-500 bg-emerald-950/80 text-emerald-300 transition flex items-center justify-center relative select-none shadow glow-cyan";
+        if (ring) ring.classList.remove('hidden');
+        if (indicator) indicator.classList.remove('hidden');
+        if (input) input.setAttribute('placeholder', '🎙️ Sprich jetzt... Codec Link aktiv');
       } else {
-        btn.className = "p-2 rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition flex items-center justify-center relative select-none";
-        ring.classList.add('hidden');
-        indicator.classList.add('hidden');
-        input.setAttribute('placeholder', 'Nachricht an ausgewählten Agenten...');
+        if (btn) btn.className = "p-2 rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition flex items-center justify-center relative select-none";
+        if (ring) ring.classList.add('hidden');
+        if (indicator) indicator.classList.add('hidden');
+        if (input) input.setAttribute('placeholder', 'Nachricht an ausgewählten Agenten...');
       }
     }
 
-    // --- Send Chat Message ---
-    document.getElementById('chatForm').addEventListener('submit', (e) => {
-      stopSpeechRecognition();
-      e.preventDefault();
-      const input = document.getElementById('chatInput');
-      const text = input.value.trim();
-      if (!text || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) return;
+    // --- Send Chat Message (Legacy Chat Guard) ---
+    const legacyChatForm = document.getElementById('chatForm');
+    if (legacyChatForm) {
+      legacyChatForm.addEventListener('submit', (e) => {
+        stopSpeechRecognition();
+        e.preventDefault();
+        const input = document.getElementById('chatInput');
+        const text = input ? input.value.trim() : '';
+        if (!text || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) return;
 
-      const chatMessages = document.getElementById('chatMessages');
+        const chatMessages = document.getElementById('chatMessages');
 
-      // Append User message
-      const userBubble = document.createElement('div');
-      userBubble.className = "flex flex-col space-y-1 items-end";
-      userBubble.innerHTML = `
-        <div class="flex items-center space-x-2 text-[10px] text-slate-400 font-bold">
-          <span class="text-slate-500">${new Date().toLocaleTimeString()}</span>
-          <span class="text-slate-300">[BIG BOSS]</span>
-        </div>
-        <div class="p-3 rounded-lg bg-cyan-950/40 border border-cyan-700/50 text-cyan-100 font-mono leading-relaxed max-w-[85%] whitespace-pre-wrap">${text}</div>
-      `;
-      chatMessages.appendChild(userBubble);
-      chatMessages.scrollTop = chatMessages.scrollHeight;
+        // Append User message
+        if (chatMessages) {
+          const userBubble = document.createElement('div');
+          userBubble.className = "flex flex-col space-y-1 items-end";
+          userBubble.innerHTML = `
+            <div class="flex items-center space-x-2 text-[10px] text-slate-400 font-bold">
+              <span class="text-slate-500">${new Date().toLocaleTimeString()}</span>
+              <span class="text-slate-300">[BIG BOSS]</span>
+            </div>
+            <div class="p-3 rounded-lg bg-cyan-950/40 border border-cyan-700/50 text-cyan-100 font-mono leading-relaxed max-w-[85%] whitespace-pre-wrap">${text}</div>
+          `;
+          chatMessages.appendChild(userBubble);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
 
-      chatHistory.push({ role: 'user', content: text });
+        chatHistory.push({ role: 'user', content: text });
 
-      chatSocket.send(JSON.stringify({
-        node: activeChatNode,
-        message: text,
-        history: chatHistory
-      }));
+        chatSocket.send(JSON.stringify({
+          node: activeChatNode,
+          message: text,
+          history: chatHistory
+        }));
 
-      input.value = '';
-      document.getElementById('sendBtn').disabled = true;
-    });
+        if (input) input.value = '';
+        const sBtn = document.getElementById('sendBtn');
+        if (sBtn) sBtn.disabled = true;
+      });
+    }
 
     function clearChat() {
-      document.getElementById('chatMessages').innerHTML = `
-        <div id="tacticalChatWelcomeCard" class="p-3 bg-slate-900/50 border border-slate-800/80 rounded-lg text-slate-400">
-          <div class="text-cyan-400 font-bold mb-1 flex items-center space-x-2">
-            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-            <span id="tacticalChatStatusTitle">TACTICAL AGENT CHAT READY (Ollama: ${currentActiveOllamaModel})</span>
+      const cm = document.getElementById('chatMessages');
+      if (cm) {
+        cm.innerHTML = `
+          <div id="tacticalChatWelcomeCard" class="p-3 bg-slate-900/50 border border-slate-800/80 rounded-lg text-slate-400">
+            <div class="text-cyan-400 font-bold mb-1 flex items-center space-x-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+              <span id="tacticalChatStatusTitle">TACTICAL AGENT CHAT READY (Ollama: ${currentActiveOllamaModel})</span>
+            </div>
+            <div id="tacticalChatStatusDesc">
+              Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">${currentActiveOllamaModel}</span> auf Outer Heaven führt komplexe Überlegungen durch (Reasoning-Tags werden serverseitig gefiltert). Fox (hermes3:8b) bietet konsolidierte Assistenz & Workflows.
+            </div>
           </div>
-          <div id="tacticalChatStatusDesc">
-            Wähle den Zielknoten oben aus. <span id="tacticalChatModelDesc" class="text-cyan-300 font-semibold">${currentActiveOllamaModel}</span> auf Outer Heaven führt komplexe Überlegungen durch (Reasoning-Tags werden serverseitig gefiltert). Fox (hermes3:8b) bietet konsolidierte Assistenz & Workflows.
-          </div>
-        </div>
-      `;
+        `;
+      }
       chatHistory = [];
     }
 
@@ -7345,7 +7475,9 @@
           fetchBueroInvoices(),
           fetchBueroJobs(),
           typeof updateTelemetry === 'function' ? updateTelemetry() : Promise.resolve(),
-          typeof loadGallery === 'function' ? loadGallery() : Promise.resolve()
+          typeof loadGallery === 'function' ? loadGallery() : Promise.resolve(),
+          typeof loadMissionTasks === 'function' ? loadMissionTasks() : Promise.resolve(),
+          typeof loadHermesTools === 'function' ? loadHermesTools() : Promise.resolve()
         ]);
       } catch (e) {
         console.error('Refresh failed:', e);
@@ -8977,20 +9109,23 @@
           const isEnabled = Boolean(meta.enabled);
           const desc = meta.description || "";
           const card = document.createElement("div");
-          card.className = "flex items-start justify-between p-2.5 rounded bg-black/50 border border-slate-800 hover:border-cyan-500/40 transition gap-2";
+          card.className = "tool-card flex items-start justify-between p-2.5 rounded bg-black/60 border border-slate-800 hover:border-cyan-500/40 transition gap-2.5";
           card.innerHTML = `
             <div class="flex-1 min-w-0">
               <div class="flex items-center space-x-2">
-                <span class="font-bold text-slate-200 text-xs">${escapeHtml(name)}</span>
-                <span class="text-[9px] px-1.5 py-0.2 rounded font-bold ${isEnabled ? "bg-emerald-950 text-emerald-400 border border-emerald-700/60" : "bg-slate-900 text-slate-500 border border-slate-700"}">
+                <span class="font-bold text-slate-200 text-xs truncate">${escapeHtml(name)}</span>
+                <span class="text-[9px] px-1.5 py-0.5 rounded font-bold ${isEnabled ? "bg-emerald-950 text-emerald-400 border border-emerald-700/60" : "bg-slate-900 text-slate-400 border border-slate-700"}">
                   ${isEnabled ? "AKTIV" : "INAKTIV"}
                 </span>
               </div>
-              <p class="text-[10px] text-slate-400 mt-0.5 truncate">${escapeHtml(desc)}</p>
+              <p class="text-[10px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">${escapeHtml(desc)}</p>
             </div>
-            <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
-              <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleHermesTool('builtin_tools', '${name}', this.checked)" class="sr-only peer">
-              <div class="w-7 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 peer-checked:after:bg-cyan-400 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-950 peer-checked:border-cyan-500 border border-slate-700"></div>
+            <!-- Real Toggle Switch (Rechts/Grün #00e676 | Links/Hellgrau #cbd5e1, kein Rot) -->
+            <label class="relative inline-flex items-center cursor-pointer shrink-0 select-none mt-0.5" title="${isEnabled ? 'Aktiv (Klicken zum Deaktivieren)' : 'Inaktiv (Klicken zum Aktivieren)'}">
+              <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleHermesTool('builtin_tools', '${escapeHtml(name)}', this.checked)" class="sr-only">
+              <span class="w-11 h-6 flex items-center rounded-full p-1 transition-all duration-200 ease-in-out" style="background-color: ${isEnabled ? '#00e676' : '#cbd5e1'}; ${isEnabled ? 'box-shadow: 0 0 10px rgba(0,230,118,0.45);' : ''}">
+                <span class="bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out" style="transform: translateX(${isEnabled ? '20px' : '0px'});"></span>
+              </span>
             </label>
           `;
           builtinContainer.appendChild(card);
@@ -9002,34 +9137,56 @@
         customContainer.innerHTML = "";
         const customKeys = Object.keys(customs);
         if (customKeys.length === 0) {
-          customContainer.innerHTML = '<div class="p-4 text-center text-slate-500 italic text-xs">Noch keine Custom Tools registriert. Erstellen Sie eines mit "➕ Neues Tool erstellen".</div>';
+          customContainer.innerHTML = '<div class="p-4 text-center text-slate-500 italic text-xs">Noch keine Custom Tools registriert. Erstellen Sie eines mit "➕ NEU".</div>';
         } else {
           for (const [name, meta] of Object.entries(customs)) {
             const isEnabled = Boolean(meta.enabled);
             const desc = meta.description || "";
             const file = meta.file || `${name}.py`;
             const card = document.createElement("div");
-            card.className = "flex items-start justify-between p-2.5 rounded bg-black/50 border border-slate-800 hover:border-emerald-500/40 transition gap-2";
+            card.className = "tool-card flex items-start justify-between p-2.5 rounded bg-black/60 border border-slate-800 hover:border-emerald-500/40 transition gap-2.5";
             card.innerHTML = `
               <div class="flex-1 min-w-0">
                 <div class="flex items-center space-x-2">
-                  <span class="font-bold text-slate-200 text-xs">${escapeHtml(name)}</span>
-                  <span class="text-[9px] px-1.5 py-0.2 rounded font-bold ${isEnabled ? "bg-emerald-950 text-emerald-400 border border-emerald-700/60" : "bg-slate-900 text-slate-500 border border-slate-700"}">
+                  <span class="font-bold text-slate-200 text-xs truncate">${escapeHtml(name)}</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded font-bold ${isEnabled ? "bg-emerald-950 text-emerald-400 border border-emerald-700/60" : "bg-slate-900 text-slate-400 border border-slate-700"}">
                     ${isEnabled ? "AKTIV" : "INAKTIV"}
                   </span>
                 </div>
-                <p class="text-[10px] text-slate-400 mt-0.5 truncate">${escapeHtml(desc)}</p>
-                <div class="text-[9px] text-emerald-400/80 font-mono mt-0.5">📁 ~/.hermes/custom_tools/${escapeHtml(file)}</div>
+                <p class="text-[10px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">${escapeHtml(desc)}</p>
+                <div class="text-[9px] text-emerald-400/80 font-mono mt-0.5 truncate">📁 ~/.hermes/custom_tools/${escapeHtml(file)}</div>
               </div>
-              <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
-                <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleHermesTool('custom_tools', '${name}', this.checked)" class="sr-only peer">
-                <div class="w-7 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 peer-checked:after:bg-emerald-400 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-950 peer-checked:border-emerald-500 border border-slate-700"></div>
+              <!-- Real Toggle Switch (Rechts/Grün #00e676 | Links/Hellgrau #cbd5e1, kein Rot) -->
+              <label class="relative inline-flex items-center cursor-pointer shrink-0 select-none mt-0.5" title="${isEnabled ? 'Aktiv (Klicken zum Deaktivieren)' : 'Inaktiv (Klicken zum Aktivieren)'}">
+                <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleHermesTool('custom_tools', '${escapeHtml(name)}', this.checked)" class="sr-only">
+                <span class="w-11 h-6 flex items-center rounded-full p-1 transition-all duration-200 ease-in-out" style="background-color: ${isEnabled ? '#00e676' : '#cbd5e1'}; ${isEnabled ? 'box-shadow: 0 0 10px rgba(0,230,118,0.45);' : ''}">
+                  <span class="bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out" style="transform: translateX(${isEnabled ? '20px' : '0px'});"></span>
+                </span>
               </label>
             `;
             customContainer.appendChild(card);
           }
         }
       }
+    }
+
+    function filterToolsList(query) {
+      const q = (query || "").toLowerCase().trim();
+      const filterSection = (containerId) => {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const cards = container.querySelectorAll(".tool-card");
+        cards.forEach(card => {
+          const text = card.textContent.toLowerCase();
+          if (!q || text.includes(q)) {
+            card.style.display = "";
+          } else {
+            card.style.display = "none";
+          }
+        });
+      };
+      filterSection("builtinToolsList");
+      filterSection("customToolsList");
     }
 
     async function toggleHermesTool(category, name, enabled) {
@@ -9141,8 +9298,252 @@
       }
     }
 
-    // Load Hermes tools immediately
+    // =========================================================================
+    // 📋 TASK MANAGEMENT // KANBAN BOARD & PIPELINE
+    // =========================================================================
+    let currentMissionTasks = [];
+
+    async function loadMissionTasks() {
+      try {
+        const res = await fetch("/api/tasks");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        currentMissionTasks = data.tasks || [];
+        renderMissionTasks(currentMissionTasks);
+      } catch (err) {
+        console.error("Error loading mission tasks:", err);
+      }
+    }
+
+    function toggleTaskCreatorForm() {
+      const card = document.getElementById("taskCreatorCard");
+      const icon = document.getElementById("taskFormToggleIcon");
+      const text = document.getElementById("taskFormToggleText");
+      if (!card) return;
+      if (card.classList.contains("hidden")) {
+        card.classList.remove("hidden");
+        if (icon) icon.textContent = "✕";
+        if (text) text.textContent = "SCHLIESSEN";
+        document.getElementById("taskTitleInput")?.focus();
+      } else {
+        card.classList.add("hidden");
+        if (icon) icon.textContent = "➕";
+        if (text) text.textContent = "NEUE AUFGABE";
+      }
+    }
+
+    function onTaskTypeChange(taskType) {
+      const presetRow = document.getElementById("renderPresetRow");
+      if (!presetRow) return;
+      if (taskType === "Bild-Render (SDXL / LoRA)") {
+        presetRow.classList.remove("hidden");
+      } else {
+        presetRow.classList.add("hidden");
+      }
+    }
+
+    function applySdxlPreset() {
+      const res = document.getElementById("presetResolution")?.value || "832x1216 (Hochformat)";
+      const steps = document.getElementById("presetSteps")?.value || "18";
+      const snippet = `Auflösung: ${res} | Steps: ${steps} | Sampler: Euler Karras | Model: Juggernaut-XL`;
+      const textarea = document.getElementById("taskDetailsInput");
+      if (textarea) {
+        if (textarea.value.trim()) {
+          textarea.value = `${textarea.value.trim()}\n${snippet}`;
+        } else {
+          textarea.value = snippet;
+        }
+      }
+    }
+
+    async function submitNewTask() {
+      const titleInput = document.getElementById("taskTitleInput");
+      const assigneeSelect = document.getElementById("taskAssigneeSelect");
+      const projectSelect = document.getElementById("taskProjectSelect");
+      const typeSelect = document.getElementById("taskTypeSelect");
+      const prioritySelect = document.getElementById("taskPrioritySelect");
+      const statusSelect = document.getElementById("taskStatusSelect");
+      const detailsInput = document.getElementById("taskDetailsInput");
+      const msgBox = document.getElementById("taskFormMsg");
+      const submitBtn = document.getElementById("btnSubmitTask");
+
+      const title = titleInput ? titleInput.value.trim() : "";
+      if (!title) {
+        alert("Bitte mindestens einen Titel für die Aufgabe eingeben.");
+        return;
+      }
+
+      const payload = {
+        title: title,
+        assignee: assigneeSelect ? assigneeSelect.value : "Hermes",
+        project: projectSelect ? projectSelect.value : "Catlord Project",
+        task_type: typeSelect ? typeSelect.value : "Bild-Render (SDXL / LoRA)",
+        priority: prioritySelect ? prioritySelect.value : "Normal",
+        status: statusSelect ? statusSelect.value : "Zu erledigen",
+        details: detailsInput ? detailsInput.value.trim() : ""
+      };
+
+      if (submitBtn) submitBtn.disabled = true;
+
+      try {
+        const res = await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (titleInput) titleInput.value = "";
+          if (detailsInput) detailsInput.value = "";
+          if (msgBox) {
+            msgBox.textContent = `✔ Aufgabe '${title}' erfolgreich angelegt!`;
+            msgBox.className = "text-xs font-mono text-emerald-400 font-bold";
+            msgBox.classList.remove("hidden");
+            setTimeout(() => msgBox.classList.add("hidden"), 3500);
+          }
+          await loadMissionTasks();
+        } else {
+          alert("Fehler beim Erstellen der Aufgabe: " + (data.error || "Unbekannt"));
+        }
+      } catch (err) {
+        console.error("Task submit error:", err);
+        alert("Netzwerkfehler beim Anlegen der Aufgabe.");
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    }
+
+    async function moveMissionTask(taskId, currentStatus, direction) {
+      const order = ["Zu erledigen", "In Bearbeitung", "Render / Review", "Erledigt"];
+      const currentIndex = order.indexOf(currentStatus);
+      if (currentIndex === -1) return;
+      const targetIndex = direction === "next" ? currentIndex + 1 : currentIndex - 1;
+      if (targetIndex < 0 || targetIndex >= order.length) return;
+      const newStatus = order[targetIndex];
+
+      try {
+        const res = await fetch("/api/tasks/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: taskId, status: newStatus })
+        });
+        const data = await res.json();
+        if (data.success) {
+          await loadMissionTasks();
+        } else {
+          alert("Fehler beim Aktualisieren des Status: " + (data.error || "Unbekannt"));
+        }
+      } catch (err) {
+        console.error("Move task error:", err);
+      }
+    }
+
+    async function deleteMissionTask(taskId) {
+      if (!confirm("Soll diese Aufgabe wirklich aus dem Board gelöscht werden?")) return;
+      try {
+        const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+        const data = await res.json();
+        if (data.success) {
+          await loadMissionTasks();
+        } else {
+          alert("Fehler beim Löschen der Aufgabe: " + (data.error || "Unbekannt"));
+        }
+      } catch (err) {
+        console.error("Delete task error:", err);
+      }
+    }
+
+    function renderMissionTasks(tasks) {
+      const colTodo = document.getElementById("col_tasks_todo");
+      const colProg = document.getElementById("col_tasks_in_progress");
+      const colReview = document.getElementById("col_tasks_review");
+      const colDone = document.getElementById("col_tasks_done");
+
+      const countTodo = document.getElementById("count_todo");
+      const countProg = document.getElementById("count_in_progress");
+      const countReview = document.getElementById("count_review");
+      const countDone = document.getElementById("count_done");
+
+      const groups = {
+        "Zu erledigen": [],
+        "In Bearbeitung": [],
+        "Render / Review": [],
+        "Erledigt": []
+      };
+
+      for (const t of tasks) {
+        if (groups[t.status]) {
+          groups[t.status].push(t);
+        } else {
+          groups["Zu erledigen"].push(t);
+        }
+      }
+
+      if (countTodo) countTodo.textContent = groups["Zu erledigen"].length;
+      if (countProg) countProg.textContent = groups["In Bearbeitung"].length;
+      if (countReview) countReview.textContent = groups["Render / Review"].length;
+      if (countDone) countDone.textContent = groups["Erledigt"].length;
+
+      const renderColumn = (container, list, statusName) => {
+        if (!container) return;
+        container.innerHTML = "";
+        if (list.length === 0) {
+          container.innerHTML = '<div class="p-4 text-center text-slate-500 italic text-[11px]">Keine Aufgaben</div>';
+          return;
+        }
+
+        for (const task of list) {
+          const card = document.createElement("div");
+          card.className = "p-3 rounded-lg bg-black/60 border border-slate-800 hover:border-cyan-500/40 transition space-y-2 font-mono";
+
+          // Priority color
+          let prioColor = "text-slate-400 border-slate-700 bg-slate-900";
+          if (task.priority === "Kritisch") prioColor = "text-rose-400 border-rose-700/60 bg-rose-950/60";
+          else if (task.priority === "Hoch") prioColor = "text-amber-400 border-amber-700/60 bg-amber-950/60";
+
+          // Assignee badge
+          const isMegan = (task.assignee || "").toLowerCase() === "megan";
+          const assigneeBadge = isMegan
+            ? `<span class="px-1.5 py-0.5 rounded bg-pink-950/70 border border-pink-700/60 text-pink-300 font-bold text-[9px]">💋 Megan</span>`
+            : `<span class="px-1.5 py-0.5 rounded bg-cyan-950/70 border border-cyan-700/60 text-cyan-300 font-bold text-[9px]">⚡ Hermes</span>`;
+
+          const detailsHtml = task.details
+            ? `<div class="text-[10px] text-slate-400 bg-slate-950/80 p-2 rounded border border-slate-900 whitespace-pre-wrap leading-relaxed max-h-24 overflow-y-auto scrollbar-thin">${escapeHtml(task.details)}</div>`
+            : "";
+
+          card.innerHTML = `
+            <div class="flex items-start justify-between gap-1.5">
+              <span class="font-bold text-slate-100 text-xs leading-snug">${escapeHtml(task.title)}</span>
+              ${assigneeBadge}
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5 text-[9px]">
+              <span class="px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 text-slate-400">📁 ${escapeHtml(task.project)}</span>
+              <span class="px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 text-slate-400">🏷️ ${escapeHtml(task.task_type)}</span>
+              <span class="px-1.5 py-0.2 rounded border font-bold ${prioColor}">⚡ ${escapeHtml(task.priority)}</span>
+            </div>
+            ${detailsHtml}
+            <div class="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px]">
+              <span class="text-slate-600 text-[9px]">${escapeHtml(task.created_at || "")}</span>
+              <div class="flex items-center space-x-1.5">
+                ${statusName !== "Zu erledigen" ? `<button type="button" onclick="moveMissionTask(${task.id}, '${escapeHtml(statusName)}', 'prev')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs" title="Einen Schritt zurück">◀</button>` : ""}
+                ${statusName !== "Erledigt" ? `<button type="button" onclick="moveMissionTask(${task.id}, '${escapeHtml(statusName)}', 'next')" class="px-1.5 py-0.5 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 text-xs font-bold" title="Einen Schritt vor">▶</button>` : ""}
+                <button type="button" onclick="deleteMissionTask(${task.id})" class="px-1.5 py-0.5 rounded hover:bg-rose-950/60 text-slate-500 hover:text-rose-400 text-xs transition" title="Aufgabe löschen">🗑️</button>
+              </div>
+            </div>
+          `;
+          container.appendChild(card);
+        }
+      };
+
+      renderColumn(colTodo, groups["Zu erledigen"], "Zu erledigen");
+      renderColumn(colProg, groups["In Bearbeitung"], "In Bearbeitung");
+      renderColumn(colReview, groups["Render / Review"], "Render / Review");
+      renderColumn(colDone, groups["Erledigt"], "Erledigt");
+    }
+
+    // Load Hermes tools & tasks immediately
     loadHermesTools();
+    loadMissionTasks();
 
     // Initialize Cluster Models & Fox status on load
     loadNodeModels('outerheaven');
