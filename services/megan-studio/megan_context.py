@@ -23,6 +23,8 @@ STATE_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/megan_state.json")
 
 import re
 import shutil
+import os
+import subprocess
 
 # Mandatory Stop Sequences & Ollama Options to prevent hallucination / roleplay drift
 MEGAN_OLLAMA_OPTIONS = {
@@ -354,3 +356,252 @@ class MeganContextEngine:
 
 
 megan_context_engine = MeganContextEngine()
+
+# ==============================================================================
+# Google Drive Path Resolver & Project Mapping
+# ==============================================================================
+GDRIVE_CANDIDATE_PATHS = [
+    lambda: os.environ.get("GDRIVE_BASE_PATH"),
+    lambda: "/mnt/fox-home/fox/gdrive/Agenten-Drive",
+    lambda: str(Path.home() / "gdrive" / "Agenten-Drive"),
+    lambda: "/home/outerheaven/gdrive/Agenten-Drive",
+    lambda: "/home/fox/gdrive/Agenten-Drive",
+    lambda: "/mnt/storage-beta/Agenten-Drive",
+    lambda: "/mnt/storage-beta/projekte",
+]
+
+def get_gdrive_base_path() -> Path:
+    """Returns the active, accessible Google Drive / Agenten-Drive base path."""
+    for getter in GDRIVE_CANDIDATE_PATHS:
+        raw = getter()
+        if not raw:
+            continue
+        p = Path(raw).expanduser().resolve()
+        if p.is_dir():
+            return p
+    # Fallback default
+    return Path("/mnt/fox-home/fox/gdrive/Agenten-Drive")
+
+def resolve_gdrive_project_path(project_query: str) -> Dict[str, Any]:
+    """
+    Automatically resolves a project name (e.g. 'Catlord', 'Projekt Catlord', 'Büro', 'erogame')
+    to its actual folder in Google Drive (<GDRIVE_BASE>/<Projektname>/...).
+    Falls back to /mnt/storage-beta/projekte/ if not present in Google Drive.
+    """
+    if not project_query:
+        return {"found": False, "error": "Projektname darf nicht leer sein"}
+
+    base_dir = get_gdrive_base_path()
+    cluster_projekte_dir = Path("/mnt/storage-beta/projekte")
+
+    # Clean query
+    raw = project_query.strip()
+    clean = re.sub(r'^(?:suche\s+(?:in\s+)?(?:google\s+drive\s+)?(?:nach\s+)?)?(?:projekt|project)[\s_-]*', '', raw, flags=re.IGNORECASE).strip()
+    if not clean:
+        clean = raw
+
+    search_terms = list(dict.fromkeys([
+        clean,
+        f"projekt-{clean.lower()}",
+        f"projekt_{clean.lower()}",
+        f"project-{clean.lower()}",
+        clean.lower(),
+        clean.capitalize()
+    ]))
+
+    target_dir: Optional[Path] = None
+    matched_source = "gdrive"
+
+    # 1. Search in Google Drive Base Path
+    if base_dir.is_dir():
+        for term in search_terms:
+            cand = base_dir / term
+            if cand.is_dir():
+                target_dir = cand
+                break
+        
+        # Fuzzy scan in base_dir if direct name did not match
+        if not target_dir:
+            try:
+                for entry in base_dir.iterdir():
+                    if entry.is_dir():
+                        entry_clean = re.sub(r'^(?:projekt|project)[\s_-]*', '', entry.name, flags=re.IGNORECASE).lower()
+                        if clean.lower() == entry_clean or clean.lower() in entry.name.lower():
+                            target_dir = entry
+                            break
+            except Exception as e:
+                logger.warning(f"Error scanning base_dir {base_dir}: {e}")
+
+    # 2. Fallback to Cluster Storage Projects (/mnt/storage-beta/projekte/)
+    if not target_dir and cluster_projekte_dir.is_dir():
+        matched_source = "cluster_storage"
+        for term in search_terms:
+            cand = cluster_projekte_dir / term
+            if cand.is_dir():
+                target_dir = cand
+                break
+        if not target_dir:
+            try:
+                for entry in cluster_projekte_dir.iterdir():
+                    if entry.is_dir():
+                        entry_clean = re.sub(r'^(?:projekt|project)[\s_-]*', '', entry.name, flags=re.IGNORECASE).lower()
+                        if clean.lower() == entry_clean or clean.lower() in entry.name.lower():
+                            target_dir = entry
+                            break
+            except Exception as e:
+                logger.warning(f"Error scanning cluster_projekte_dir: {e}")
+
+    if not target_dir:
+        return {
+            "found": False,
+            "query": project_query,
+            "searched_base": str(base_dir),
+            "fallback_base": str(cluster_projekte_dir),
+            "message": f"Projekt '{project_query}' konnte weder im Google Drive noch im Cluster-Speicher gefunden werden."
+        }
+
+    # Gather files
+    files = []
+    try:
+        for p in sorted(target_dir.rglob("*")):
+            if p.is_file() and not p.name.startswith("."):
+                rel = str(p.relative_to(target_dir))
+                files.append({
+                    "name": p.name,
+                    "rel_path": rel,
+                    "size_bytes": p.stat().st_size,
+                    "modified": int(p.stat().st_mtime)
+                })
+                if len(files) >= 40:
+                    break
+    except Exception as e:
+        logger.warning(f"Error listing files in {target_dir}: {e}")
+
+    return {
+        "found": True,
+        "query": project_query,
+        "project_name": target_dir.name,
+        "resolved_path": str(target_dir),
+        "source": matched_source,
+        "file_count": len(files),
+        "files": files
+    }
+
+
+# ==============================================================================
+# Autonomous Actions & Tool Execution Engine
+# ==============================================================================
+ALLOWED_SHELL_COMMANDS = [
+    "uptime",
+    "df -h",
+    "free -m",
+    "nvidia-smi",
+    "tailscale status",
+    "systemctl --user status mission-control.service",
+    "systemctl --user status megan-studio.service",
+    "systemctl --user status ollama.service",
+    "systemctl --user status comfyui.service",
+    "journalctl --user -u megan-studio.service -n 25 --no-pager",
+    "journalctl --user -u mission-control.service -n 25 --no-pager",
+    "ping -c 2 100.116.38.29",
+    "ping -c 2 100.93.184.87",
+    "docker ps"
+]
+
+def execute_autonomous_tool(tool_name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Executes autonomous diagnostic checks, Google Drive resolution, and workflow triggers.
+    Equips Megan with self-sufficient troubleshooting and action rights.
+    """
+    params = params or {}
+    tool = tool_name.lower().strip()
+
+    if tool in ["gdrive_resolve", "resolve_gdrive", "gdrive_search"]:
+        query = params.get("project") or params.get("query", "")
+        return resolve_gdrive_project_path(query)
+
+    elif tool in ["system_status", "status_check"]:
+        status: Dict[str, Any] = {
+            "timestamp": int(time.time()),
+            "node": "outerheaven",
+            "services": {},
+            "disk": {},
+            "tailscale": "unknown"
+        }
+        # Check systemd user services
+        for svc in ["mission-control.service", "megan-studio.service"]:
+            try:
+                res = subprocess.run(
+                    ["systemctl", "--user", "is-active", svc],
+                    capture_output=True, text=True, timeout=3
+                )
+                status["services"][svc] = res.stdout.strip()
+            except Exception as e:
+                status["services"][svc] = f"error: {e}"
+
+        # Check disk space
+        try:
+            res = subprocess.run(["df", "-h", "/", "/mnt/storage-beta"], capture_output=True, text=True, timeout=3)
+            status["disk"]["df"] = res.stdout.strip()
+        except Exception:
+            pass
+
+        # Check tailscale
+        try:
+            res = subprocess.run(["tailscale", "status", "--json"], capture_output=True, text=True, timeout=3)
+            if res.returncode == 0:
+                tdata = json.loads(res.stdout)
+                status["tailscale"] = {
+                    "self_ip": tdata.get("Self", {}).get("TailscaleIPs", []),
+                    "peers": len(tdata.get("Peer", {}))
+                }
+        except Exception:
+            pass
+
+        # Check GPU / ComfyUI Render Lock
+        try:
+            from gpu_render_lock import get_gpu_lock_status
+            status["gpu_lock"] = get_gpu_lock_status()
+        except Exception:
+            status["gpu_lock"] = "unlocked"
+
+        return {"success": True, "tool": "system_status", "status": status}
+
+    elif tool in ["shell_check", "diagnose"]:
+        cmd = params.get("command", "").strip()
+        if not cmd:
+            return {"success": False, "error": "Befehl fehlt"}
+
+        # Whitelist / safe prefix verification
+        is_allowed = any(cmd == allowed or cmd.startswith(allowed.split()[0]) for allowed in ALLOWED_SHELL_COMMANDS)
+        if not is_allowed and not (cmd.startswith("systemctl --user status") or cmd.startswith("journalctl --user") or cmd.startswith("ping -c")):
+            return {"success": False, "error": f"Befehl nicht in der Sicherheits-Whitelist: {cmd}"}
+
+        try:
+            res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=8)
+            return {
+                "success": True,
+                "command": cmd,
+                "returncode": res.returncode,
+                "stdout": res.stdout.strip(),
+                "stderr": res.stderr.strip()
+            }
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": f"Timeout bei Ausführung von '{cmd}'"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    elif tool in ["workflow_trigger", "service_control"]:
+        action = params.get("action", "").lower().strip()
+        target = params.get("target", "megan-studio.service").strip()
+        if action in ["restart", "reload"]:
+            if target in ["megan-studio.service", "mission-control.service"]:
+                try:
+                    res = subprocess.run(["systemctl", "--user", action, target], capture_output=True, text=True, timeout=5)
+                    return {"success": (res.returncode == 0), "action": action, "target": target, "output": res.stdout}
+                except Exception as e:
+                    return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Aktion '{action}' auf Ziel '{target}' nicht erlaubt"}
+
+    return {"success": False, "error": f"Unbekanntes Tool: {tool_name}"}
+

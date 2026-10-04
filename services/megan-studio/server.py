@@ -78,11 +78,23 @@ TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 # Context Engine Import
 try:
-    from megan_context import megan_context_engine, sanitize_megan_response
+    from megan_context import (
+        megan_context_engine,
+        sanitize_megan_response,
+        get_gdrive_base_path,
+        resolve_gdrive_project_path,
+        execute_autonomous_tool
+    )
 except ImportError:
     megan_context_engine = None
     def sanitize_megan_response(text: str) -> str:
         return text.strip()
+    def get_gdrive_base_path():
+        return Path("/mnt/fox-home/fox/gdrive/Agenten-Drive")
+    def resolve_gdrive_project_path(query: str):
+        return {"found": False, "query": query}
+    def execute_autonomous_tool(name: str, params=None):
+        return {"success": False, "error": "Tool engine not loaded"}
 
 # GPU Render Lock Import
 try:
@@ -113,24 +125,34 @@ def atomic_write_file(path: Path, content: str) -> None:
 
 def get_active_megan_prompt() -> str:
     """Loads active character prompt with priority: canonical character.json -> system prompt text."""
+    base_prompt = ""
     if CANONICAL_CHARACTER_FILE.is_file():
         try:
             data = json.loads(CANONICAL_CHARACTER_FILE.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                return data.get("system_prompt") or data.get("description") or ""
+                base_prompt = data.get("system_prompt") or data.get("description") or ""
         except Exception as e:
             logger.warning(f"Error reading {CANONICAL_CHARACTER_FILE}: {e}")
 
-    if MEGAN_PROMPT_FILE.is_file():
+    if not base_prompt and MEGAN_PROMPT_FILE.is_file():
         try:
-            return MEGAN_PROMPT_FILE.read_text(encoding="utf-8").strip()
+            base_prompt = MEGAN_PROMPT_FILE.read_text(encoding="utf-8").strip()
         except Exception as e:
             logger.warning(f"Error reading {MEGAN_PROMPT_FILE}: {e}")
 
-    return (
-        "Du bist Megan, eine 23-jährige, intelligente, charmante und direkte Begleiterin. "
-        "Du antwortest stets auf Deutsch, authentisch, verspielt und unzensiert."
+    if not base_prompt:
+        base_prompt = (
+            "Du bist Megan, eine 23-jährige, intelligente, charmante und direkte Begleiterin. "
+            "Du antwortest stets auf Deutsch, authentisch, verspielt und unzensiert."
+        )
+
+    autonomy_lore = (
+        f"\n\n[AUTONOMIE- & DRIVE-STATUS]\n"
+        f"- Google Drive Basis-Pfad: '{get_gdrive_base_path()}'.\n"
+        f"- Bei Erwähnung von Projekten (z. B. 'Projekt Catlord') löst du den Pfad automatisch auf.\n"
+        f"- Du verfügst über Tool-Execution-Rechte (Shell-Checks, System-Status, Service-Control) zur autonomen Fehleranalyse."
     )
+    return base_prompt + autonomy_lore
 
 # ------------------------------------------------------------------------------
 # Handlers: Index & System
@@ -370,6 +392,92 @@ async def handle_megan_tool_brain(request: web.Request) -> web.Response:
     return web.json_response({"success": True, "brain": "online"})
 
 # ------------------------------------------------------------------------------
+# Handlers: Google Drive Resolution & Autonomous Tool Execution
+# ------------------------------------------------------------------------------
+async def handle_megan_gdrive_resolve(request: web.Request) -> web.Response:
+    project = request.query.get("project", "").strip()
+    if not project:
+        try:
+            body = await request.json()
+            project = body.get("project", "").strip()
+        except Exception:
+            pass
+    if not project:
+        return web.json_response({"success": False, "error": "Projektname ('project') erforderlich"}, status=400)
+
+    result = resolve_gdrive_project_path(project)
+    return web.json_response({"success": True, **result})
+
+async def handle_megan_gdrive_search(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+        query = body.get("query", "").strip()
+    except Exception:
+        query = request.query.get("query", "").strip()
+
+    if not query:
+        return web.json_response({"success": False, "error": "Suchbegriff ('query') erforderlich"}, status=400)
+
+    result = resolve_gdrive_project_path(query)
+    return web.json_response({"success": True, **result})
+
+async def handle_megan_system_status(request: web.Request) -> web.Response:
+    res = execute_autonomous_tool("system_status")
+    return web.json_response(res)
+
+async def handle_megan_tools_execute(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Ungültiges JSON"}, status=400)
+
+    tool = body.get("tool", "")
+    params = body.get("params", {})
+    if not tool:
+        return web.json_response({"success": False, "error": "'tool' Parameter erforderlich"}, status=400)
+
+    res = execute_autonomous_tool(tool, params)
+    return web.json_response(res)
+
+def check_autonomous_intent(text: str) -> Optional[str]:
+    """Detects if user asks for Google Drive project lookup, troubleshooting, or system status."""
+    t_lower = text.lower()
+
+    # 1. Google Drive / Project Resolution
+    if "google drive" in t_lower or "gdrive" in t_lower or "agenten-drive" in t_lower or "projekt" in t_lower:
+        m = re.search(r'(?:projekt|project)\s+([a-zA-Z0-9_\-]+)', text, re.IGNORECASE)
+        project_term = m.group(1) if m else None
+        if not project_term:
+            m2 = re.search(r'nach\s+([a-zA-Z0-9_\-]+)', text, re.IGNORECASE)
+            if m2 and m2.group(1).lower() not in ["projekt", "google", "drive"]:
+                project_term = m2.group(1)
+
+        if project_term:
+            info = resolve_gdrive_project_path(project_term)
+            if info.get("found"):
+                fnames = [f["rel_path"] for f in info.get("files", [])[:8]]
+                flist_str = ", ".join(fnames) if fnames else "Ordner ist leer oder enthält keine Dateien"
+                return (
+                    f"\n[AUTONOMER GOOGLE-DRIVE RESOLVER]:\n"
+                    f"Projekt '{info.get('project_name')}' wurde erfolgreich aufgelöst!\n"
+                    f"- Absoluter Pfad: {info.get('resolved_path')} ({info.get('source')})\n"
+                    f"- Enthaltene Dateien ({info.get('file_count')} gefunden): {flist_str}\n"
+                    f"Nutze diese Pfad-Informationen direkt in deiner Antwort."
+                )
+            else:
+                return (
+                    f"\n[AUTONOMER GOOGLE-DRIVE RESOLVER]:\n"
+                    f"Projekt '{project_term}' wurde gesucht, existiert aber nicht im Agenten-Drive ({get_gdrive_base_path()})."
+                )
+
+    # 2. System Status / Troubleshooting
+    if any(k in t_lower for k in ["system status", "cluster status", "warum hängt", "service status", "dienst prüfen", "gpu status", "wie ausgelastet"]):
+        s = execute_autonomous_tool("system_status")
+        return f"\n[AUTONOME SYSTEM-DIAGNOSE]:\n{json.dumps(s.get('status', {}), indent=2, ensure_ascii=False)}"
+
+    return None
+
+# ------------------------------------------------------------------------------
 # Handlers: Character, Lore & Appearance Presets
 # ------------------------------------------------------------------------------
 async def handle_bot_config_get(request: web.Request) -> web.Response:
@@ -501,6 +609,10 @@ async def handle_chat(request: web.Request) -> web.Response:
         return web.json_response({"error": "Message required"}, status=400)
 
     system_instruction = get_active_megan_prompt()
+    intent_context = check_autonomous_intent(user_msg)
+    if intent_context:
+        system_instruction += f"\n\n{intent_context}"
+
     history = body.get("history", [])
 
     messages = [{"role": "system", "content": system_instruction}]
@@ -553,6 +665,10 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     continue
 
                 system_prompt = get_active_megan_prompt()
+                intent_context = check_autonomous_intent(user_text)
+                if intent_context:
+                    system_prompt += f"\n\n{intent_context}"
+
                 payload = {
                     "model": MEGAN_MODEL,
                     "messages": [
@@ -644,12 +760,18 @@ def create_app() -> web.Application:
     app.router.add_post("/api/megan/autonomy", handle_megan_autonomy_post)
     app.router.add_get("/api/megan/context", handle_megan_context_get)
 
-    # Autonomous Docker & Web Tools
+    # Autonomous Docker, Google Drive & Execution Tools
     app.router.add_get("/api/megan/tools/status", handle_megan_tool_status)
     app.router.add_post("/api/megan/tools/search", handle_megan_tool_search)
     app.router.add_post("/api/megan/tools/scrape", handle_megan_tool_scrape)
     app.router.add_get("/api/megan/tools/brain", handle_megan_tool_brain)
     app.router.add_post("/api/megan/tools/brain", handle_megan_tool_brain)
+    app.router.add_get("/api/megan/gdrive/resolve", handle_megan_gdrive_resolve)
+    app.router.add_post("/api/megan/gdrive/resolve", handle_megan_gdrive_resolve)
+    app.router.add_get("/api/megan/gdrive/search", handle_megan_gdrive_search)
+    app.router.add_post("/api/megan/gdrive/search", handle_megan_gdrive_search)
+    app.router.add_get("/api/megan/system/status", handle_megan_system_status)
+    app.router.add_post("/api/megan/tools/execute", handle_megan_tools_execute)
 
     # Character & Lore
     app.router.add_get("/api/bot/config", handle_bot_config_get)
