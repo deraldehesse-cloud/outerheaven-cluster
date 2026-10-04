@@ -206,11 +206,11 @@
              title="ComfyUI Studio auf Outer Heaven öffnen (:8188)">
             <span>🎨 ComfyUI</span>
           </a>
-          <button type="button" id="btnHeaderMeganStudio" onclick="selectWorkspace('megan')"
+          <a href="http://{{ outerheaven_ip }}:8080" target="_blank" rel="noopener noreferrer"
              class="px-2 py-1 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-800/60 hover:border-pink-400 text-pink-300 rounded font-mono text-[11px] font-bold flex items-center space-x-1 transition glow-pink"
-             title="Megan Studio (3-Spalten Lovense, Prompts & Lore)">
-            <span>💋 Megan Studio</span>
-          </button>
+             title="Eigenständiges Megan Studio auf Port 8080 öffnen">
+            <span>💋 Megan Studio (:8080) ↗</span>
+          </a>
         </div>
 
         <!-- Bottom Row: [ REFRESH ] [ CONSOLE ] [ LOCK ] Flush to Right -->
@@ -474,6 +474,159 @@
           </div>
         </div>
       </section>
+
+      <!-- ===================================================================== -->
+      <!-- 💬 HERMES CHAT-KONSOLE // DIREKT UNTER DEN NODES                      -->
+      <!-- ===================================================================== -->
+      <section id="hermesChatSection" class="bg-slate-950/95 border border-cyan-500/40 rounded-lg shadow-2xl relative overflow-hidden flex flex-col font-mono">
+        <!-- Header -->
+        <div class="px-4 py-3 bg-gradient-to-r from-slate-900 via-slate-900/90 to-cyan-950/40 border-b border-cyan-800/40 flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center space-x-2.5">
+            <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-sm font-bold tracking-wider text-cyan-300">💬 HERMES CHAT // CLUSTER-ASSISTENT</h2>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950/80 border border-cyan-500/50 text-cyan-300">DEEPSEEK-R1:14B • DEUTSCH</span>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2 text-xs">
+            <span id="hermesChatStatus" class="text-[11px] text-slate-400">Bereit für technische Anfragen</span>
+            <button type="button" onclick="clearHermesChat()" class="px-2 py-1 bg-slate-900 hover:bg-rose-950/50 border border-slate-700 hover:border-rose-500/50 text-slate-400 hover:text-rose-300 rounded text-[11px] font-bold transition flex items-center space-x-1" title="Chat-Verlauf leeren">
+              <span>🗑️</span> <span>LEEREN</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Chat Stream Area -->
+        <div id="hermesChatMessages" class="p-4 space-y-3 max-h-[380px] min-h-[160px] overflow-y-auto scrollbar-thin text-xs bg-black/40">
+          <div class="p-3 bg-slate-900/70 border border-cyan-900/40 rounded-lg text-slate-300 leading-relaxed">
+            <div class="flex items-center space-x-2 mb-1.5 text-cyan-400 font-bold text-[11px]">
+              <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+              <span>HERMES // TECHNISCHER BERATER</span>
+            </div>
+            Guten Tag! Ich bin Hermes, Ihr autonomer technischer Assistent für das Outer Heaven Cluster. Ich berate Sie zu System-Workflows, Tools, Node-Infrastruktur und Cluster-Steuerung. Wie kann ich heute unterstützen?
+          </div>
+        </div>
+
+        <!-- Thinking Indicator -->
+        <div id="hermesThinkingBadge" class="hidden px-4 py-2 bg-cyan-950/60 border-t border-cyan-900/40 text-[11px] text-cyan-300 flex items-center space-x-2">
+          <svg class="w-3.5 h-3.5 text-cyan-400 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+          <span class="font-bold">Hermes analysiert via DeepSeek-R1 (Deutsch)...</span>
+        </div>
+
+        <!-- Input Bar -->
+        <div class="p-3 bg-slate-900/80 border-t border-slate-800">
+          <form id="hermesChatForm" onsubmit="event.preventDefault(); sendHermesMessage();" class="flex items-center space-x-2">
+            <input type="text" id="hermesChatInput" autocomplete="off" placeholder="Frage oder Workflow-Auftrag an Hermes richten (z. B. 'Analysiere Cluster-Status und Auslastung')..."
+                   class="flex-1 bg-black/70 border border-slate-700 focus:border-cyan-400 rounded px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none transition">
+            <button type="submit" id="btnHermesSend" class="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded text-xs font-bold font-mono transition shadow flex items-center space-x-1.5">
+              <span>SENDEN</span> <span>➔</span>
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <!-- ===================================================================== -->
+      <!-- ⚙️ TOOL-LEITSTAND // HERMES FÄHIGKEITEN & ASYNCHRONE TOGGLES           -->
+      <!-- ===================================================================== -->
+      <section id="hermesToolsSection" class="bg-slate-950/95 border border-slate-800 rounded-lg p-4 space-y-4 shadow-xl font-mono">
+        <div class="flex flex-wrap items-center justify-between pb-2.5 border-b border-slate-800/80 gap-2">
+          <div class="flex items-center space-x-2.5">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            <div>
+              <div class="flex items-center space-x-2">
+                <h2 class="text-sm font-bold text-slate-100 uppercase tracking-wider">⚙️ TOOL-LEITSTAND & FÄHIGKEITEN</h2>
+                <span id="toolsConfigPathBadge" class="text-[10px] px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400">~/.hermes/tools_config.json</span>
+              </div>
+              <p class="text-[10px] text-slate-400">Asynchrone Toggles ohne WebSocket-Abriss • Sofortige Dateisynchronisation</p>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button type="button" onclick="loadHermesTools()" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1" title="Tools neu laden">
+              <span>⟳</span> <span>REFRESH</span>
+            </button>
+            <button type="button" onclick="openToolCreatorModal()" class="px-3 py-1 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white rounded text-xs font-bold transition shadow flex items-center space-x-1.5">
+              <span>➕</span> <span>NEUES TOOL ERSTELLEN</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2-Column Grid: Built-in & Custom Tools -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <!-- Column 1: Built-in Tools -->
+          <div class="space-y-2.5 bg-slate-900/40 p-3 rounded-lg border border-slate-800/80">
+            <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
+              <span class="text-xs font-bold text-cyan-300">🛠️ BUILT-IN TOOLS</span>
+              <span id="builtinCountBadge" class="text-[10px] text-slate-500">12 Werkzeuge</span>
+            </div>
+            <div id="builtinToolsList" class="space-y-2 max-h-[320px] overflow-y-auto scrollbar-thin pr-1 text-xs">
+              <div class="p-3 text-center text-slate-500 italic">Lade Built-in Tools...</div>
+            </div>
+          </div>
+
+          <!-- Column 2: Custom Tools -->
+          <div class="space-y-2.5 bg-slate-900/40 p-3 rounded-lg border border-slate-800/80">
+            <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
+              <span class="text-xs font-bold text-emerald-300">🧩 CUSTOM TOOLS (~/.hermes/custom_tools/)</span>
+              <span id="customCountBadge" class="text-[10px] text-slate-500">0 Werkzeuge</span>
+            </div>
+            <div id="customToolsList" class="space-y-2 max-h-[320px] overflow-y-auto scrollbar-thin pr-1 text-xs">
+              <div class="p-3 text-center text-slate-500 italic">Lade Custom Tools...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================================================================== -->
+      <!-- TOOL-CREATOR MODAL (AST-PARSE VALIDIERUNG)                             -->
+      <!-- ===================================================================== -->
+      <div id="modalToolCreator" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-950 border border-emerald-500/50 rounded-xl p-5 w-full max-w-2xl shadow-2xl space-y-4 font-mono">
+          <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div class="flex items-center space-x-2">
+              <span class="text-base">🧩</span>
+              <h3 class="text-sm font-bold text-emerald-300 uppercase tracking-wider">Neues Custom Tool erstellen</h3>
+            </div>
+            <button type="button" onclick="closeToolCreatorModal()" class="text-slate-400 hover:text-white transition text-sm">✕</button>
+          </div>
+
+          <div class="space-y-3 text-xs">
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">Tool-Name / Bezeichner (z.B. network_scanner):</label>
+              <input type="text" id="newToolName" placeholder="z. B. network_scanner"
+                     class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500">
+            </div>
+
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">Beschreibung:</label>
+              <input type="text" id="newToolDesc" placeholder="z. B. Scannt Cluster-Knoten und offene Ports"
+                     class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500">
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                <span>Python-Code (mit Pflichtprüfung via ast.parse()):</span>
+                <span class="text-[10px] text-slate-500">Zieldatei: ~/.hermes/custom_tools/&lt;name&gt;.py</span>
+              </div>
+              <textarea id="newToolCode" rows="9"
+                        class="w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-emerald-200 font-mono text-xs focus:outline-none focus:border-emerald-500 leading-relaxed"></textarea>
+            </div>
+
+            <!-- Error Notice -->
+            <div id="toolCreatorError" class="hidden p-2.5 rounded bg-rose-950/80 border border-rose-600 text-rose-300 text-xs"></div>
+            <!-- Success Notice -->
+            <div id="toolCreatorSuccess" class="hidden p-2.5 rounded bg-emerald-950/80 border border-emerald-600 text-emerald-300 text-xs"></div>
+          </div>
+
+          <div class="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
+            <button type="button" onclick="closeToolCreatorModal()" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 rounded text-xs transition">
+              Abbrechen
+            </button>
+            <button type="button" onclick="submitToolCreator()" class="px-4 py-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white rounded text-xs font-bold transition shadow flex items-center space-x-1.5">
+              <span>Tool validieren & speichern 🚀</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       <!-- View Container 1: Catlord Workspace (ComfyUI Studio) - Standard-Ansicht -->
       <div id="catlordWorkspaceView" class="w-full">
@@ -995,594 +1148,8 @@
       </section>
       </div> <!-- End bueroWorkspaceView -->
 
-      <!-- MEGAN STUDIO WORKSPACE (3-SPALTEN-LAYOUT) -->
-      <div id="workspaceMegan" data-alias="meganWorkspaceView" class="workspace-panel w-full hidden space-y-4">
-        <!-- Megan Studio Top Bar -->
-        <div class="bg-slate-950/90 border border-pink-500/40 rounded-lg p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-lg glow-pink">
-          <div class="flex items-center space-x-3">
-            <span class="text-2xl">💋</span>
-            <div>
-              <div class="flex items-center space-x-2">
-                <h1 class="text-sm font-extrabold tracking-wider text-pink-300 font-mono">MEGAN STUDIO // UNRESTRICTED</h1>
-                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-pink-950/80 border border-pink-700/60 text-pink-300">LIVE SYNC</span>
-              </div>
-              <p class="text-[11px] text-slate-400 font-mono">3-Spalten-Architektur: Lovense Haptic & Chat • ComfyUI Prompt-Studio • Canonical Vault (character.json)</p>
-            </div>
-          </div>
-          <div class="flex items-center space-x-2">
-            <button type="button" id="btnBackToCockpit" onclick="switchToCockpit()"
-                    class="px-3 py-1.5 bg-slate-900 hover:bg-cyan-950/80 border border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-cyan-300 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5 shadow"
-                    title="Zurück zum Haupt-Cockpit">
-              <span>⬅</span> <span>ZURÜCK ZUM COCKPIT</span>
-            </button>
-            <button type="button" id="btnMeganStudioAppearance" onclick="window.openAppearanceModal()"
-                    class="px-3 py-1.5 bg-gradient-to-r from-purple-900/80 to-pink-900/80 hover:from-purple-800 hover:to-pink-800 border border-pink-500/60 text-pink-200 rounded text-xs font-mono font-bold transition flex items-center space-x-1.5 shadow"
-                    title="RPG Charakter Creator / Aussehen-Presets öffnen">
-              <span>👤</span> <span>RPG-AUSSEHEN MODAL</span>
-            </button>
-          </div>
-        </div>
+      <!-- Megan Studio decoupled to dedicated service on :8080 -->
 
-        <!-- Megan Studio Web-Tools & Ingest Bar -->
-        <div class="bg-slate-900/80 border border-pink-900/60 rounded-lg p-3 space-y-2.5 font-mono shadow-md">
-          <div class="flex items-center justify-between pb-1 border-b border-slate-800">
-            <div class="flex items-center space-x-2">
-              <span class="text-sm">🌐</span>
-              <span class="text-xs font-bold text-pink-300">MEGAN AUTONOMOUS WEB-TOOLS & INGEST</span>
-              <span id="meganDockerStatusBadge" class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-600 text-emerald-300 font-bold">DOCKER: ONLINE</span>
-            </div>
-            <button type="button" onclick="toggleMeganToolsPanel()" class="text-xs text-slate-400 hover:text-pink-300 transition">
-              <span id="meganToolsToggleIcon">▼ Einblenden / Ausblenden</span>
-            </button>
-          </div>
-
-          <div id="meganToolsContent" class="space-y-3">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <!-- Web-Suche -->
-              <div class="bg-black/60 border border-slate-800 rounded p-2.5 space-y-2">
-                <div class="flex items-center justify-between text-[11px] text-pink-300 font-bold">
-                  <span>🔍 DuckDuckGo Web-Recherche</span>
-                  <span id="searchResultCount" class="text-[10px] text-slate-500 font-normal">0 Treffer</span>
-                </div>
-                <div class="flex items-center space-x-1.5">
-                  <input type="text" id="meganToolSearchQuery" placeholder="Recherche-Thema oder Begriff eingeben..."
-                         class="flex-1 bg-black border border-slate-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:border-pink-500 focus:outline-none"
-                         onkeydown="if(event.key==='Enter') executeMeganWebSearch()">
-                  <button type="button" id="btnMeganWebSearch" onclick="executeMeganWebSearch()"
-                          class="px-3 py-1 bg-pink-950/80 hover:bg-pink-900 border border-pink-700 text-pink-200 text-xs font-bold rounded transition">
-                    Suchen
-                  </button>
-                </div>
-                <div id="meganSearchResults" class="hidden max-h-36 overflow-y-auto space-y-1.5 text-xs text-slate-300 scrollbar-thin p-1 bg-slate-950/80 rounded border border-slate-900"></div>
-              </div>
-
-              <!-- URL / YouTube Ingest -->
-              <div class="bg-black/60 border border-slate-800 rounded p-2.5 space-y-2">
-                <div class="flex items-center justify-between text-[11px] text-pink-300 font-bold">
-                  <span>📥 Web-Scrape & YouTube/Video Ingest (yt-dlp)</span>
-                  <span id="ingestStatusLabel" class="text-[10px] text-slate-500 font-normal">Bereit</span>
-                </div>
-                <div class="flex items-center space-x-1.5">
-                  <input type="text" id="meganToolIngestUrl" placeholder="https://youtube.com/watch?v=... oder https://..."
-                         class="flex-1 bg-black border border-slate-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:border-pink-500 focus:outline-none">
-                  <button type="button" onclick="executeMeganScrapeUrl()"
-                          class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-bold rounded transition" title="Text-Inhalt der Website extrahieren">
-                    Scrape
-                  </button>
-                  <button type="button" onclick="executeMeganYtDlp()"
-                          class="px-2.5 py-1 bg-pink-950/80 hover:bg-pink-900 border border-pink-700 text-pink-200 text-xs font-bold rounded transition" title="Video nach /workspace laden">
-                    yt-dlp
-                  </button>
-                </div>
-                <div id="meganIngestResult" class="hidden max-h-36 overflow-y-auto space-y-1 text-xs text-slate-300 scrollbar-thin p-1 bg-slate-950/80 rounded border border-slate-900"></div>
-              </div>
-              <!-- Autonome ComfyUI Bild-Generierung (Docker Tool Runner) -->
-              <div class="col-span-1 md:col-span-2 bg-black/60 border border-pink-900/60 rounded p-2.5 space-y-2">
-                <div class="flex items-center justify-between text-[11px] text-pink-300 font-bold">
-                  <span class="flex items-center space-x-1.5">
-                    <span>🎨</span> <span>Autonome Bild-Generierung (ComfyUI via megan-tools)</span>
-                  </span>
-                  <div class="flex items-center space-x-2">
-                    <span id="meganImageBrainBadge" class="text-[9px] px-1.5 py-0.5 rounded bg-pink-950/80 border border-pink-700 text-pink-300">.brain: AKTIV</span>
-                    <span id="meganImageStatusLabel" class="text-[10px] text-slate-500 font-normal">Bereit</span>
-                  </div>
-                </div>
-                <div class="space-y-2">
-                  <div class="flex items-center space-x-1.5">
-                    <input type="text" id="meganToolImagePrompt" placeholder="ComfyUI Prompt eingeben, z.B. 1girl, megan, solo, cockpit, warm lighting..."
-                           class="flex-1 bg-black border border-slate-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:border-pink-500 focus:outline-none"
-                           onkeydown="if(event.key==='Enter') executeMeganGenerateImage()">
-                  </div>
-                  <div class="flex flex-wrap items-center justify-between gap-2">
-                    <div class="flex items-center space-x-2 text-[10px] text-slate-400">
-                      <span>Format:</span>
-                      <select id="meganToolImageAspect" class="bg-slate-950 border border-slate-700 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none">
-                        <option value="portrait" selected>Hochformat (512x768)</option>
-                        <option value="landscape">Querformat (768x512)</option>
-                        <option value="square">Quadratisch (512x512)</option>
-                      </select>
-                      <span>Stil:</span>
-                      <select id="meganToolImageStyle" class="bg-slate-950 border border-slate-700 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none">
-                        <option value="" selected>Automatisch (.brain)</option>
-                        <option value="photorealistic">Photorealistic 8k</option>
-                        <option value="cinematic">Cinematic Lighting</option>
-                        <option value="anime">Anime / Manga</option>
-                      </select>
-                    </div>
-                    <button type="button" id="btnMeganGenerateImage" onclick="executeMeganGenerateImage()"
-                            class="px-3.5 py-1 bg-gradient-to-r from-pink-800 to-purple-800 hover:from-pink-700 hover:to-purple-700 border border-pink-600 text-pink-100 text-xs font-bold rounded transition shadow-sm flex items-center space-x-1.5">
-                      <span>⚡</span> <span>Generieren (Docker Tool)</span>
-                    </button>
-                  </div>
-                </div>
-                <div id="meganImageResult" class="hidden text-xs text-slate-300"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 3-Spalten Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 font-mono w-full">
-          
-          <!-- SPALTE LINKS: Einstellungs- & Companion-Zentrale (Single Source of Truth) -->
-          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col space-y-4 shadow-lg min-w-0">
-            
-            <!-- 1. COMPANION BILD / RENDER-CONTAINER -->
-            <div class="space-y-2">
-              <div class="flex items-center justify-between pb-1.5 border-b border-pink-950">
-                <div class="flex items-center space-x-1.5 text-xs text-pink-300 font-bold">
-                  <span>🖼️</span> <span>COMPANION VORSCHAU</span>
-                </div>
-                <span id="meganPreviewFilename" class="text-[10px] text-slate-500 font-mono truncate max-w-[150px]">Lade...</span>
-              </div>
-              <div id="meganPreviewContainer" class="relative w-full aspect-[3/4] bg-black/80 rounded-lg border border-pink-900/60 overflow-hidden flex items-center justify-center group">
-                <img id="meganPreviewImg" src="" alt="Megan Preview" class="w-full h-full object-cover hidden transition duration-300 group-hover:scale-105 cursor-pointer" onclick="if(this.src) openLightbox(this.src, document.getElementById('meganPreviewFilename')?.textContent || 'megan_render.png')">
-                <video id="meganPreviewVideo" src="" controls loop autoplay muted playsinline class="w-full h-full object-cover hidden"></video>
-                <div id="meganPreviewPlaceholder" class="text-center p-4 text-slate-500 text-xs flex flex-col items-center space-y-2">
-                  <span class="text-2xl opacity-40">💋</span>
-                  <span>Kein Render verfügbar</span>
-                  <span class="text-[10px] text-slate-600">Generiere ein Bild in Spalte 2</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 2. HAPTIC LINK / LOVENSE STEUERUNG (0 - 100%) -->
-            <div class="bg-slate-900/80 border border-pink-900/60 rounded-lg p-3 space-y-2.5">
-              <div class="flex items-center justify-between pb-1 border-b border-slate-800">
-                <div class="flex items-center space-x-1.5">
-                  <span class="text-xs font-bold text-pink-300 flex items-center space-x-1">
-                    <span>📡</span> <span>HAPTIC LINK / LOVENSE</span>
-                  </span>
-                </div>
-                <div class="flex items-center space-x-1.5">
-                  <span id="meganLovenseStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-950 border border-slate-800 text-slate-400">
-                    PRÜFE...
-                  </span>
-                  <button type="button" onclick="checkLovenseStatus()" class="text-[11px] text-slate-400 hover:text-pink-300 transition" title="Status aktualisieren">🔄</button>
-                </div>
-              </div>
-
-              <div class="flex items-center justify-between text-xs">
-                <span id="meganLovenseIntensityLabel" class="text-pink-300 font-mono font-bold">Intensität: 0%</span>
-                <span id="meganLovenseSubtext" class="text-[10px] text-slate-500 font-mono truncate max-w-[170px]">192.168.188.34:20010</span>
-              </div>
-
-              <!-- Schieberegler 0 - 100% -->
-              <input type="range" id="meganLovenseSlider" min="0" max="100" step="1" value="0"
-                     oninput="onMeganLovenseSliderChange(this.value)"
-                     class="w-full accent-pink-500 bg-slate-950 rounded cursor-pointer">
-
-              <!-- Quick Presets -->
-              <div class="grid grid-cols-6 gap-1 pt-1 text-[10px] font-mono font-bold">
-                <button type="button" onclick="onMeganLovenseSliderChange(20)" class="py-1 bg-slate-950 hover:bg-pink-950/80 border border-slate-800 hover:border-pink-600/70 text-slate-300 hover:text-pink-200 rounded transition text-center">20%</button>
-                <button type="button" onclick="onMeganLovenseSliderChange(40)" class="py-1 bg-slate-950 hover:bg-pink-950/80 border border-slate-800 hover:border-pink-600/70 text-slate-300 hover:text-pink-200 rounded transition text-center">40%</button>
-                <button type="button" onclick="onMeganLovenseSliderChange(50)" class="py-1 bg-slate-950 hover:bg-pink-950/80 border border-slate-800 hover:border-pink-600/70 text-slate-300 hover:text-pink-200 rounded transition text-center">50%</button>
-                <button type="button" onclick="onMeganLovenseSliderChange(75)" class="py-1 bg-slate-950 hover:bg-pink-950/80 border border-slate-800 hover:border-pink-600/70 text-slate-300 hover:text-pink-200 rounded transition text-center">75%</button>
-                <button type="button" onclick="onMeganLovenseSliderChange(100)" class="py-1 bg-pink-950/80 hover:bg-pink-900 border border-pink-600/80 text-pink-200 rounded transition text-center">MAX</button>
-                <button type="button" onclick="onMeganLovenseSliderChange(0)" class="py-1 bg-rose-950/80 hover:bg-rose-900 border border-rose-700 text-rose-300 rounded transition text-center">STOP</button>
-              </div>
-            </div>
-
-            <!-- 3. PERSÖNLICHKEITS- & DYNAMIK-REGLER (0 - 100%) -->
-            <div class="bg-slate-900/80 border border-pink-900/60 rounded-lg p-3 space-y-3">
-              <div class="flex items-center justify-between pb-1 border-b border-slate-800">
-                <div class="flex items-center space-x-1.5">
-                  <span>🎭</span> <span class="text-xs font-bold text-pink-300">PERSÖNLICHKEIT & DYNAMIK</span>
-                </div>
-                <span id="meganStudioPersNotice" class="text-[10px] font-mono text-emerald-400 hidden">✔ Gespeichert</span>
-              </div>
-
-              <!-- 3a. Autonomie-Level (Proaktiv vs Reaktiv) -->
-              <div class="space-y-1.5 pb-2 border-b border-slate-800">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="text-pink-300 font-bold flex items-center space-x-1">
-                    <span>🤖</span> <span>Autonomie-Level</span>
-                  </span>
-                  <span id="meganAutonomyBadge" class="px-1.5 py-0.5 rounded bg-pink-950 border border-pink-700 text-pink-300 font-mono font-bold text-[10px]">PROAKTIV</span>
-                </div>
-                <div class="grid grid-cols-2 gap-1.5 pt-0.5 text-[11px] font-mono">
-                  <button type="button" id="btnAutonomyProactive" onclick="setMeganAutonomy('proactive')"
-                          class="py-1 px-2 rounded bg-pink-900/70 border border-pink-500 text-pink-200 font-bold flex items-center justify-center space-x-1 shadow transition">
-                    <span>🟢</span> <span>Proaktiv</span>
-                  </button>
-                  <button type="button" id="btnAutonomyReactive" onclick="setMeganAutonomy('reactive')"
-                          class="py-1 px-2 rounded bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-400 font-bold flex items-center justify-center space-x-1 transition">
-                    <span>⚪</span> <span>Reaktiv</span>
-                  </button>
-                </div>
-                <div id="meganAutonomyDesc" class="text-[10px] text-pink-200/80 font-sans italic bg-black/40 p-1.5 rounded border border-slate-800 leading-tight">
-                  🟢 Proaktiv: Megan rendert situativ und unaufgefordert Bilder oder Selfies im Chat.
-                </div>
-              </div>
-
-              <!-- Dynamik (Temperatur 0.30 - 0.85) -->
-              <div class="space-y-1">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="text-purple-300 font-bold flex items-center space-x-1">
-                    <span>⚡</span> <span>Dynamik (Temperatur)</span>
-                  </span>
-                  <span id="meganStudioDynamicsDisplay" class="px-1.5 py-0.5 rounded bg-purple-950 border border-purple-800 text-purple-300 font-mono font-bold text-[10px]">0.70</span>
-                </div>
-                <input type="range" id="meganStudioDynamics" min="30" max="85" step="1" value="70"
-                       oninput="onMeganPersonalityChange('dynamics', this.value)"
-                       class="w-full accent-purple-400 bg-slate-950 rounded cursor-pointer">
-                <div id="meganStudioDynamicsDesc" class="text-[10px] text-purple-200/90 font-sans italic bg-black/40 p-1 rounded border border-slate-800 leading-tight">
-                  Kreativ & lebendig: Facettenreiche, lebendige Wortwahl, freche Antworten und spontane Ideen.
-                </div>
-              </div>
-
-              <!-- Dominanz & Initiative -->
-              <div class="space-y-1">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="text-cyan-300 font-bold flex items-center space-x-1">
-                    <span>👑</span> <span>Dominanz</span>
-                  </span>
-                  <span id="meganStudioDominanceDisplay" class="px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300 font-mono font-bold text-[10px]">50%</span>
-                </div>
-                <input type="range" id="meganStudioDominance" min="0" max="100" step="1" value="50"
-                       oninput="onMeganPersonalityChange('dominance', this.value)"
-                       class="w-full accent-cyan-400 bg-slate-950 rounded cursor-pointer">
-                <div id="meganStudioDominanceDesc" class="text-[10px] text-cyan-200/90 font-sans italic bg-black/40 p-1 rounded border border-slate-800 leading-tight">
-                  Ausgeglichen: Begegnet dir auf Augenhöhe, wechselt spielerisch zwischen Führen und Folgen.
-                </div>
-              </div>
-
-              <!-- Explizitheit & Freizügigkeit -->
-              <div class="space-y-1">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="text-rose-300 font-bold flex items-center space-x-1">
-                    <span>🔥</span> <span>Explizitheit</span>
-                  </span>
-                  <span id="meganStudioExplicitnessDisplay" class="px-1.5 py-0.5 rounded bg-rose-950 border border-rose-800 text-rose-300 font-mono font-bold text-[10px]">70%</span>
-                </div>
-                <input type="range" id="meganStudioExplicitness" min="0" max="100" step="1" value="70"
-                       oninput="onMeganPersonalityChange('explicitness', this.value)"
-                       class="w-full accent-rose-500 bg-slate-950 rounded cursor-pointer">
-                <div id="meganStudioExplicitnessDesc" class="text-[10px] text-rose-200/90 font-sans italic bg-black/40 p-1 rounded border border-slate-800 leading-tight">
-                  Sinnlich, direkt und unzensiert: Benennt intime Berührungen und Lustgefühle klar ohne Scheu.
-                </div>
-              </div>
-
-              <!-- Detailtiefe & Physischer Fokus -->
-              <div class="space-y-1">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="text-amber-300 font-bold flex items-center space-x-1">
-                    <span>🔍</span> <span>Detailtiefe</span>
-                  </span>
-                  <span id="meganStudioDetailDisplay" class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 font-mono font-bold text-[10px]">60%</span>
-                </div>
-                <input type="range" id="meganStudioDetail" min="0" max="100" step="1" value="60"
-                       oninput="onMeganPersonalityChange('detail', this.value)"
-                       class="w-full accent-amber-400 bg-slate-950 rounded cursor-pointer">
-                <div id="meganStudioDetailDesc" class="text-[10px] text-amber-200/90 font-sans italic bg-black/40 p-1 rounded border border-slate-800 leading-tight">
-                  Hoher physischer Fokus: Beschreibt Blicke, Reaktionen, Wärme und Berührungen plastisch direkt im Satz.
-                </div>
-              </div>
-
-              <!-- Speichern Button für Persönlichkeitsregler -->
-              <div class="pt-1">
-                <button type="button" id="btnSaveMeganStudioPers" onclick="saveMeganStudioPersonality()"
-                        class="w-full py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold transition flex items-center justify-center space-x-1 shadow">
-                  <span>💾</span> <span>PERSÖNLICHKEIT & DYNAMIK SPEICHERN</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- 4. VIDEO-INGEST & KEYFRAME-ANALYSE (VISION LLAVA:LATEST) -->
-            <div class="bg-slate-900/80 border border-pink-900/60 rounded-lg p-3 space-y-3 shadow-lg">
-              <div class="flex items-center justify-between pb-1 border-b border-slate-800">
-                <div class="flex items-center space-x-1.5">
-                  <span>🎬</span> <span class="text-xs font-bold text-pink-300">VIDEO-INGEST & VISION</span>
-                </div>
-                <span id="meganVideoStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-950 border border-slate-800 text-slate-400">
-                  BEREIT
-                </span>
-              </div>
-
-              <!-- Upload Dropzone / File Picker -->
-              <div id="meganVideoDropzone" onclick="document.getElementById('meganVideoFileInput').click()"
-                   ondragover="event.preventDefault(); this.classList.add('border-pink-500', 'bg-pink-950/30')"
-                   ondragleave="this.classList.remove('border-pink-500', 'bg-pink-950/30')"
-                   ondrop="handleVideoDrop(event)"
-                   class="border-2 border-dashed border-slate-700 hover:border-pink-500 rounded-lg p-3 text-center cursor-pointer transition bg-black/40 group">
-                <input type="file" id="meganVideoFileInput" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" class="hidden" onchange="handleVideoFileSelect(this.files)">
-                <div class="flex flex-col items-center space-y-1 text-slate-400 group-hover:text-pink-300 transition">
-                  <span class="text-xl">📁</span>
-                  <span class="text-xs font-bold">Video hier ablegen oder klicken</span>
-                  <span class="text-[10px] text-slate-500 font-mono">MP4, WebM, MOV, MKV</span>
-                </div>
-              </div>
-
-              <!-- Local Cluster Path Input -->
-              <div class="space-y-1">
-                <div class="flex items-center justify-between text-[10px] text-slate-400">
-                  <span>Cluster-Pfad zu Videodatei:</span>
-                </div>
-                <div class="flex items-center space-x-1.5">
-                  <input type="text" id="meganVideoPathInput" placeholder="/mnt/storage-beta/... oder /mnt/cluster-workspace/..."
-                         class="flex-1 bg-black border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 font-mono focus:border-pink-500 focus:outline-none">
-                  <button type="button" onclick="startVideoAnalysisFromPath()"
-                          class="px-2.5 py-1 bg-pink-950/80 hover:bg-pink-900 border border-pink-700 text-pink-200 rounded text-xs font-bold transition shrink-0">
-                    🎬 Analysieren
-                  </button>
-                </div>
-              </div>
-
-              <!-- Video Player & Keyframe Previews (Hidden until loaded) -->
-              <div id="meganVideoPlayerContainer" class="hidden space-y-2 pt-1 border-t border-slate-800">
-                <video id="meganVideoPlayer" controls class="w-full rounded bg-black max-h-40 object-contain border border-slate-800"></video>
-                <div class="text-[10px] text-slate-400 font-bold">Extrahierte Keyframes:</div>
-                <div id="meganKeyframesGrid" class="grid grid-cols-4 gap-1.5">
-                  <!-- Injected Keyframe Thumbnails -->
-                </div>
-              </div>
-
-              <!-- Vision Analysis Textbox & Send to Megan -->
-              <div id="meganVisionResultContainer" class="hidden space-y-2 pt-1 border-t border-slate-800">
-                <div class="flex items-center justify-between text-[10px]">
-                  <span class="text-pink-300 font-bold">👁️ Vision-Analyse (llava:latest):</span>
-                  <span id="meganVisionFrameCount" class="text-slate-500 font-mono">4 Frames</span>
-                </div>
-                <div id="meganVisionText" class="p-2 bg-black/60 border border-slate-800 rounded text-xs text-slate-200 font-mono whitespace-pre-wrap max-h-36 overflow-y-auto scrollbar-thin"></div>
-                <button type="button" onclick="sendVideoAnalysisToChat()"
-                        class="w-full py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white rounded text-xs font-bold transition flex items-center justify-center space-x-1.5 shadow">
-                  <span>💬</span> <span>An Megan im Chat senden</span>
-                </button>
-              </div>
-
-            </div>
-
-          </div>
-
-          <!-- SPALTE MITTE: ComfyUI Prompt-Studio mit Positiv-Prompt, Negativ-Prompt, Preset Laden/Speichern & Render-Button -->
-          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-4 shadow-lg min-w-0">
-            
-            <div class="space-y-3.5">
-              <div class="flex items-center justify-between pb-2 border-b border-pink-950">
-                <div class="flex items-center space-x-2">
-                  <span class="w-2.5 h-2.5 rounded-full bg-pink-400 animate-pulse"></span>
-                  <h2 class="text-xs font-bold text-pink-300 uppercase tracking-wider">COMFYUI PROMPT-STUDIO</h2>
-                </div>
-                <span class="text-[10px] text-slate-500 font-mono">ARC A770 (16GB VRAM)</span>
-              </div>
-
-              <!-- Aussehen- & Style-Auswahl Dropdown -->
-              <div class="space-y-1.5 bg-slate-900/80 p-2.5 rounded border border-pink-900/60">
-                <div class="flex items-center justify-between">
-                  <label for="meganStyleSelect" class="text-[11px] font-bold text-pink-300 flex items-center space-x-1.5">
-                    <span>👗</span> <span>CHARAKTER-STYLE & AUSSEHEN</span>
-                  </label>
-                  <span id="meganActiveStyleLabel" class="text-[10px] text-pink-400 font-mono truncate max-w-[180px]">Standard</span>
-                </div>
-                <div class="flex items-center space-x-2">
-                  <select id="meganStyleSelect" onchange="applyMeganStylePreset(this.value)"
-                          class="flex-1 bg-black border border-pink-700/60 text-pink-200 text-xs rounded px-2.5 py-1.5 focus:border-pink-500 focus:outline-none font-mono">
-                    <option value="">📂 Stil / Aussehen auswählen...</option>
-                  </select>
-                  <button type="button" onclick="loadMeganStudioPresets()"
-                          class="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-400 hover:text-pink-300 rounded text-xs transition shrink-0"
-                          title="Presets neu laden">
-                    🔄
-                  </button>
-                </div>
-              </div>
-
-              <!-- Positiv-Prompt Section -->
-              <div class="space-y-1.5">
-                <div class="flex items-center justify-between">
-                  <label class="text-[11px] font-bold text-pink-300 flex items-center space-x-1.5">
-                    <span>✨</span> <span>POSITIV-PROMPT (DANBOORU AUTOCOMPLETE AKTIV)</span>
-                  </label>
-                  <span id="meganPosCharCount" class="text-[10px] text-slate-500">0 Zeichen</span>
-                </div>
-                <!-- Wildcard & Tag Helper Buttons -->
-                <div class="flex items-center space-x-1.5 flex-wrap gap-y-1 text-[10px]">
-                  <span class="text-[10px] text-slate-500 font-mono">Vorne anfügen:</span>
-                  <button type="button" onclick="prependMeganPromptTag('masterpiece, best quality, ultra-detailed')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-amber-900/60 text-amber-300 hover:text-amber-100 rounded font-mono transition" title="Qualitäts-Tags ganz vorne im Prompt einfügen">⭐ masterpiece</button>
-                  <button type="button" onclick="prependMeganPromptTag('cinematic lighting, soft studio rim lighting')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-purple-900/60 text-purple-300 hover:text-purple-100 rounded font-mono transition" title="Lichtstimmung vorne einfügen">💡 cinematic lighting</button>
-                  <button type="button" onclick="prependMeganPromptTag('close-up portrait, looking at viewer')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-indigo-900/60 text-indigo-300 hover:text-indigo-100 rounded font-mono transition" title="Kamera-Perspektive vorne einfügen">🔍 close-up</button>
-                  <button type="button" onclick="prependMeganPromptTag('1girl, megan, solo')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-cyan-900/60 text-cyan-300 hover:text-cyan-100 rounded font-mono transition" title="Standard Danbooru Basis-Tags vorne einfügen">🏷️ 1girl, solo</button>
-                  <span class="text-[10px] text-slate-500 font-mono ml-1">Wildcards:</span>
-                  <button type="button" onclick="insertMeganPromptTag('{location}')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-pink-900/60 text-pink-300 hover:text-pink-100 rounded font-mono transition" title="Wildcard {location} an Cursor/Ende einfügen">📍 {location}</button>
-                  <button type="button" onclick="insertMeganPromptTag('{outfit}')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-pink-900/60 text-pink-300 hover:text-pink-100 rounded font-mono transition" title="Wildcard {outfit} an Cursor/Ende einfügen">👗 {outfit}</button>
-                  <button type="button" onclick="insertMeganPromptTag('{shot}')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-pink-900/60 text-pink-300 hover:text-pink-100 rounded font-mono transition" title="Wildcard {shot} an Cursor/Ende einfügen">📷 {shot}</button>
-                  <button type="button" onclick="insertMeganPromptTag('{lighting}')" class="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 border border-pink-900/60 text-pink-300 hover:text-pink-100 rounded font-mono transition" title="Wildcard {lighting} an Cursor/Ende einfügen">💡 {lighting}</button>
-                </div>
-                <textarea id="meganPositivePrompt" rows="5"
-                          oninput="document.getElementById('meganPosCharCount').textContent=this.value.length + ' Zeichen'"
-                          placeholder="Positiver Bild-Prompt (z. B. 1girl, megan, solo, masterwork, highly detailed portrait...)"
-                          class="w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-xs text-slate-200 focus:border-pink-500 focus:outline-none resize-y leading-relaxed font-mono"></textarea>
-                
-                <!-- Positiv Preset Controls -->
-                <div class="flex items-center space-x-2 pt-1">
-                  <select id="meganPosPresetSelect" onchange="loadMeganPosPreset(this.value)"
-                          class="flex-1 bg-black border border-slate-700 text-pink-300 text-xs rounded px-2 py-1 focus:border-pink-500 focus:outline-none">
-                    <option value="">📂 Positiv-Preset laden...</option>
-                  </select>
-                  <button type="button" id="btnSaveMeganPromptPreset" onclick="savePromptPreset()"
-                          class="px-2.5 py-1 bg-pink-950/70 hover:bg-pink-900 border border-pink-700/80 text-pink-200 rounded text-xs font-bold transition flex items-center space-x-1 shrink-0"
-                          title="Aktuellen Positiv- und Negativ-Prompt als ComfyUI Preset speichern">
-                    <span>💾</span> <span>Als Preset speichern</span>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Negativ-Prompt Section -->
-              <div class="space-y-1.5 pt-2">
-                <div class="flex items-center justify-between">
-                  <label class="text-[11px] font-bold text-slate-400 flex items-center space-x-1">
-                    <span>🚫</span> <span>NEGATIV-PROMPT</span>
-                  </label>
-                  <span id="meganNegCharCount" class="text-[10px] text-slate-500">0 Zeichen</span>
-                </div>
-                <textarea id="meganNegativePrompt" rows="3"
-                          oninput="document.getElementById('meganNegCharCount').textContent=this.value.length + ' Zeichen'"
-                          placeholder="Negativer Bild-Prompt (z. B. deformed, blurry, bad anatomy, glasses...)"
-                          class="w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-xs text-slate-300 focus:border-pink-500 focus:outline-none resize-y leading-relaxed font-mono"></textarea>
-
-                <!-- Negativ Preset Controls -->
-                <div class="flex items-center space-x-2 pt-1">
-                  <select id="meganNegPresetSelect" onchange="loadMeganNegPreset(this.value)"
-                          class="flex-1 bg-black border border-slate-700 text-slate-300 text-xs rounded px-2 py-1 focus:border-pink-500 focus:outline-none">
-                    <option value="">📂 Negativ-Preset laden...</option>
-                  </select>
-                  <button type="button" onclick="saveMeganNegPreset()"
-                          class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1 shrink-0"
-                          title="Aktuellen Negativ-Prompt als Preset speichern">
-                    <span>💾</span> <span>Als Negativ-Preset speichern</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Execution / Render Section -->
-            <div class="pt-3 border-t border-slate-800 space-y-3">
-              <div id="meganRenderStatus" class="hidden text-xs p-2 rounded text-center font-mono bg-cyan-950/60 border border-cyan-800 text-cyan-300">
-                ⚙️ Übermittle Render-Job...
-              </div>
-
-              <!-- Schnell-Render Einzelbild Button -->
-              <button type="button" id="btnMeganExecuteRender" onclick="executeMeganRender()"
-                      class="w-full py-2.5 bg-gradient-to-r from-pink-600 via-rose-600 to-amber-600 hover:from-pink-500 hover:via-rose-500 hover:to-amber-500 text-slate-950 font-black text-xs uppercase tracking-wider rounded transition shadow-lg flex items-center justify-center space-x-2 glow-pink">
-                <span>🚀</span>
-                <span>RENDER ON ARC A770 (EINZELBILD)</span>
-              </button>
-
-              <!-- Autonomous Evolution Loop Steuerpanel (10er-Batches & Dauer-Loop) -->
-              <div class="bg-slate-900/90 border border-pink-700/60 rounded-lg p-3 space-y-3 shadow-md font-mono text-xs">
-                <div class="flex items-center justify-between border-b border-pink-950/80 pb-2">
-                  <div class="flex items-center space-x-2">
-                    <span class="w-2 h-2 rounded-full bg-pink-500 animate-pulse"></span>
-                    <span class="font-bold text-pink-300 text-[11px] uppercase tracking-wider">EVOLUTION LOOP (10ER-BATCHES)</span>
-                  </div>
-                  <div class="flex items-center space-x-1.5">
-                    <span id="evoBatchBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-950 border border-slate-700 text-slate-300">Batch #0</span>
-                    <span id="evoCountdownBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-950 border border-pink-800 text-pink-300">⏳ Bereit</span>
-                  </div>
-                </div>
-
-                <!-- Dauer-Loop Dropdown & Actions -->
-                <div class="space-y-2">
-                  <div class="flex items-center space-x-2">
-                    <label for="evoDurationSelect" class="text-[10px] text-slate-400 font-bold uppercase shrink-0">Dauer:</label>
-                    <select id="evoDurationSelect" class="flex-1 bg-black border border-pink-700/60 text-pink-200 text-xs rounded px-2 py-1.5 focus:border-pink-500 focus:outline-none">
-                      <option value="0">⏱️ Einmalig (1x 10 Bilder)</option>
-                      <option value="10" selected>⏱️ 10 Minuten Dauer-Loop (10er-Batches)</option>
-                      <option value="20">⏱️ 20 Minuten Dauer-Loop (10er-Batches)</option>
-                      <option value="30">⏱️ 30 Minuten Dauer-Loop (10er-Batches)</option>
-                      <option value="60">⏱️ 1 Stunde Dauer-Loop (10er-Batches)</option>
-                    </select>
-                  </div>
-
-                  <div class="grid grid-cols-1 gap-2">
-                    <button type="button" id="btnEvoStart" onclick="startEvolutionLoop()"
-                            class="w-full py-2 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-bold text-xs uppercase tracking-wider rounded transition shadow flex items-center justify-center space-x-1.5">
-                      <span>🚀</span>
-                      <span>10X EVOLUTION LOOP STARTEN</span>
-                    </button>
-                    <button type="button" id="btnEvoStop" onclick="stopEvolutionLoop()"
-                            class="hidden w-full py-2 bg-rose-950 hover:bg-rose-900 border border-rose-600 text-rose-300 font-bold text-xs uppercase tracking-wider rounded transition shadow flex items-center justify-center space-x-1.5">
-                      <span>⏹</span>
-                      <span>LOOP ABBRECHEN</span>
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Status & Progress -->
-                <div id="evoStatusContainer" class="bg-black/60 p-2.5 rounded border border-slate-800 space-y-1.5">
-                  <div class="flex justify-between items-center text-[10px]">
-                    <span id="meganEvoStatusText" class="text-pink-200 truncate max-w-[220px]">Bereit für Evolution Loop.</span>
-                    <span id="meganEvoProgressCounter" class="text-pink-400 font-bold">0 / 10</span>
-                  </div>
-                  <div class="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-800">
-                    <div id="meganEvoProgressBar" class="bg-gradient-to-r from-pink-500 to-purple-500 h-full w-0 transition-all duration-300"></div>
-                  </div>
-                </div>
-
-                <!-- Live Results Container & Batch Thumbnails Grid -->
-                <div id="evoResultsContainer" class="hidden space-y-2.5 pt-1">
-                  <div class="flex items-center justify-between text-[11px] bg-pink-950/40 border border-pink-900/60 p-2 rounded">
-                    <span class="font-bold text-pink-300 flex items-center space-x-1">
-                      <span>🏆</span> <span id="evoResultTitle">Batch-Ergebnisse</span>
-                    </span>
-                    <span id="evoAvgBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-950 border border-pink-600 text-pink-300 shadow">Ø - / 10</span>
-                  </div>
-
-                  <!-- 10 Thumbnail Grid (Score Badges + Seeds) -->
-                  <div id="evoBatchGrid" class="grid grid-cols-5 gap-1.5">
-                    <!-- Dynamically populated 10 rendered thumbnails -->
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- SPALTE RECHTS: Canonical Vault Live-Binding (character.json Ansicht mit Speichern-Button) -->
-          <div class="bg-slate-950/90 border border-pink-900/50 rounded-lg p-4 flex flex-col justify-between space-y-3 shadow-lg min-w-0">
-            
-            <div class="space-y-3 flex-1 flex flex-col">
-              <div class="flex items-center justify-between pb-2 border-b border-pink-950">
-                <div class="flex items-center space-x-2">
-                  <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
-                  <h2 class="text-xs font-bold text-amber-300 uppercase tracking-wider">CANONICAL VAULT // LIVE-BINDING</h2>
-                </div>
-                <span id="meganVaultStatusNotice" class="text-[10px] font-mono text-emerald-400 hidden">✔ Geladen</span>
-              </div>
-
-              <!-- Vault File Info -->
-              <div class="text-[10px] text-slate-400 flex items-center justify-between bg-slate-900/70 p-2 rounded border border-slate-800">
-                <span class="truncate">Datei: <code class="text-pink-400">character.json</code></span>
-                <span class="text-slate-500 shrink-0 ml-2">Sync: <code class="text-cyan-400">megan_system_prompt.txt</code></span>
-              </div>
-
-              <!-- Vault Editor Textarea -->
-              <div class="flex-1 flex flex-col space-y-1 min-h-[300px]">
-                <div class="flex justify-between items-center text-[10px] text-slate-500">
-                  <span>System-Prompt & Rollen-Definition (JSON/Text):</span>
-                  <span id="meganVaultCharCount">0 Zeichen</span>
-                </div>
-                <textarea id="meganVaultLoreText" rows="16"
-                          oninput="document.getElementById('meganVaultCharCount').textContent=this.value.length + ' Zeichen'"
-                          placeholder="Lade character.json..."
-                          class="flex-1 w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-xs text-pink-100 font-mono focus:border-pink-500 focus:outline-none resize-y leading-relaxed"></textarea>
-              </div>
-            </div>
-
-            <!-- Vault Actions -->
-            <div class="pt-3 border-t border-slate-800 flex items-center justify-between space-x-2">
-              <button type="button" onclick="loadMeganVaultLore()"
-                      class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1.5">
-                <span>🔄</span> <span>Neu laden</span>
-              </button>
-              <button type="button" onclick="saveMeganVaultLore()"
-                      class="flex-1 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold transition shadow-md flex items-center justify-center space-x-1.5">
-                <span>💾</span> <span>character.json speichern</span>
-              </button>
-            </div>
-          </div>
-
-        </div>
-      </div> <!-- End meganWorkspaceView -->
 
     </main>
 
@@ -9272,6 +8839,310 @@
         }
       }
     }
+
+    // =========================================================================
+    // 💬 HERMES CHAT // ASYNCHRONOUS ENGINE (DeepSeek-R1 via Ollama)
+    // =========================================================================
+    let hermesChatHistory = [];
+
+    async function sendHermesMessage() {
+      const input = document.getElementById("hermesChatInput");
+      const text = input ? input.value.trim() : "";
+      if (!text) return;
+
+      const chatContainer = document.getElementById("hermesChatMessages");
+      const thinkingBadge = document.getElementById("hermesThinkingBadge");
+      const sendBtn = document.getElementById("btnHermesSend");
+
+      // User Bubble
+      const userBubble = document.createElement("div");
+      userBubble.className = "p-3 bg-cyan-950/40 border border-cyan-800/60 rounded-lg text-slate-100 text-right ml-8";
+      userBubble.innerHTML = `<div class="text-[10px] text-cyan-400 font-bold mb-1">DU (BIG BOSS):</div><div class="whitespace-pre-wrap">${escapeHtml(text)}</div>`;
+      chatContainer.appendChild(userBubble);
+      input.value = "";
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+
+      if (thinkingBadge) thinkingBadge.classList.remove("hidden");
+      if (sendBtn) sendBtn.disabled = true;
+
+      // Hermes Response Bubble (streaming placeholder)
+      const botBubble = document.createElement("div");
+      botBubble.className = "p-3 bg-slate-900/80 border border-slate-700/80 rounded-lg text-slate-200 mr-8 leading-relaxed";
+      botBubble.innerHTML = `<div class="flex items-center space-x-2 mb-1.5 text-cyan-400 font-bold text-[11px]"><span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span><span>HERMES (deepseek-r1:14b)</span></div><div class="chat-content whitespace-pre-wrap"></div>`;
+      chatContainer.appendChild(botBubble);
+      const contentEl = botBubble.querySelector(".chat-content");
+
+      try {
+        const payload = {
+          message: text,
+          node: "outerheaven",
+          history: hermesChatHistory.slice(-8)
+        };
+
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        }
+
+        const data = await res.json();
+        let reply = data.response || data.reply || "";
+        
+        // Handle think tags formatting if present
+        if (reply.includes("<think>") && reply.includes("</think>")) {
+          reply = reply.replace(/<think>([\s\S]*?)<\/think>/gi, (match, p1) => {
+            return `\n> 💭 *Gedankengang (DeepSeek-R1):*\n> ${p1.trim().replace(/\n/g, "\n> ")}\n\n`;
+          });
+        }
+
+        contentEl.innerHTML = formatMarkdownChat(reply);
+        hermesChatHistory.push({role: "user", content: text});
+        hermesChatHistory.push({role: "assistant", content: reply});
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      } catch (err) {
+        console.error("Hermes Chat Error:", err);
+        contentEl.innerHTML = `<span class="text-rose-400 font-bold">⚠️ Fehler bei Kommunikation mit Hermes: ${escapeHtml(err.message)}</span>`;
+      } finally {
+        if (thinkingBadge) thinkingBadge.classList.add("hidden");
+        if (sendBtn) sendBtn.disabled = false;
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+    }
+
+    function clearHermesChat() {
+      hermesChatHistory = [];
+      const chatContainer = document.getElementById("hermesChatMessages");
+      if (chatContainer) {
+        chatContainer.innerHTML = `
+          <div class="p-3 bg-slate-900/70 border border-cyan-900/40 rounded-lg text-slate-300 leading-relaxed">
+            <div class="flex items-center space-x-2 mb-1.5 text-cyan-400 font-bold text-[11px]">
+              <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+              <span>HERMES // TECHNISCHER BERATER</span>
+            </div>
+            Chat-Verlauf geleert. Bereit für neue Aufgaben und Workflow-Beratung.
+          </div>
+        `;
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function formatMarkdownChat(text) {
+      if (!text) return "";
+      let formatted = escapeHtml(text);
+      formatted = formatted.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+      formatted = formatted.replace(/`([^`]+)`/g, "<code class=\"bg-black/60 px-1 py-0.5 rounded text-cyan-300\">$1</code>");
+      return formatted;
+    }
+
+    // =========================================================================
+    // ⚙️ TOOL-LEITSTAND // ASYNC TOGGLES & CREATOR
+    // =========================================================================
+    let currentHermesToolsConfig = null;
+
+    async function loadHermesTools() {
+      try {
+        const res = await fetch("/api/tools");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        currentHermesToolsConfig = data.tools || {};
+        renderHermesTools(currentHermesToolsConfig);
+      } catch (err) {
+        console.error("Error loading Hermes tools:", err);
+      }
+    }
+
+    function renderHermesTools(cfg) {
+      const builtinContainer = document.getElementById("builtinToolsList");
+      const customContainer = document.getElementById("customToolsList");
+      const builtinCountBadge = document.getElementById("builtinCountBadge");
+      const customCountBadge = document.getElementById("customCountBadge");
+
+      const builtins = cfg.builtin_tools || {};
+      const customs = cfg.custom_tools || {};
+
+      if (builtinCountBadge) builtinCountBadge.textContent = `${Object.keys(builtins).length} Werkzeuge`;
+      if (customCountBadge) customCountBadge.textContent = `${Object.keys(customs).length} Werkzeuge`;
+
+      // Render Built-ins
+      if (builtinContainer) {
+        builtinContainer.innerHTML = "";
+        for (const [name, meta] of Object.entries(builtins)) {
+          const isEnabled = Boolean(meta.enabled);
+          const desc = meta.description || "";
+          const card = document.createElement("div");
+          card.className = "flex items-start justify-between p-2.5 rounded bg-black/50 border border-slate-800 hover:border-cyan-500/40 transition gap-2";
+          card.innerHTML = `
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center space-x-2">
+                <span class="font-bold text-slate-200 text-xs">${escapeHtml(name)}</span>
+                <span class="text-[9px] px-1.5 py-0.2 rounded font-bold ${isEnabled ? "bg-emerald-950 text-emerald-400 border border-emerald-700/60" : "bg-slate-900 text-slate-500 border border-slate-700"}">
+                  ${isEnabled ? "AKTIV" : "INAKTIV"}
+                </span>
+              </div>
+              <p class="text-[10px] text-slate-400 mt-0.5 truncate">${escapeHtml(desc)}</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+              <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleHermesTool('builtin_tools', '${name}', this.checked)" class="sr-only peer">
+              <div class="w-7 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 peer-checked:after:bg-cyan-400 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-950 peer-checked:border-cyan-500 border border-slate-700"></div>
+            </label>
+          `;
+          builtinContainer.appendChild(card);
+        }
+      }
+
+      // Render Customs
+      if (customContainer) {
+        customContainer.innerHTML = "";
+        const customKeys = Object.keys(customs);
+        if (customKeys.length === 0) {
+          customContainer.innerHTML = '<div class="p-4 text-center text-slate-500 italic text-xs">Noch keine Custom Tools registriert. Erstellen Sie eines mit "➕ Neues Tool erstellen".</div>';
+        } else {
+          for (const [name, meta] of Object.entries(customs)) {
+            const isEnabled = Boolean(meta.enabled);
+            const desc = meta.description || "";
+            const file = meta.file || `${name}.py`;
+            const card = document.createElement("div");
+            card.className = "flex items-start justify-between p-2.5 rounded bg-black/50 border border-slate-800 hover:border-emerald-500/40 transition gap-2";
+            card.innerHTML = `
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center space-x-2">
+                  <span class="font-bold text-slate-200 text-xs">${escapeHtml(name)}</span>
+                  <span class="text-[9px] px-1.5 py-0.2 rounded font-bold ${isEnabled ? "bg-emerald-950 text-emerald-400 border border-emerald-700/60" : "bg-slate-900 text-slate-500 border border-slate-700"}">
+                    ${isEnabled ? "AKTIV" : "INAKTIV"}
+                  </span>
+                </div>
+                <p class="text-[10px] text-slate-400 mt-0.5 truncate">${escapeHtml(desc)}</p>
+                <div class="text-[9px] text-emerald-400/80 font-mono mt-0.5">📁 ~/.hermes/custom_tools/${escapeHtml(file)}</div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                <input type="checkbox" ${isEnabled ? "checked" : ""} onchange="toggleHermesTool('custom_tools', '${name}', this.checked)" class="sr-only peer">
+                <div class="w-7 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 peer-checked:after:bg-emerald-400 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-950 peer-checked:border-emerald-500 border border-slate-700"></div>
+              </label>
+            `;
+            customContainer.appendChild(card);
+          }
+        }
+      }
+    }
+
+    async function toggleHermesTool(category, name, enabled) {
+      try {
+        const res = await fetch("/api/tools/toggle", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({category, name, enabled})
+        });
+        const data = await res.json();
+        if (data.success && data.config) {
+          currentHermesToolsConfig = data.config;
+          renderHermesTools(currentHermesToolsConfig);
+        } else {
+          alert("Fehler beim Umschalten des Tools: " + (data.error || "Unbekannt"));
+          loadHermesTools();
+        }
+      } catch (err) {
+        console.error("Toggle error:", err);
+        alert("Netzwerkfehler beim Umschalten des Tools.");
+        loadHermesTools();
+      }
+    }
+
+    function openToolCreatorModal() {
+      const modal = document.getElementById("modalToolCreator");
+      const errBox = document.getElementById("toolCreatorError");
+      const succBox = document.getElementById("toolCreatorSuccess");
+      if (errBox) errBox.classList.add("hidden");
+      if (succBox) succBox.classList.add("hidden");
+
+      const codeArea = document.getElementById("newToolCode");
+      if (codeArea && !codeArea.value.trim()) {
+        codeArea.value = `"""\nHermes Custom Tool\n"""\ndef run(*args, **kwargs):\n    # Tool-Logik hier implementieren\n    return "Ergebnis der Ausführung"\n`;
+      }
+
+      if (modal) modal.classList.remove("hidden");
+    }
+
+    function closeToolCreatorModal() {
+      const modal = document.getElementById("modalToolCreator");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    async function submitToolCreator() {
+      const nameInput = document.getElementById("newToolName");
+      const descInput = document.getElementById("newToolDesc");
+      const codeInput = document.getElementById("newToolCode");
+      const errBox = document.getElementById("toolCreatorError");
+      const succBox = document.getElementById("toolCreatorSuccess");
+
+      if (errBox) errBox.classList.add("hidden");
+      if (succBox) succBox.classList.add("hidden");
+
+      const name = nameInput ? nameInput.value.trim() : "";
+      const description = descInput ? descInput.value.trim() : "";
+      const code = codeInput ? codeInput.value.trim() : "";
+
+      if (!name) {
+        if (errBox) {
+          errBox.textContent = "Bitte einen Bezeichner für das Tool angeben.";
+          errBox.classList.remove("hidden");
+        }
+        return;
+      }
+
+      if (!code) {
+        if (errBox) {
+          errBox.textContent = "Der Python-Code darf nicht leer sein.";
+          errBox.classList.remove("hidden");
+        }
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/tools/create", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({name, description, code})
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (succBox) {
+            succBox.textContent = `✔ Tool '${data.tool.name}' erfolgreich mit ast.parse() validiert und in ~/.hermes/custom_tools/ gespeichert!`;
+            succBox.classList.remove("hidden");
+          }
+          if (data.config) {
+            currentHermesToolsConfig = data.config;
+            renderHermesTools(currentHermesToolsConfig);
+          } else {
+            loadHermesTools();
+          }
+          setTimeout(() => {
+            closeToolCreatorModal();
+            if (nameInput) nameInput.value = "";
+            if (descInput) descInput.value = "";
+          }, 1200);
+        } else {
+          if (errBox) {
+            errBox.textContent = data.error || "Validierungsfehler.";
+            errBox.classList.remove("hidden");
+          }
+        }
+      } catch (err) {
+        if (errBox) {
+          errBox.textContent = "Netzwerkfehler beim Speichern des Tools: " + err.message;
+          errBox.classList.remove("hidden");
+        }
+      }
+    }
+
+    // Load Hermes tools immediately
+    loadHermesTools();
 
     // Initialize Cluster Models & Fox status on load
     loadNodeModels('outerheaven');

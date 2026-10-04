@@ -9,6 +9,7 @@ ExecStart=/home/outerheaven/.hermes/.venv/bin/python /home/outerheaven/mission-c
 WorkingDirectory=/home/outerheaven/mission-control
 Environment="PATH=/home/outerheaven/.hermes/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
+Environment="PORT=8000"
 Restart=always
 RestartSec=3
 KillMode=process

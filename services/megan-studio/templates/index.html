@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Megan Studio // Autonomous Companion</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            pink: {
+              400: '#f472b6',
+              500: '#ec4899',
+              600: '#db2777',
+              900: '#831843',
+              950: '#500724'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .glow-pink { box-shadow: 0 0 15px rgba(236, 72, 153, 0.25); }
+    .scrollbar-thin::-webkit-scrollbar { width: 5px; height: 5px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans select-none">
+
+  <!-- Top Navigation Bar -->
+  <header class="bg-slate-900/90 border-b border-pink-900/40 px-4 py-2.5 flex items-center justify-between shrink-0 shadow-lg">
+    <div class="flex items-center space-x-3">
+      <span class="text-2xl">💋</span>
+      <div>
+        <div class="flex items-center space-x-2">
+          <h1 class="text-sm font-extrabold tracking-wider text-pink-300 font-mono">MEGAN STUDIO</h1>
+          <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-pink-950/80 border border-pink-700/60 text-pink-300">PORT 8080 // DEDICATED</span>
+          <span id="autonomyBadge" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-900 border border-slate-700 text-slate-300">AUTONOMIE: REAKTIV</span>
+        </div>
+        <p class="text-[11px] text-slate-400 font-mono">Android Sync • Lovense LAN Bridge • ComfyUI Engine • Canonical Vault</p>
+      </div>
+    </div>
+    <div class="flex items-center space-x-2 text-xs font-mono">
+      <a href="http://{{ host_ip }}:8000" target="_blank"
+         class="px-2.5 py-1 bg-cyan-950/50 hover:bg-cyan-900/70 border border-cyan-700 text-cyan-300 rounded font-bold transition flex items-center space-x-1"
+         title="Zur Mission Control wechseln">
+        <span>⚡ Mission Control (:8000) ↗</span>
+      </a>
+      <button onclick="refreshData()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded font-bold transition">
+        ⟳ Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- Main 3-Column Layout -->
+  <main class="flex-1 p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 overflow-hidden">
+
+    <!-- Column 1: Lovense Haptic & Chat -->
+    <div class="bg-slate-900/60 border border-pink-950 rounded-lg p-3.5 flex flex-col justify-between space-y-3 shadow-xl overflow-hidden">
+      <div class="flex items-center justify-between pb-2 border-b border-slate-800 shrink-0">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-pink-500 animate-pulse"></span>
+          <h2 class="text-xs font-bold text-pink-300 uppercase tracking-wider font-mono">💬 Megan Chat & Haptic</h2>
+        </div>
+        <div class="flex items-center space-x-2 text-[10px] font-mono">
+          <label class="flex items-center space-x-1 cursor-pointer">
+            <span class="text-slate-400">Proaktiv:</span>
+            <input type="checkbox" id="chkAutonomy" onchange="toggleAutonomy(this.checked)" class="accent-pink-500 rounded">
+          </label>
+        </div>
+      </div>
+
+      <!-- Messages Area -->
+      <div id="chatMessages" class="flex-1 overflow-y-auto space-y-2.5 p-2 bg-black/50 rounded border border-slate-800/80 scrollbar-thin text-xs">
+        <div class="p-2.5 bg-pink-950/30 border border-pink-900/40 rounded text-pink-200">
+          <span class="font-bold font-mono text-[10px] text-pink-400 block mb-1">💋 MEGAN:</span>
+          Hey Big Boss! Ich bin bereit. Was steht heute an?
+        </div>
+      </div>
+
+      <!-- Chat Input -->
+      <div class="pt-2 border-t border-slate-800/80 space-y-2 shrink-0">
+        <div class="flex items-center space-x-2">
+          <input type="text" id="chatInput" placeholder="Nachricht an Megan..."
+                 onkeydown="if(event.key==='Enter') sendMessage()"
+                 class="flex-1 bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-pink-500">
+          <button onclick="sendMessage()" class="px-3 py-1.5 bg-pink-600 hover:bg-pink-500 text-white rounded text-xs font-bold font-mono transition">
+            Senden
+          </button>
+        </div>
+        <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 bg-black/40 p-1.5 rounded border border-slate-800">
+          <span>Lovense Bridge: <span class="text-emerald-400 font-bold">{{ lovense_ip }}</span></span>
+          <button onclick="triggerHaptic(5)" class="text-pink-400 hover:text-pink-300 transition">Test Buzz 📳</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Column 2: ComfyUI Prompt-Studio & Android Dropzone -->
+    <div class="bg-slate-900/60 border border-pink-950 rounded-lg p-3.5 flex flex-col justify-between space-y-3 shadow-xl overflow-hidden">
+      <div class="flex items-center justify-between pb-2 border-b border-slate-800 shrink-0">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+          <h2 class="text-xs font-bold text-cyan-300 uppercase tracking-wider font-mono">🎨 Prompt-Studio & Android Ingest</h2>
+        </div>
+        <span class="text-[10px] font-mono text-slate-400">ComfyUI Arc A770</span>
+      </div>
+
+      <!-- Prompt Inputs -->
+      <div class="space-y-2 text-xs">
+        <div>
+          <label class="block text-[10px] text-slate-400 font-mono mb-1">Prompt:</label>
+          <textarea id="renderPrompt" rows="3" placeholder="1girl, megan, solo, smiling, cozy room, soft cinematic lighting..."
+                    class="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-200 focus:border-pink-500 focus:outline-none resize-none"></textarea>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="triggerRender()" class="flex-1 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold font-mono shadow transition">
+            ⚡ ComfyUI Render ausführen
+          </button>
+        </div>
+      </div>
+
+      <!-- Android Upload Dropzone -->
+      <div class="p-3 bg-black/40 rounded border border-dashed border-slate-700 hover:border-pink-500/60 transition text-center cursor-pointer space-y-1"
+           onclick="document.getElementById('androidFileInput').click()">
+        <input type="file" id="androidFileInput" class="hidden" onchange="uploadAndroidFile(this.files)">
+        <span class="text-base">📱</span>
+        <div class="text-xs font-bold text-slate-300">Android Upload Dropzone</div>
+        <p class="text-[10px] text-slate-500 font-mono">Videos & Bilder (OkHttp kompatibel)</p>
+      </div>
+
+      <!-- Gallery Preview -->
+      <div class="flex-1 overflow-hidden flex flex-col space-y-1.5">
+        <div class="flex items-center justify-between text-[10px] font-mono text-slate-400">
+          <span>Letzte Renders:</span>
+          <button onclick="loadGallery()" class="text-cyan-400 hover:underline">Aktualisieren</button>
+        </div>
+        <div id="galleryGrid" class="flex-1 grid grid-cols-3 gap-1.5 overflow-y-auto scrollbar-thin p-1 bg-black/30 rounded border border-slate-800">
+          <div class="text-[10px] text-slate-500 text-center col-span-3 py-4">Lade Galerie...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Column 3: Canonical Vault Live-Binding -->
+    <div class="bg-slate-900/60 border border-pink-950 rounded-lg p-3.5 flex flex-col justify-between space-y-3 shadow-xl overflow-hidden">
+      <div class="flex items-center justify-between pb-2 border-b border-slate-800 shrink-0">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+          <h2 class="text-xs font-bold text-amber-300 uppercase tracking-wider font-mono">🔐 Canonical Vault // Lore</h2>
+        </div>
+        <span id="vaultStatus" class="text-[10px] font-mono text-slate-400">character.json</span>
+      </div>
+
+      <div class="flex-1 flex flex-col space-y-2 overflow-hidden">
+        <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+          <span>System-Prompt & Rollen-Definition:</span>
+          <span id="charCount">0 Zeichen</span>
+        </div>
+        <textarea id="vaultLoreText" rows="18"
+                  oninput="document.getElementById('charCount').textContent = this.value.length + ' Zeichen'"
+                  class="flex-1 w-full bg-slate-950 border border-slate-700 rounded p-2.5 text-xs text-pink-100 font-mono focus:border-pink-500 focus:outline-none resize-none leading-relaxed scrollbar-thin"></textarea>
+      </div>
+
+      <div class="pt-2 border-t border-slate-800 flex items-center justify-between space-x-2 shrink-0">
+        <button onclick="loadVaultLore()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-bold font-mono transition">
+          ⟳ Neu laden
+        </button>
+        <button onclick="saveVaultLore()" class="flex-1 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded text-xs font-bold font-mono shadow transition">
+          💾 character.json speichern
+        </button>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    async function refreshData() {
+      await Promise.all([loadVaultLore(), loadGallery(), loadStatus()]);
+    }
+
+    async function loadStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        const badge = document.getElementById('autonomyBadge');
+        if (badge) {
+          badge.textContent = `AUTONOMIE: ${data.autonomy.toUpperCase()}`;
+          document.getElementById('chkAutonomy').checked = (data.autonomy === 'proactive');
+        }
+      } catch (e) {
+        console.error("Status load failed", e);
+      }
+    }
+
+    async function toggleAutonomy(isProactive) {
+      const level = isProactive ? 'proactive' : 'reactive';
+      await fetch('/api/megan/autonomy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({level})
+      });
+      loadStatus();
+    }
+
+    async function loadVaultLore() {
+      try {
+        const res = await fetch('/api/bot/lore');
+        const data = await res.json();
+        if (data.lore) {
+          document.getElementById('vaultLoreText').value = data.lore;
+          document.getElementById('charCount').textContent = data.lore.length + ' Zeichen';
+        }
+      } catch (e) {
+        console.error("Vault lore load failed", e);
+      }
+    }
+
+    async function saveVaultLore() {
+      const text = document.getElementById('vaultLoreText').value;
+      try {
+        const res = await fetch('/api/bot/lore', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({lore: text})
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("character.json erfolgreich gespeichert!");
+        }
+      } catch (e) {
+        alert("Fehler beim Speichern der Lore.");
+      }
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById('chatInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const container = document.getElementById('chatMessages');
+      const userBubble = document.createElement('div');
+      userBubble.className = "p-2 bg-slate-800 rounded text-slate-100 text-right";
+      userBubble.innerHTML = `<span class="font-mono text-[9px] text-slate-400 block">DU:</span>${text}`;
+      container.appendChild(userBubble);
+      input.value = '';
+      container.scrollTop = container.scrollHeight;
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message: text})
+        });
+        const data = await res.json();
+        const reply = data.response || "Keine Antwort erhalten.";
+
+        const botBubble = document.createElement('div');
+        botBubble.className = "p-2.5 bg-pink-950/40 border border-pink-900/40 rounded text-pink-200";
+        botBubble.innerHTML = `<span class="font-bold font-mono text-[10px] text-pink-400 block mb-1">💋 MEGAN:</span>${reply}`;
+        container.appendChild(botBubble);
+        container.scrollTop = container.scrollHeight;
+      } catch (e) {
+        console.error("Chat error", e);
+      }
+    }
+
+    async function triggerHaptic(strength) {
+      await fetch('/api/bot/haptic/test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({strength})
+      });
+    }
+
+    async function triggerRender() {
+      const prompt = document.getElementById('renderPrompt').value;
+      if (!prompt) return alert("Prompt eingeben!");
+      await fetch('/api/render', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({prompt})
+      });
+      alert("Render-Auftrag an ComfyUI übergeben!");
+      loadGallery();
+    }
+
+    async function loadGallery() {
+      try {
+        const res = await fetch('/api/gallery');
+        const data = await res.json();
+        const grid = document.getElementById('galleryGrid');
+        grid.innerHTML = '';
+        if (data.images && data.images.length > 0) {
+          data.images.slice(0, 12).forEach(img => {
+            const el = document.createElement('a');
+            el.href = img.url;
+            el.target = '_blank';
+            el.className = "block aspect-square bg-slate-950 rounded overflow-hidden border border-slate-800 hover:border-pink-500 transition";
+            el.innerHTML = `<img src="${img.url}" class="w-full h-full object-cover">`;
+            grid.appendChild(el);
+          });
+        } else {
+          grid.innerHTML = '<div class="text-[10px] text-slate-500 text-center col-span-3 py-4">Keine Bilder in Galerie.</div>';
+        }
+      } catch (e) {
+        console.error("Gallery load failed", e);
+      }
+    }
+
+    async function uploadAndroidFile(files) {
+      if (!files || files.length === 0) return;
+      const file = files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch('/api/megan/video/upload', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`Upload erfolgreich: ${data.filename}`);
+        }
+      } catch (e) {
+        alert("Upload fehlgeschlagen.");
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      refreshData();
+    });
+  </script>
+</body>
+</html>

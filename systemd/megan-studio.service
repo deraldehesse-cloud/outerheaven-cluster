@@ -1,0 +1,21 @@
+[Unit]
+Description=Megan Studio Autonomous Service & Android API
+After=network-online.target tailscaled.service comfyui.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/outerheaven/.hermes/.venv/bin/python /home/outerheaven/services/megan-studio/server.py
+WorkingDirectory=/home/outerheaven/services/megan-studio
+Environment="PATH=/home/outerheaven/.hermes/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PORT=8080"
+Restart=always
+RestartSec=3
+KillMode=process
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

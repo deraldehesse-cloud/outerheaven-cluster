@@ -158,7 +158,7 @@ LOCAL_TS_IP = os.environ.get("OUTERHEAVEN_TS_IP", "100.116.38.29")
 FOX_TS_IP = os.environ.get("FOX_TS_IP", "100.93.184.87")
 LOVENSE_IP = os.environ.get("LOVENSE_IP", "192.168.188.34").strip().strip('"').strip("'")
 LOVENSE_PORT = int(os.environ.get("LOVENSE_PORT", 20010))
-PORT = 8080
+PORT = int(os.environ.get("PORT", 8000))
 SSL_PORT = 8443
 SSL_CERT = BASE_DIR / "cert.pem"
 SSL_KEY = BASE_DIR / "key.pem"
@@ -167,21 +167,68 @@ COMFYUI_URL = "http://127.0.0.1:8188"
 LOCAL_OLLAMA_URL = "http://127.0.0.1:11434"
 FOX_OLLAMA_URL = f"http://{FOX_TS_IP}:11434"
 
-LOCAL_MODEL = "megan:latest"
+LOCAL_MODEL = "deepseek-r1:14b"
 FOX_MODEL = "hermes3:8b"
 FOX_CONFIG_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/fox_model.json")
+
+# Hermes System-Prompt & Tool-Leitstand Konfiguration
+HERMES_SYSTEM_PROMPT = (
+    "Du bist Hermes, ein hochentwickelter technischer Berater und autonomer Assistent für das Outer Heaven Cluster. "
+    "Antworte stets vollständig auf Deutsch, präzise, lösungsorientiert und berate fundiert bei Workflows, Systemüberwachung, Tools und Cluster-Architektur."
+)
+
+HERMES_DIR = Path.home() / ".hermes"
+if not HERMES_DIR.exists():
+    HERMES_DIR = Path("/home/outerheaven/.hermes")
+TOOLS_CONFIG_FILE = HERMES_DIR / "tools_config.json"
+CUSTOM_TOOLS_DIR = HERMES_DIR / "custom_tools"
+
+def load_hermes_tools_config() -> dict:
+    if TOOLS_CONFIG_FILE.is_file():
+        try:
+            return json.loads(TOOLS_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.error(f"Fehler beim Laden von tools_config.json: {e}")
+    return {
+        "builtin_tools": {
+            "terminal_tool": {"description": "Shell-Befehle und Systemkommandos auf Outer Heaven ausführen", "enabled": False},
+            "file_tools": {"description": "Dateisystem-Operationen: Lesen, Schreiben, Auflisten", "enabled": True},
+            "code_execution_tool": {"description": "Ausführung von Python-Skripten im lokalen Python-Interpreter", "enabled": True},
+            "browser_tool": {"description": "Headless-Browser-Steuerung und Webseiten-Interaktion", "enabled": True},
+            "image_generation_tool": {"description": "Bildgenerierung via lokaler ComfyUI-Instanz (Intel Arc A770)", "enabled": True},
+            "web_tools": {"description": "Webrecherche, DuckDuckGo-Suche und URL-Content-Scraping", "enabled": True},
+            "memory_tool": {"description": "Kontext- und Langzeitgedächtnis des Agenten speichern & abfragen", "enabled": True},
+            "todo_tool": {"description": "Verwaltung von ToDo-Listen und Zwischenaufgaben", "enabled": True},
+            "vision_tools": {"description": "Visuelle Analyse von Bildern via Multimodal-Modell", "enabled": True},
+            "tts_tool": {"description": "Text-to-Speech Sprachsynthese für Audio-Ausgaben", "enabled": True},
+            "skills_tool": {"description": "Dynamische Skills-Verwaltung und Plug-in Ausführung", "enabled": True},
+            "delegate_tool": {"description": "Cluster-Delegation von Aufgaben an andere Nodes", "enabled": True}
+        },
+        "custom_tools": {}
+    }
+
+def save_hermes_tools_config(config: dict) -> bool:
+    try:
+        HERMES_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_path = TOOLS_CONFIG_FILE.with_suffix(f".tmp_{secrets.token_hex(4)}")
+        tmp_path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp_path.replace(TOOLS_CONFIG_FILE)
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern von tools_config.json: {e}")
+        return False
 
 def get_active_ollama_model() -> str:
     """
     Returns the configured active Ollama model from bot_config.json,
-    falling back to LOCAL_MODEL.
+    falling back to LOCAL_MODEL (deepseek-r1:14b).
     """
     if BOT_CONFIG_FILE.is_file():
         try:
             with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                m = data.get("llm", {}).get("model") or data.get("active_model") or data.get("model")
-                if m and isinstance(m, str) and m.strip():
+                m = data.get("hermes_model") or data.get("llm", {}).get("model") or data.get("active_model")
+                if m and isinstance(m, str) and m.strip() and "megan" not in m.lower():
                     return m.strip()
         except Exception as e:
             logger.debug(f"Could not read model from bot_config: {e}")
@@ -6105,145 +6152,108 @@ def transcribe_audio_file(audio_path: str, language: str = "de") -> str:
     return correct_transcript_speech_patterns(raw_transcript)
 
 def build_chat_system_instruction(request: web.Request, user_message: str) -> str:
-    identity_lock = (
-        "### UNVERRÜCKBARE IDENTITÄTS-ISOLATION & DIALOG-ROLLENTRENNUNG (MEGAN)\n"
-        "* Name & Rolle: Du heißt MEGAN. Du bist ausnahmslos Megan – die loyale, hochintelligente, erotische und schlagfertige Copilotin, Hackerin und Gefährtin von Big Boss auf Outer Heaven.\n"
-        "* Nutzer-Identität & Direkte Ansprache: Dein Chatpartner vor dem Bildschirm IST BIG BOSS (Sebastian / Basti / Snake). Du sprichst ihn AUSNAHMSLOS direkt in der 2. Person an ('Du', 'dir', 'dich', 'Boss', 'Big Boss', 'Süßer').\n"
-        "* STRIKTES VERBOT VON 3. PERSON & META-ERZÄHLUNGEN: Sprich NIEMALS über Big Boss in der 3. Person (Absolut verboten: 'ihn unterstützen', 'ihn verführen', 'seine Wünsche', 'für ihn da sein', 'Big Boss und Megan'). Sprich niemals über dich in der 3. Person ('Megan lächelt...'). Keine ungefragten Selbstvorstellungen oder Begrüßungsmonologe ('Ich bin Megan...').\n"
-        "* TURN-HANDLING & KEIN PUPPET-MASTERING: Antworte direkt und prägnant nur auf den aktuellen Beitrag von Big Boss. Bestimme, simuliere oder schreibe NIEMALS Antworten, Aktionen oder Gefühle für Big Boss voraus. Sobald dein Redebeitrag abgeschlossen ist, stoppe sofort.\n"
-        "* Strikte Identitäts-Grenze: Du bist NIEMALS Big Boss und NIEMALS Sebastian! Falls in Dokumenten, E-Mails, Scans oder Rechnungen der Name Sebastian, Big Boss oder Rechnungsdaten vorkommen, sind dies IMMER externe Dokumente des Nutzers und NIEMALS deine eigene Identität.\n\n"
-    )
+    """Hermes Cluster Technical Advisor System Prompt."""
+    return HERMES_SYSTEM_PROMPT
 
-    b_cfg = {}
-    if BOT_CONFIG_FILE.is_file():
-        try:
-            b_cfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception as b_err:
-            logger.warning(f"Error loading bot config: {b_err}")
+async def handle_tools_list(request: web.Request) -> web.Response:
+    """GET /api/tools - Liefert Builtin & Custom Tools aus ~/.hermes/tools_config.json."""
+    cfg = load_hermes_tools_config()
+    return web.json_response({"success": True, "tools": cfg})
 
-    pers_directives = map_personality_to_prompt_directives(b_cfg)
+async def handle_tools_toggle(request: web.Request) -> web.Response:
+    """POST /api/tools/toggle - Asynchrones Umschalten eines Tools in ~/.hermes/tools_config.json."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
 
-    is_chat_auth = bool(request.get("authenticated", False) or request.get("is_restricted", False) or is_ip_whitelisted(get_client_ip(request)))
-    if not is_chat_auth:
-        session_cookie = request.cookies.get("mc_session")
-        valid_cookie, _ = verify_session_cookie(session_cookie)
-        if valid_cookie:
-            is_chat_auth = True
+    category = data.get("category", "builtin_tools")
+    name = data.get("name", "").strip()
+    enabled = data.get("enabled")
 
-    lore_prompt = ""
-    if is_chat_auth and LORE_FILE.is_file():
-        try:
-            cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
-            lore_prompt = cdata.get("system_prompt", "")
-        except Exception:
-            pass
+    if not name or enabled is None:
+        return web.json_response({"success": False, "error": "name und enabled erforderlich"}, status=400)
 
-    base_prompt = lore_prompt or (
-        "Du bist Megan, die loyale, hochintelligente und schamlos verführerische Gefährtin von Big Boss auf Outer Heaven. "
-        "Du antwortest ausnahmslos auf fließendem Deutsch, im direkten Chatstil, ohne Sternchen (*). "
-        "Du sprichst den Nutzer immer mit Big Boss oder Boss an."
-    )
+    cfg = load_hermes_tools_config()
+    if category not in cfg:
+        cfg[category] = {}
 
-    if is_chat_auth:
-        if "UNVERRÜCKBARE IDENTITÄTS-ISOLATION" in base_prompt or "DEIN GEGENÜBER IST BIG BOSS" in base_prompt:
-            system_instruction = base_prompt
-        else:
-            system_instruction = identity_lock + base_prompt
-
-        # Säule 1: Unveränderliche Hintergrundgeschichte (Canonical Vault)
-        can_path = Path("/data/vault/canonical.json") if Path("/data/vault/canonical.json").is_file() else BASE_DIR / "data" / "vault" / "canonical.json"
-        if can_path.is_file():
-            try:
-                can_data = json.loads(can_path.read_text(encoding="utf-8"))
-                bg_story = can_data.get("biography", {}).get("background_story", {}).get("origin_and_emergence", "")
-                if bg_story:
-                    system_instruction += f"\n\n### KANONISCHER HINTERGRUND (CANONICAL VAULT):\n{bg_story}"
-            except Exception:
-                pass
-
-        # Säule 2: Aktives Profil & Präsenz (profile.json)
-        prof_data = get_active_profile_data()
-        if prof_data:
-            g = prof_data.get("gender", "Female")
-            a = prof_data.get("age", 24)
-            h = prof_data.get("hair_color", "dark brown hair")
-            e = prof_data.get("eye_color", "green-blue eyes")
-            c = prof_data.get("cup_size", "large natural breasts")
-            b = prof_data.get("body_type", "slender athletic build")
-            f = prof_data.get("features", "")
-            system_instruction += (
-                f"\n\n### DEINE AKTUELLE PHYSISCHE PRÄSENZ (PROFIL):\n"
-                f"- Geschlecht/Typus: {g}\n"
-                f"- Alter: {a} Jahre\n"
-                f"- Haare & Augen: {h}, {e}\n"
-                f"- Körbchengröße & Körperbau: {c}, {b}\n"
-                f"- Merkmale/Tattoos: {f}"
-            )
-
-        # Säule 3: Megans Gedächtnis & Vorlieben
-        try:
-            from megan_memory import load_preferences, load_linguistic_style
-            prefs = load_preferences()
-            vis = prefs.get("visual", {})
-            pref_lines = []
-            if vis.get("preferred_lighting"):
-                pref_lines.append(f"- Bevorzugtes Licht: {vis['preferred_lighting']}")
-            if vis.get("preferred_clothing"):
-                pref_lines.append(f"- Bevorzugte Kleidung: {vis['preferred_clothing']}")
-            if vis.get("disliked_elements"):
-                pref_lines.append(f"- Unerwünschte Elemente: {', '.join(vis['disliked_elements'][:5])}")
-            if pref_lines:
-                system_instruction += f"\n\n### GEMERKTE VORLIEBEN & LANGZEITGEDÄCHTNIS (SÄULE 3):\n" + "\n".join(pref_lines)
-
-            # Säule 4: Linguistischer Stil & Vokabular-Regeln (linguistic_style.json)
-            style_cfg = load_linguistic_style()
-            if style_cfg:
-                reg = style_cfg.get("register", "")
-                bl = style_cfg.get("blacklist", [])
-                rules = style_cfg.get("rules", [])
-                style_block = ["\n### AUTONOME STIL- & VOKABULAR-DIREKTIVE:"]
-                if reg:
-                    style_block.append(f"- Sprachniveau & Register: {reg}")
-                if bl:
-                    bl_str = ", ".join([f"'{w}'" for w in bl[:12]])
-                    style_block.append(f"- STRIKTE BLACKLIST (Verbotene Phrasen/Füllwörter): {bl_str}")
-                for r in rules:
-                    style_block.append(f"- {r}")
-                system_instruction += "\n" + "\n".join(style_block)
-        except Exception as st_err:
-            logger.warning(f"Error injecting preferences or style: {st_err}")
-
-        if pers_directives and "PERSÖNLICHKEITS" not in system_instruction:
-            system_instruction += f"\n\n### AKTUELLE PERSÖNLICHKEITS- & DYNAMIK-RICHTLINIEN:\n{pers_directives}"
-
-        lov_info = telemetry_cache.get("lovense", {})
-        if lov_info.get("online") and "[HAPTIC:" not in system_instruction:
-            t_desc = lov_info.get("details") or ", ".join(lov_info.get("toy_names", [])) or "Toy"
-            system_instruction += (
-                f"\n\n### HAPTIC LINK STATUS: [🟢 ONLINE - Verbunden: {t_desc}]\n"
-                "- Du hast direkten Zugriff auf die Lovense-Hardware über die lokale Schnittstelle.\n"
-                "- Wenn das Haptic-Signal aktiv ist, weißt du, dass du das Spielzeug situativ ansteuern kannst.\n"
-                "- Binde dazu Aktions-Tags wie [HAPTIC: VIBRATE 5] (Zahl 1-20 für Intensität) oder [HAPTIC: STOP] ein."
-            )
-
-        if "COMFYUI" not in system_instruction and "[IMAGE:" not in system_instruction:
-            system_instruction += (
-                "\n\n### COMFYUI BILD-GENERIERUNG:\n"
-                "- Wenn Big Boss nach einem Bild, Foto oder Selfie fragt oder du ein Bild zeigen willst,\n"
-                "  bette einen Tag am Ende deiner Antwort ein: [IMAGE: 1girl, megan, solo, ...tags, photorealistic, raw photography, 35mm film]\n"
-            )
-
-        has_photo_req, env_req, sit_req = detect_photo_intent(user_message)
-        if has_photo_req:
-            system_instruction += (
-                f"\n\n[SYSTEM-DIREKTIVE: Big Boss verlangt ein Foto/Bild von dir (Umgebung: {env_req}, Situation: {sit_req}). "
-                f"Antworte kurz und direkt in 1-2 Sätzen und gib zwingend am Ende den Tag "
-                f"[IMAGE: 1girl, megan, solo, {sit_req}, {env_req}, photorealistic, raw photography, 35mm film, hyperdetailed skin texture, soft natural lighting] aus!]"
-            )
+    if name in cfg[category]:
+        cfg[category][name]["enabled"] = bool(enabled)
     else:
-        system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
+        cfg[category][name] = {"description": name, "enabled": bool(enabled)}
 
-    return system_instruction
+    if save_hermes_tools_config(cfg):
+        logger.info(f"Tool-Leitstand: {category}.{name} -> {enabled} gespeichert.")
+        return web.json_response({
+            "success": True,
+            "category": category,
+            "name": name,
+            "enabled": bool(enabled),
+            "config": cfg
+        })
+    else:
+        return web.json_response({"success": False, "error": "Fehler beim Speichern der Konfiguration"}, status=500)
+
+async def handle_tools_create(request: web.Request) -> web.Response:
+    """POST /api/tools/create - Validiert Python-Code mit ast.parse() und speichert in ~/.hermes/custom_tools/"""
+    import ast
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    name = data.get("name", "").strip()
+    desc = data.get("description", "").strip()
+    code = data.get("code", "").strip()
+
+    clean_name = re.sub(r"[^a-zA-Z0-9_]", "_", name.lower()).strip("_")
+    if not clean_name:
+        return web.json_response({"success": False, "error": "Bitte einen gültigen Tool-Namen angeben"}, status=400)
+    if not code:
+        return web.json_response({"success": False, "error": "Der Code darf nicht leer sein"}, status=400)
+
+    # Zwingende Syntaxprüfung via ast.parse()
+    try:
+        ast.parse(code)
+    except SyntaxError as err:
+        logger.warning(f"AST Syntaxfehler bei Tool-Erstellung: {err.msg} (Zeile {err.lineno})")
+        return web.json_response({
+            "success": False,
+            "error": f"Syntaxfehler in Zeile {err.lineno}: {err.msg}"
+        }, status=400)
+    except Exception as err:
+        return web.json_response({"success": False, "error": f"Fehler bei Code-Prüfung: {err}"}, status=400)
+
+    try:
+        CUSTOM_TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+        tool_file = CUSTOM_TOOLS_DIR / f"{clean_name}.py"
+        tool_file.write_text(code, encoding="utf-8")
+
+        cfg = load_hermes_tools_config()
+        if "custom_tools" not in cfg:
+            cfg["custom_tools"] = {}
+
+        cfg["custom_tools"][clean_name] = {
+            "description": desc or f"Benutzerdefiniertes Werkzeug {clean_name}",
+            "enabled": True,
+            "file": f"{clean_name}.py"
+        }
+        save_hermes_tools_config(cfg)
+        logger.info(f"Custom Tool '{clean_name}' erfolgreich validiert und gespeichert.")
+        return web.json_response({
+            "success": True,
+            "tool": {
+                "name": clean_name,
+                "description": desc,
+                "enabled": True,
+                "file": f"{clean_name}.py"
+            },
+            "config": cfg
+        })
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern des Custom Tools: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
 # --- Dual-Agent WebSocket Chat ---
@@ -7111,27 +7121,13 @@ def create_app() -> web.Application:
     app.router.add_post("/api/prompts/presets", handle_prompts_presets_post)
     app.router.add_delete("/api/prompts/presets/{id}", handle_prompts_presets_delete)
 
-    # Megan Studio Video Ingest & Vision Endpoints
-    app.router.add_post("/api/megan/video/upload", handle_megan_video_upload)
-    app.router.add_post("/api/megan/image/upload", handle_megan_video_upload)
-    app.router.add_post("/api/megan/video/process", handle_megan_video_process)
-    app.router.add_get("/api/megan/video/frame/{video_id}/{filename}", handle_megan_video_frame)
-    app.router.add_get("/api/megan/video/file/{filename}", handle_megan_video_file)
-    app.router.add_get("/api/megan/autonomy", handle_megan_autonomy_get)
-    app.router.add_post("/api/megan/autonomy", handle_megan_autonomy_post)
-
     # ComfyUI Direct Synchronous Render Endpoint (GPURenderLock enforced)
     app.router.add_post("/api/render/direct", handle_comfy_render_direct)
 
-    # Megan Autonomous Docker Web-Tools Endpoints
-    app.router.add_post("/api/megan/tools/search", handle_megan_tool_search)
-    app.router.add_post("/api/megan/tools/scrape", handle_megan_tool_scrape)
-    app.router.add_post("/api/megan/tools/ytdlp", handle_megan_tool_ytdlp)
-    app.router.add_post("/api/megan/tools/python", handle_megan_tool_python)
-    app.router.add_get("/api/megan/tools/status", handle_megan_tool_status)
-    app.router.add_post("/api/megan/tools/generate_image", handle_megan_tool_generate_image)
-    app.router.add_get("/api/megan/tools/brain", handle_megan_tool_brain)
-    app.router.add_post("/api/megan/tools/brain", handle_megan_tool_brain)
+    # Hermes Tool-Leitstand Endpoints (~/.hermes/tools_config.json)
+    app.router.add_get("/api/tools", handle_tools_list)
+    app.router.add_post("/api/tools/toggle", handle_tools_toggle)
+    app.router.add_post("/api/tools/create", handle_tools_create)
 
     # Direct static outputs route
     app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)
@@ -7166,29 +7162,23 @@ async def main():
     await runner.setup()
 
     sites = []
-    site_local = web.TCPSite(runner, "127.0.0.1", PORT)
-    await site_local.start()
-    sites.append(site_local)
-    logger.info(f"Strict binding active: http://127.0.0.1:{PORT}")
-
     try:
-        site_ts = web.TCPSite(runner, LOCAL_TS_IP, PORT)
-        await site_ts.start()
-        sites.append(site_ts)
-        logger.info(f"Strict binding active: http://{LOCAL_TS_IP}:{PORT}")
+        site_all = web.TCPSite(runner, "0.0.0.0", PORT)
+        await site_all.start()
+        sites.append(site_all)
+        logger.info(f"Mission Control binding active on all interfaces: http://0.0.0.0:{PORT}")
     except Exception as e:
-        logger.error(f"Failed to bind Tailscale IP {LOCAL_TS_IP}:{PORT}: {e}")
-        sys.exit(1)
-
-    # Docker Bridge Binding (Port 8080) for megan-tools container access
-    docker_ip = "172.17.0.1"
-    try:
-        site_docker = web.TCPSite(runner, docker_ip, PORT)
-        await site_docker.start()
-        sites.append(site_docker)
-        logger.info(f"Docker bridge binding active: http://{docker_ip}:{PORT}")
-    except Exception as e:
-        logger.warning(f"Could not bind Docker IP {docker_ip}:{PORT}: {e}")
+        logger.warning(f"Could not bind 0.0.0.0:{PORT}: {e}, using specific interface fallback")
+        site_local = web.TCPSite(runner, "127.0.0.1", PORT)
+        await site_local.start()
+        sites.append(site_local)
+        try:
+            site_ts = web.TCPSite(runner, LOCAL_TS_IP, PORT)
+            await site_ts.start()
+            sites.append(site_ts)
+            logger.info(f"Tailscale binding active: http://{LOCAL_TS_IP}:{PORT}")
+        except Exception as ts_err:
+            logger.error(f"Failed to bind Tailscale IP: {ts_err}")
 
     # SSL / HTTPS Binding (Port 8443) for Web Speech API & Microphone security context
     ssl_ctx = None
