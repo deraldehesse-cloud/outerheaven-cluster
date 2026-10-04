@@ -46,6 +46,7 @@ OH_SYNC_OK=0
 OH_STREAMLIT_OK=0
 FOX_SYNC_OK=0
 OH_RESTART_OK=0
+OH_DASH_RESTART_OK=0
 FOX_RESTART_OK=0
 
 # Logging-Funktionen
@@ -244,7 +245,24 @@ if [ "${OH_SYNC_OK}" -eq 1 ]; then
     fi
 fi
 
-# 5b. Fox: hermes-gateway.service neu starten (falls aktiv)
+# 5b. Outer Heaven: hermes-dashboard.service neu starten (falls Streamlit Apps übertragen wurden)
+if [ "${OH_STREAMLIT_OK}" -eq 1 ]; then
+    log_info "Starte hermes-dashboard.service auf outerheaven neu..."
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 "${OH_HOST}" 'systemctl --user daemon-reload && systemctl --user restart hermes-dashboard.service'; then
+        sleep 1
+        OH_DASH_STATE=$(ssh -o BatchMode=yes -o ConnectTimeout=3 "${OH_HOST}" 'systemctl --user is-active hermes-dashboard.service 2>/dev/null || echo "unknown"')
+        if [ "${OH_DASH_STATE}" = "active" ]; then
+            log_ok "hermes-dashboard.service auf outerheaven läuft (active)."
+            OH_DASH_RESTART_OK=1
+        else
+            log_warn "hermes-dashboard.service Status auf outerheaven: ${OH_DASH_STATE}"
+        fi
+    else
+        log_fail "Fehler beim Neustarten von hermes-dashboard.service auf outerheaven!"
+    fi
+fi
+
+# 5c. Fox: hermes-gateway.service neu starten (falls aktiv)
 if [ "${FOX_SYNC_OK}" -eq 1 ]; then
     log_info "Triggere Daemon-Reload & Gateway-Restart auf fox..."
     if ssh -o BatchMode=yes -o ConnectTimeout=5 "${FOX_HOST}" 'systemctl --user daemon-reload && (systemctl --user restart hermes-gateway.service 2>/dev/null || true)'; then
@@ -268,7 +286,11 @@ echo -e "${BOLD}${CYAN}=========================================================
 if [ "${OH_ONLINE}" -eq 1 ] && [ "${OH_SYNC_OK}" -eq 1 ] && [ "${OH_RESTART_OK}" -eq 1 ]; then
     echo -e " Node Outer Heaven (HP Z620): [ ${GREEN}${BOLD}ERFOLGREICH SYNCHRONISIERT & NEU GESTARTET${RESET} ]"
     if [ "${OH_STREAMLIT_OK}" -eq 1 ]; then
-        echo -e "   └── Streamlit Leitstand:   [ ${GREEN}SYNCHRONISIERT${RESET} ]"
+        if [ "${OH_DASH_RESTART_OK}" -eq 1 ]; then
+            echo -e "   └── Streamlit Leitstand:   [ ${GREEN}SYNCHRONISIERT & NEU GESTARTET${RESET} ]"
+        else
+            echo -e "   └── Streamlit Leitstand:   [ ${GREEN}SYNCHRONISIERT${RESET} ]"
+        fi
     fi
 elif [ "${OH_ONLINE}" -eq 0 ]; then
     echo -e " Node Outer Heaven (HP Z620): [ ${RED}${BOLD}OFFLINE / NICHT ERREICHBAR${RESET} ]"
