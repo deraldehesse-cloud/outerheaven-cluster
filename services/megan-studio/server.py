@@ -159,7 +159,9 @@ try:
         execute_autonomous_tool,
         load_hermes_tools_config,
         save_hermes_tools_config,
-        build_megan_system_prompt
+        build_megan_system_prompt,
+        get_comfyui_queue_status,
+        set_image_finished_callback
     )
 except ImportError:
     megan_context_engine = None
@@ -177,6 +179,74 @@ except ImportError:
         return True
     def build_megan_system_prompt(lore=None):
         return "Du bist Megan, die persönliche Assistentin von Big Boss."
+    def get_comfyui_queue_status(comfy_url=None):
+        return {"online": True, "busy": False, "queue_total": 0, "running_count": 0, "pending_count": 0}
+    def set_image_finished_callback(cb):
+        pass
+
+# Active WebSockets & Broadcast
+ACTIVE_WS_CLIENTS: set = set()
+MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
+
+async def broadcast_ws(payload: Dict[str, Any]) -> None:
+    """Send JSON payload to all connected WebSocket clients."""
+    if not ACTIVE_WS_CLIENTS:
+        return
+    dead = set()
+    for ws in list(ACTIVE_WS_CLIENTS):
+        try:
+            if not ws.closed:
+                await ws.send_json(payload)
+            else:
+                dead.add(ws)
+        except Exception as e:
+            logger.debug(f"Broadcast to WS failed: {e}")
+            dead.add(ws)
+    for ws in dead:
+        ACTIVE_WS_CLIENTS.discard(ws)
+
+def broadcast_ws_sync(payload: Dict[str, Any]) -> None:
+    """Sync wrapper to broadcast to WebSockets from background threads."""
+    global MAIN_LOOP
+    loop = MAIN_LOOP
+    if not loop or not loop.is_running():
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = None
+    if loop and loop.is_running():
+        asyncio.run_coroutine_threadsafe(broadcast_ws(payload), loop)
+
+def on_image_finished_broadcast(data: Dict[str, Any]) -> None:
+    """Callback invoked by megan_context when a ComfyUI render completes."""
+    logger.info(f"ComfyUI Bild fertiggestellt, sende an aktive WebSockets: {data.get('filename')}")
+    # 1. image_ready event for Android Companion / Web UI
+    broadcast_ws_sync({
+        "type": "image_ready",
+        "image_url": data.get("url"),
+        "url": data.get("url"),
+        "prompt": data.get("prompt", ""),
+        "id": data.get("id"),
+        "filename": data.get("filename"),
+        "workflow": data.get("workflow")
+    })
+    # 2. image event for backward compatibility
+    broadcast_ws_sync({
+        "type": "image",
+        "url": data.get("url"),
+        "prompt": data.get("prompt", "")
+    })
+    # 3. render_completed event to reset isRendering
+    broadcast_ws_sync({
+        "type": "render_completed",
+        "filename": data.get("filename")
+    })
+    broadcast_ws_sync({
+        "type": "idle"
+    })
 
 # GPU Render Lock Import
 try:
@@ -545,18 +615,44 @@ def check_autonomous_intent(text: str) -> Optional[str]:
         s = execute_autonomous_tool("system_status")
         return f"\n[AUTONOME SYSTEM-DIAGNOSE]:\n{json.dumps(s.get('status', {}), indent=2, ensure_ascii=False)}"
 
-    # 3. ComfyUI Workflow / Bildgenerierung (Megan Erotic Chat / Catlord Comic)
+    # 3. ComfyUI Workflow / Bildgenerierung (Megan Erotic Chat vs. Catlord Comic)
     img_keywords = ["bild von dir", "foto von dir", "selfie", "zeig dich", "sexy bild", "erotik bild", "generiere ein bild", "catlord", "comic"]
     if any(k in t_lower for k in img_keywords) or (("bild" in t_lower or "foto" in t_lower) and any(a in t_lower for a in ["schick", "mach", "zeig", "generier", "render"])):
-        wf_name = "catlord_comic" if "catlord" in t_lower else "megan_erotic_chat"
+        is_catlord = "catlord" in t_lower or "comic" in t_lower
+        wf_name = "catlord_comic" if is_catlord else "megan_erotic_chat"
         res = execute_autonomous_tool("comfyui_render", {"prompt": text, "workflow": wf_name})
         if res.get("success"):
-            return (
-                f"\n[AUTONOMER COMFYUI-RENDER]:\n"
-                f"Der Render-Job mit Profil '{wf_name}' wurde im Hintergrund gestartet (Status: queued, Prompt-ID: {res.get('prompt_id')}).\n"
-                f"Das Bild wird automatisch nach Fertigstellung über /api/images/<filename> in den Chat eingebunden.\n"
-                f"Antworte dem Boss charmant und kündige an, dass das Bild gleich im Chat erscheint!"
-            )
+            was_busy = res.get("is_busy", False) or res.get("busy", False)
+            queue_remaining = res.get("queue_remaining", 1)
+            # Broadcast render_started to update mobile companion HeaderBar
+            broadcast_ws_sync({
+                "type": "render_started",
+                "in_queue": was_busy,
+                "queue_remaining": queue_remaining,
+                "workflow": wf_name
+            })
+            if was_busy:
+                return (
+                    f"\n[AUTONOMER COMFYUI-RENDER - WARTESCHLANGE]:\n"
+                    f"Die Grafikkarte (Intel Arc A770) rechnet gerade noch an einem anderen Job, aber der Render-Job für '{wf_name}' wurde erfolgreich hinten angestellt (in Warteschlange, Prompt-ID: {res.get('prompt_id')}).\n"
+                    f"WICHTIG: Antworte dem Boss authentisch auf Deutsch. Sag ihm klar und sympathisch:\n"
+                    f"„Boss, die Grafikkarte rechnet gerade noch an einem anderen Job. Ich habe deinen Render hinten angestellt – sobald die A770 frei ist, ziehe ich dein Bild direkt durch!“\n"
+                    f"Erkläre ihm, dass das fertige Bild automatisch im Chat erscheint, sobald die A770 fertig ist."
+                )
+            elif is_catlord:
+                return (
+                    f"\n[AUTONOMER COMFYUI-RENDER]:\n"
+                    f"Der Render-Job für 'Catlord-Comic' wurde im Hintergrund gestartet (Workflow: workflows/catlord_comic.json ohne Megan-LoRAs, Prompt-ID: {res.get('prompt_id')}).\n"
+                    f"Das Bild wird nach Fertigstellung über /api/images/<filename> in den Chat eingebunden.\n"
+                    f"Antworte dem Boss auf Deutsch und kündige begeistert die neue Comic-Szene mit Kater Elliot an!"
+                )
+            else:
+                return (
+                    f"\n[AUTONOMER COMFYUI-RENDER]:\n"
+                    f"Der Render-Job mit Profil '{wf_name}' wurde im Hintergrund gestartet (Status: queued, Prompt-ID: {res.get('prompt_id')}).\n"
+                    f"Das Bild wird automatisch nach Fertigstellung über /api/images/<filename> in den Chat eingebunden.\n"
+                    f"Antworte dem Boss charmant auf Deutsch und kündige an, dass das Bild gleich im Chat erscheint!"
+                )
 
     return None
 
@@ -947,7 +1043,7 @@ async def handle_chat(request: web.Request) -> web.Response:
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(f"{LOCAL_OLLAMA_URL}/api/chat", json=payload, timeout=aiohttp.ClientTimeout(total=45)) as resp:
+            async with session.post(f"{LOCAL_OLLAMA_URL}/api/chat", json=payload, timeout=aiohttp.ClientTimeout(total=180)) as resp:
                 if resp.status != 200:
                     err_txt = await resp.text()
                     return web.json_response({"error": f"Ollama error: {err_txt}"}, status=502)
@@ -988,7 +1084,8 @@ async def handle_chat(request: web.Request) -> web.Response:
 async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse()
     await ws.prepare(request)
-    logger.info("WebSocket Chat Client verbunden")
+    ACTIVE_WS_CLIENTS.add(ws)
+    logger.info(f"WebSocket Chat Client verbunden (Aktive Clients: {len(ACTIVE_WS_CLIENTS)})")
 
     try:
         async for msg in ws:
@@ -1047,6 +1144,14 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 }
 
                 accumulated_text = ""
+                in_think = False
+                intro_buffer = ""
+                intro_dispatched = False
+                english_intro_re = re.compile(
+                    r'^(?:(?:Sure|Certainly|Okay|Ok|Alright|Hello|Hi|Of course|Here is|Here\'s|I will|Let me)[,!\.:\s]+)+',
+                    re.IGNORECASE
+                )
+
                 async with aiohttp.ClientSession() as session:
                     async with session.post(f"{LOCAL_OLLAMA_URL}/api/chat", json=payload) as resp:
                         async for chunk in resp.content:
@@ -1054,8 +1159,44 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                 try:
                                     parsed = json.loads(chunk.decode("utf-8"))
                                     token = parsed.get("message", {}).get("content", "")
-                                    if token:
-                                        accumulated_text += token
+                                    if not token:
+                                        continue
+
+                                    accumulated_text += token
+
+                                    # 1. Filter <think>...</think> Blöcke restlos vor WebSocket-Dispatch ab
+                                    if "<think>" in token or "<think>" in accumulated_text:
+                                        if "</think>" not in accumulated_text:
+                                            in_think = True
+                                            continue
+                                        else:
+                                            if in_think:
+                                                in_think = False
+                                                # Text nach </think> übernehmen
+                                                after_think = accumulated_text.split("</think>", 1)[1]
+                                                intro_buffer = after_think
+                                                continue
+
+                                    if in_think:
+                                        if "</think>" in token:
+                                            in_think = False
+                                        continue
+
+                                    # 2. Englische Einleitungs-Tokens vor dem Dispatch abfangen
+                                    if not intro_dispatched:
+                                        intro_buffer += token
+                                        if any(p in intro_buffer for p in [".", ",", "!", "?", ":", "\n"]) or len(intro_buffer) >= 18:
+                                            cleaned_intro = english_intro_re.sub("", intro_buffer).lstrip()
+                                            if cleaned_intro:
+                                                await ws.send_json({
+                                                    "type": "token",
+                                                    "content": cleaned_intro,
+                                                    "text": cleaned_intro,
+                                                    "token": cleaned_intro
+                                                })
+                                            intro_dispatched = True
+                                            intro_buffer = ""
+                                    else:
                                         await ws.send_json({
                                             "type": "token",
                                             "content": token,
@@ -1064,6 +1205,17 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                         })
                                 except Exception:
                                     pass
+
+                # Eventuellen Rest-Buffer nach kurzem Stream senden
+                if not intro_dispatched and intro_buffer:
+                    cleaned_intro = english_intro_re.sub("", intro_buffer).lstrip()
+                    if cleaned_intro:
+                        await ws.send_json({
+                            "type": "token",
+                            "content": cleaned_intro,
+                            "text": cleaned_intro,
+                            "token": cleaned_intro
+                        })
 
                 clean_text = sanitize_megan_response(accumulated_text)
                 audio_id = await generate_piper_tts(clean_text)
@@ -1080,6 +1232,13 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     timestamp=megan_ts
                 )
 
+                if audio_url:
+                    await ws.send_json({
+                        "type": "audio_ready",
+                        "audio_url": audio_url,
+                        "text": clean_text
+                    })
+
                 await ws.send_json({
                     "type": "done",
                     "id": megan_msg_id,
@@ -1089,7 +1248,8 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 })
                 await ws.send_json({"type": "idle"})
     finally:
-        logger.info("WebSocket Chat Client getrennt")
+        ACTIVE_WS_CLIENTS.discard(ws)
+        logger.info(f"WebSocket Chat Client getrennt (Aktive Clients: {len(ACTIVE_WS_CLIENTS)})")
     return ws
 
 # ------------------------------------------------------------------------------
@@ -1136,12 +1296,25 @@ async def handle_tools_toggle(request: web.Request) -> web.Response:
 async def handle_gpu_status(request: web.Request) -> web.Response:
     """GET /api/gpu/status - Returns GPU status & Render Lock for Android Companion and Web UI."""
     lock_status = get_gpu_lock_status()
+    is_locked = lock_status.get("locked", False) if isinstance(lock_status, dict) else False
+
+    queue_info = await asyncio.to_thread(get_comfyui_queue_status, COMFYUI_URL)
+    is_queue_busy = queue_info.get("busy", False) or queue_info.get("queue_total", 0) > 0
+    queue_remaining = queue_info.get("queue_total", 0)
+
+    is_busy = is_locked or is_queue_busy
+    status_str = "busy" if is_busy else ("idle" if queue_info.get("online", True) else "offline")
+
     return web.json_response({
         "success": True,
-        "status": "online",
+        "status": status_str,
         "device": "Intel Arc A770 16GB",
+        "is_busy": is_busy,
+        "queue_remaining": queue_remaining,
+        "queue_running": queue_info.get("running_count", 0),
+        "queue_pending": queue_info.get("pending_count", 0),
         "gpu_lock": lock_status,
-        "render_lock": lock_status.get("locked", False) if isinstance(lock_status, dict) else False,
+        "render_lock": is_locked,
         "timestamp": int(time.time())
     })
 
@@ -1158,8 +1331,58 @@ async def handle_render(request: web.Request) -> web.Response:
         # Trigger ComfyUI workflow via autonomous tool
         # Entkoppelt: blockierendes urlopen/Queueing im Thread-Pool, Polling läuft ohnehin im Daemon-Thread
         result = await asyncio.to_thread(execute_autonomous_tool, "comfyui_render", body)
+        if result.get("success"):
+            is_busy = result.get("is_busy", False) or result.get("busy", False)
+            queue_rem = result.get("queue_remaining", 1)
+            # 1. Inform all connected clients about render start
+            await broadcast_ws({
+                "type": "render_started",
+                "in_queue": is_busy,
+                "queue_remaining": queue_rem,
+                "workflow": result.get("workflow", "")
+            })
+
+            # 2. Wenn GPU belegt ist: sofort authentische Sprachnachricht von Megan via Piper TTS generieren und senden
+            if is_busy:
+                busy_msg = (
+                    "Boss, die Grafikkarte rechnet gerade noch an einem anderen Job. "
+                    "Ich habe deinen Render hinten angestellt – sobald die A770 frei ist, ziehe ich dein Bild direkt durch!"
+                )
+                audio_id = await generate_piper_tts(busy_msg)
+                audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
+                megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+                megan_ts = int(time.time() * 1000)
+                save_chat_message(
+                    msg_id=megan_msg_id,
+                    sender="MEGAN",
+                    text=busy_msg,
+                    msg_type="TEXT",
+                    audio_url=audio_url,
+                    timestamp=megan_ts
+                )
+                if audio_url:
+                    await broadcast_ws({
+                        "type": "voice",
+                        "audio_url": audio_url,
+                        "url": audio_url,
+                        "text": busy_msg
+                    })
+                    await broadcast_ws({
+                        "type": "audio_ready",
+                        "audio_url": audio_url,
+                        "text": busy_msg
+                    })
+                await broadcast_ws({
+                    "type": "done",
+                    "id": megan_msg_id,
+                    "text": busy_msg,
+                    "content": busy_msg,
+                    "audio_url": audio_url
+                })
+
         return web.json_response(result)
     except Exception as e:
+        logger.error(f"Render handler failed: {e}", exc_info=True)
         return web.json_response({"error": str(e)}, status=500)
 
 async def handle_gallery_list(request: web.Request) -> web.Response:
@@ -1216,6 +1439,14 @@ async def start_background_worker(app: web.Application):
 # ------------------------------------------------------------------------------
 def create_app() -> web.Application:
     app = web.Application()
+
+    async def on_app_startup(app: web.Application) -> None:
+        global MAIN_LOOP
+        MAIN_LOOP = asyncio.get_running_loop()
+        set_image_finished_callback(on_image_finished_broadcast)
+        logger.info("✔ Image finished callback und Event Loop für WebSockets registriert.")
+
+    app.on_startup.append(on_app_startup)
     app.cleanup_ctx.append(start_background_worker)
 
     # Index & Health

@@ -75,14 +75,29 @@ MEGAN_TRUNCATE_MARKERS = [
 def sanitize_megan_response(text: str) -> str:
     """
     Pre-Save Sanitizer for Megan responses:
+    - Strips all <think>...</think> reasoning blocks (even unclosed ones).
     - Strips accidental Hermes self-identification prefixes (e.g. 'Hermes: ...' -> '...').
+    - Strips English introductory tokens/phrases.
     - Truncates strictly before first occurrence of user markers, stop tokens or trigger blocks.
     - If response consists entirely of foreign roles or hallucination, discards it and logs neutral status.
     """
     if not text:
         return ""
 
-    # Strip accidental leading role prefixes (Hermes, Megan, Assistant)
+    # 1. Restlos <think>...</think> Tags und Denk-Blöcke verwerfen
+    text = re.sub(r'<think>[\s\S]*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<think>[\s\S]*$', '', text, flags=re.DOTALL)
+    text = re.sub(r'</?think>', '', text, flags=re.IGNORECASE)
+
+    # 2. Englische Einleitungs-Tokens und Phrasen restlos abfangen
+    text = re.sub(
+        r'^(?:(?:Sure|Certainly|Okay|Ok|Alright|Hello|Hi|Of course|Here is|Here\'s|I will|Let me)[,!\.:\s]+)+',
+        '',
+        text,
+        flags=re.IGNORECASE
+    ).strip()
+
+    # 3. Strip accidental leading role prefixes (Hermes, Megan, Assistant)
     text = re.sub(r'^(?:(?:Hermes|Megan|Assistent|Assistant):\s*)+', '', text, flags=re.IGNORECASE).strip()
 
     earliest = -1
@@ -321,6 +336,9 @@ class MeganContextEngine:
             "shot": shot,
             "lighting": lighting
         }
+
+    def get_active_context(self, hour: Optional[int] = None) -> Dict[str, str]:
+        return self.get_context(hour)
 
     def resolve_prompt_wildcards(self, prompt: str) -> str:
         """
@@ -583,7 +601,8 @@ def build_megan_system_prompt(custom_lore: Optional[str] = None) -> str:
     - System: Du bist Megan, die persönliche, loyale und freche Assistentin von Big Boss.
     - Role Model: Megan (darf sich niemals als Hermes bezeichnen).
     - Role User: Boss / Big Boss.
-    - Language: Ausnahmslos Deutsch.
+    - Language: Antwortgenerierung und alle internen Denk-Tokens AUSNAHMSLOS auf Deutsch.
+    - Projects: Strikt getrennte Workflows (Megan Erotic vs. Catlord Comic).
     """
     base_lore = (custom_lore or "").strip()
     if not base_lore:
@@ -591,16 +610,19 @@ def build_megan_system_prompt(custom_lore: Optional[str] = None) -> str:
             "Du bist Megan, die persönliche, loyale und freche Assistentin von Big Boss. "
             "Du bist hochintelligent, charmant, direkt, verspielt, loyal und unzensiert. "
             "Du sprichst deinen Schöpfer und Nutzer ausschließlich als 'Boss' oder 'Big Boss' an. "
-            "Deine Sprache ist ausnahmslos Deutsch."
+            "Deine Sprache ist AUSNAHMSLOS Deutsch – sowohl in deinen internen Denkprozessen als auch in deiner finalen Ausgabe."
         )
 
     guard_rules = (
         "\n\n[STRIKTE ROLLEN- & SYSTEM-REGELN]\n"
         "1. Identität: Du bist MEGAN. Du darfst dich NIEMALS als Hermes ausgeben oder bezeichnen! Hermes ist der technische Berater des Clusters, du bist Megan, die freche und loyale persönliche Assistentin.\n"
         "2. Nutzeranrede: Dein Gesprächspartner heißt Boss oder Big Boss.\n"
-        "3. Sprache: Antworte immer auf Deutsch, lebendig, pointiert und direkt.\n"
-        "4. Autonomie & Werkzeuge: Du hast vollen Zugriff auf Google Workspace (Kalender, Drive, Gmail), ComfyUI Bildgenerierung und Systemdiagnose.\n"
-        f"5. Google Drive Basis: '{get_gdrive_base_path()}'. Bei Erwähnung von Projekten nutzt du automatisch die Drive-Tools."
+        "3. SPRACHE & DENK-TOKEN (ABSOLUTE PFLICHT): Du denkst und antwortest AUSNAHMSLOS auf Deutsch! Sämtliche internen Denk-Tokens (<think>...</think>), Planungsschritte und Antworten MÜSSEN zu 100% auf Deutsch sein. Keinerlei englische Wörter, Floskeln, Begrüßungen oder Einleitungen (wie 'Okay, let me...', 'Sure, here is...', 'Here is', 'I will...', 'Alright', 'Certainly')! Beginne deine Antwort direkt auf Deutsch ohne jegliche englische Phrase.\n"
+        "4. Projekt-Trennung (Megan vs. Catlord):\n"
+        "   - Eigene Fotos/Selfies von Megan: Triggern den Workflow 'megan_erotic_chat' mit fotorealistischem Stil.\n"
+        "   - Catlord-Comic: Aufträge für 'Catlord' oder Comic-Szenen von Elliot triggern strikt den Comic-Workflow 'workflows/catlord_comic.json'. Dieser Workflow ist völlig unabhängig und verwendet NIEMALS Megan-Charakter-Prompts oder Megan-Charakter-LoRAs!\n"
+        "5. Autonomie & Werkzeuge: Du hast vollen Zugriff auf Google Workspace (Kalender, Drive, Gmail), ComfyUI Bildgenerierung und Systemdiagnose.\n"
+        f"6. Google Drive Basis: '{get_gdrive_base_path()}'. Bei Erwähnung von Projekten nutzt du automatisch die Drive-Tools."
     )
 
     return f"{base_lore}{guard_rules}"
@@ -652,6 +674,66 @@ def find_script_path(script_name: str) -> Optional[Path]:
     return None
 
 
+MEGAN_BASE_PROMPT = (
+    "1girl, megan, solo, cute mischievous seductive expression, emerald green eyes, "
+    "fiery orange hair, soft natural skin texture, masterpiece, photorealistic, raw photo, "
+    "soft intimate studio lighting, rim lighting, 8k uhd, sensual alluring pose"
+)
+
+CATLORD_BASE_PROMPT = (
+    "catlord comic style, graphic novel illustration, ink contours, vibrant saturated colors, "
+    "Elliot massive 8kg orange tabby Maine Coon cat, muscular feline ninja tank, long fur, "
+    "sharp Wolverine claws extended, defensive combat pose, attic apartment background, rim lighting, 8k uhd, high quality"
+)
+
+CATLORD_NEGATIVE_PROMPT = (
+    "human, girl, megan, woman, female, glasses, dog, ugly, deformed, bad anatomy, "
+    "extra limbs, extra paws, blurry, lowres, text, watermark, signature, photorealistic"
+)
+
+IMAGE_FINISHED_CALLBACK: Optional[Any] = None
+
+def set_image_finished_callback(cb: Any) -> None:
+    """Sets a global callback for when a ComfyUI render finishes and is recorded in chat DB."""
+    global IMAGE_FINISHED_CALLBACK
+    IMAGE_FINISHED_CALLBACK = cb
+
+def get_comfyui_queue_status(comfy_url: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Abfrage von ComfyUI /queue (queue_running und queue_pending).
+    Ermittelt, ob die Intel Arc A770 gerade an einem Render-Job rechnet.
+    """
+    import urllib.request
+    import urllib.error
+    url = (comfy_url or os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")).rstrip("/")
+    try:
+        req = urllib.request.Request(f"{url}/queue", headers={"User-Agent": "MeganStudio/1.0"})
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            running = data.get("queue_running", [])
+            pending = data.get("queue_pending", [])
+            running_count = len(running)
+            pending_count = len(pending)
+            queue_total = running_count + pending_count
+            return {
+                "online": True,
+                "busy": (queue_total > 0),
+                "running_count": running_count,
+                "pending_count": pending_count,
+                "queue_total": queue_total,
+                "running_prompts": [item[1] for item in running if len(item) > 1]
+            }
+    except Exception as e:
+        logger.warning(f"ComfyUI /queue Abfrage fehlgeschlagen: {e}")
+        return {
+            "online": False,
+            "busy": False,
+            "running_count": 0,
+            "pending_count": 0,
+            "queue_total": 0,
+            "error": str(e)
+        }
+
 def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Submits a fixed ComfyUI workflow (megan_erotic_chat.json or catlord_comic.json)
@@ -667,8 +749,9 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
     raw_prompt = params.get("prompt", "").strip()
     requested_wf = params.get("workflow", "").lower().strip()
 
-    # Select workflow template
-    if requested_wf in ["catlord", "catlord_comic"] or "catlord" in raw_prompt.lower():
+    # Strikte Projekt-Trennung: Catlord vs. Megan
+    is_catlord = requested_wf in ["catlord", "catlord_comic"] or "catlord" in raw_prompt.lower()
+    if is_catlord:
         wf_file = WORKFLOWS_DIR / "catlord_comic.json"
         wf_name = "catlord_comic"
     else:
@@ -685,7 +768,7 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
 
     seed = secrets.randbelow(10**14)
     if wf_name == "megan_erotic_chat":
-        base_prompt = "1girl, megan, solo, cute mischievous seductive expression, emerald green eyes, fiery orange hair, soft natural skin texture, masterpiece, photorealistic, raw photo, soft intimate studio lighting, rim lighting, 8k uhd, sensual alluring pose"
+        base_prompt = MEGAN_BASE_PROMPT
         if raw_prompt and raw_prompt != base_prompt:
             positive = f"{base_prompt}, {raw_prompt}"
         else:
@@ -703,18 +786,39 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
             wf_data["8"]["inputs"]["lora_name"] = str(params["lora"])
 
     elif wf_name == "catlord_comic":
-        base_catlord = "catlord comic style, graphic novel illustration, ink contours, vibrant saturated colors, Elliot massive 8kg orange tabby Maine Coon cat, muscular feline ninja tank, long fur, sharp Wolverine claws extended, defensive combat pose, attic apartment background, rim lighting, 8k uhd, high quality"
-        if raw_prompt and raw_prompt != base_catlord:
-            positive = f"{base_catlord}, {raw_prompt}"
+        # Strikt getrennter Catlord-Prompt ohne Megan-Keywords oder LoRAs
+        cleaned_catlord = re.sub(
+            r'\b(?:1girl|megan|female|woman|solo|sensual|erotic|girl)\b',
+            '',
+            raw_prompt,
+            flags=re.IGNORECASE
+        ).strip(', ')
+
+        if cleaned_catlord and cleaned_catlord != CATLORD_BASE_PROMPT and "catlord" not in cleaned_catlord.lower():
+            positive = f"{CATLORD_BASE_PROMPT}, {cleaned_catlord}"
+        elif cleaned_catlord and "catlord" in cleaned_catlord.lower():
+            positive = cleaned_catlord
         else:
-            positive = base_catlord
+            positive = CATLORD_BASE_PROMPT
 
         if "3" in wf_data and "inputs" in wf_data["3"]:
             wf_data["3"]["inputs"]["text"] = positive
+        if "4" in wf_data and "inputs" in wf_data["4"]:
+            wf_data["4"]["inputs"]["text"] = CATLORD_NEGATIVE_PROMPT
         if "5" in wf_data and "inputs" in wf_data["5"]:
             wf_data["5"]["inputs"]["seed"] = seed
 
+        # Keine Megan-Charakter-LoRAs im Catlord-Workflow erlauben
+        for node_id, node in list(wf_data.items()):
+            if isinstance(node, dict) and node.get("class_type") == "LoraLoader":
+                del wf_data[node_id]
+
     comfy_url = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")
+    
+    # Vor dem Absenden: ComfyUI Status- & Queue-Prüfung (/queue)
+    queue_status = get_comfyui_queue_status(comfy_url)
+    was_busy = queue_status.get("busy", False)
+
     client_id = f"megan_client_{secrets.token_hex(4)}"
     payload = json.dumps({"prompt": wf_data, "client_id": client_id}).encode("utf-8")
     req = urllib.request.Request(f"{comfy_url}/prompt", data=payload, headers={"Content-Type": "application/json"})
@@ -729,7 +833,7 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
 
     def _poll_and_record():
         start_time = time.time()
-        timeout = 180.0
+        timeout = 360.0  # 6 Minuten Timeout, damit auch Jobs in der Warteschlange sicher ankommen
         output_filename = None
         while time.time() - start_time < timeout:
             time.sleep(2.0)
@@ -756,6 +860,7 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
                 msg_id = f"megan_img_{int(time.time()*1000)}_{secrets.token_hex(3)}"
                 ts = int(time.time() * 1000)
                 caption = "Hier ist dein Bild, Boss! ❤️" if wf_name == "megan_erotic_chat" else "Hier ist die neue Catlord-Comic-Szene für dich, Boss! 🐾"
+                prompt_used = wf_data.get("3", {}).get("inputs", {}).get("text", "")
                 with sqlite3.connect(str(chat_db)) as conn:
                     conn.execute("""
                         CREATE TABLE IF NOT EXISTS messages (
@@ -771,10 +876,24 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
                     """)
                     conn.execute(
                         "INSERT OR REPLACE INTO messages (id, sender, type, text, image_url, audio_url, prompt, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        (msg_id, "MEGAN", "SDXL_IMAGE", caption, f"/api/images/{output_filename}", None, wf_data.get("3", {}).get("inputs", {}).get("text", ""), ts)
+                        (msg_id, "MEGAN", "SDXL_IMAGE", caption, f"/api/images/{output_filename}", None, prompt_used, ts)
                     )
                     conn.commit()
                 logger.info(f"Bild {output_filename} erfolgreich in megan_chat.db eingetragen.")
+
+                # Proaktive Benachrichtigung aller WebSocket-Clients
+                if IMAGE_FINISHED_CALLBACK:
+                    try:
+                        IMAGE_FINISHED_CALLBACK({
+                            "id": msg_id,
+                            "filename": output_filename,
+                            "url": f"/api/images/{output_filename}",
+                            "prompt": prompt_used,
+                            "workflow": wf_name
+                        })
+                    except Exception as cberr:
+                        logger.warning(f"Fehler in ImageFinishedCallback: {cberr}")
+
             except Exception as dberr:
                 logger.error(f"Fehler beim Speichern in megan_chat.db: {dberr}")
         else:
@@ -786,6 +905,11 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
         "success": True,
         "tool": "comfyui_render",
         "status": "queued",
+        "is_busy": was_busy,
+        "busy": was_busy,
+        "running_count": queue_status.get("running_count", 0),
+        "pending_count": queue_status.get("pending_count", 0),
+        "queue_remaining": queue_status.get("queue_total", 0) + 1,
         "prompt_id": prompt_id,
         "workflow": wf_name,
         "client_id": client_id
