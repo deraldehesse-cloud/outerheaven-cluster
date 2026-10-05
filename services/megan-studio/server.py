@@ -783,6 +783,103 @@ async def handle_audio_serve(request: web.Request) -> web.StreamResponse:
         }
     )
 
+_WHISPER_MODEL = None
+
+def get_whisper_model():
+    global _WHISPER_MODEL
+    if _WHISPER_MODEL is None:
+        try:
+            from faster_whisper import WhisperModel
+            try:
+                _WHISPER_MODEL = WhisperModel("medium", device="cpu", compute_type="int8")
+            except Exception:
+                _WHISPER_MODEL = WhisperModel("base", device="cpu", compute_type="int8")
+        except Exception as e:
+            logger.error(f"Failed to load WhisperModel: {e}")
+    return _WHISPER_MODEL
+
+def transcribe_audio_local(audio_path: str, language: str = "de") -> str:
+    model = get_whisper_model()
+    if not model:
+        raise RuntimeError("Whisper model not available")
+    segments, _ = model.transcribe(
+        audio_path,
+        language=language,
+        beam_size=5,
+        vad_filter=True,
+        vad_parameters=dict(min_silence_duration_ms=500)
+    )
+    parts = [s.text.strip() for s in segments if s.text and s.text.strip()]
+    return " ".join(parts).strip()
+
+async def handle_audio_transcribe(request: web.Request) -> web.Response:
+    """POST /api/audio/transcribe - Transcribes uploaded audio via Mission Control (:8000) or local faster-whisper."""
+    temp_path = None
+    try:
+        raw_body = await request.read()
+        if not raw_body:
+            return web.json_response({"status": "error", "error": "No audio data provided", "text": ""}, status=400)
+
+        # 1. Forward to Mission Control (:8000) if running to save RAM and leverage existing model instance
+        try:
+            headers = {}
+            if "Content-Type" in request.headers:
+                headers["Content-Type"] = request.headers["Content-Type"]
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "http://127.0.0.1:8000/api/audio/transcribe",
+                    data=raw_body,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as resp:
+                    if resp.status == 200:
+                        res_data = await resp.json()
+                        logger.info(f"[megan-stt] Transkription via Mission Control: '{res_data.get('text', '')}'")
+                        return web.json_response(res_data)
+                    else:
+                        logger.warning(f"[megan-stt] Mission Control /api/audio/transcribe HTTP {resp.status}, wechsle auf lokalen Fallback")
+        except Exception as fwd_err:
+            logger.info(f"[megan-stt] Weiterleitung an :8000 nicht möglich ({fwd_err}), nutze lokalen Fallback")
+
+        # 2. Local Fallback: Extract audio bytes and write to temp file
+        ext = ".wav"
+        content_type = request.headers.get("Content-Type", "")
+        if "multipart/form-data" in content_type and b"boundary=" in content_type.encode():
+            boundary = content_type.split("boundary=")[-1].strip().encode('utf-8')
+            parts = raw_body.split(b"--" + boundary)
+            audio_bytes = None
+            for p in parts:
+                if b'filename=' in p:
+                    if b"\r\n\r\n" in p:
+                        hdr, body = p.split(b"\r\n\r\n", 1)
+                        audio_bytes = body.rstrip(b"\r\n--")
+                        break
+                    elif b"\n\n" in p:
+                        hdr, body = p.split(b"\n\n", 1)
+                        audio_bytes = body.rstrip(b"\r\n--")
+                        break
+            if not audio_bytes:
+                audio_bytes = raw_body
+        else:
+            audio_bytes = raw_body
+
+        temp_path = f"/tmp/megan_stt_{secrets.token_hex(6)}{ext}"
+        with open(temp_path, "wb") as f:
+            f.write(audio_bytes)
+
+        text = await asyncio.to_thread(transcribe_audio_local, temp_path, "de")
+        logger.info(f"[megan-stt] Lokale Transkription erfolgreich: '{text}'")
+        return web.json_response({"status": "ok", "text": text})
+    except Exception as e:
+        logger.error(f"[megan-stt] Fehler bei Transkription: {e}", exc_info=True)
+        return web.json_response({"status": "error", "error": str(e), "text": ""}, status=500)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
 # ------------------------------------------------------------------------------
 # Handlers: Central Chat (Megan LLM Inference & SQLite Persistence)
 # ------------------------------------------------------------------------------
@@ -809,7 +906,7 @@ async def handle_chat(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
-    user_msg = body.get("message", "").strip()
+    user_msg = (body.get("message") or body.get("text") or "").strip()
     if not user_msg:
         return web.json_response({"error": "Message required"}, status=400)
 
@@ -878,6 +975,8 @@ async def handle_chat(request: web.Request) -> web.Response:
                     "success": True,
                     "id": megan_msg_id,
                     "response": clean_text,
+                    "message": clean_text,
+                    "text": clean_text,
                     "audio_url": audio_url,
                     "model": MEGAN_MODEL,
                     "timestamp": megan_ts
@@ -894,10 +993,20 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
     try:
         async for msg in ws:
             if msg.type == aiohttp.WSMsgType.TEXT:
-                data = json.loads(msg.data)
-                user_text = data.get("message", "").strip()
-                if not user_text:
+                logger.info(f"WebSocket empfing Rohdaten: {msg.data[:200]}")
+                try:
+                    data = json.loads(msg.data)
+                except Exception as e:
+                    logger.error(f"WebSocket ungültiges JSON: {e}")
+                    await ws.send_json({"type": "error", "text": "Ungültiges JSON"})
                     continue
+
+                user_text = (data.get("message") or data.get("text") or "").strip()
+                if not user_text:
+                    logger.warning("WebSocket Nachricht ohne Textinhalt empfangen.")
+                    continue
+
+                logger.info(f"WebSocket verarbeitet Chat-Nachricht: '{user_text}'")
 
                 user_msg_id = f"user_{int(time.time()*1000)}_{secrets.token_hex(3)}"
                 user_ts = int(time.time() * 1000)
@@ -908,6 +1017,10 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     msg_type="TEXT",
                     timestamp=user_ts
                 )
+
+                # Send typing and start events to client
+                await ws.send_json({"type": "typing"})
+                await ws.send_json({"type": "start", "node": "outerheaven", "model": MEGAN_MODEL})
 
                 system_prompt = get_active_megan_prompt()
                 intent_context = await asyncio.to_thread(check_autonomous_intent, user_text)
@@ -925,7 +1038,12 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 payload = {
                     "model": MEGAN_MODEL,
                     "messages": messages,
-                    "stream": True
+                    "stream": True,
+                    "options": {
+                        "temperature": 0.75,
+                        "repeat_penalty": 1.15,
+                        "num_ctx": 4096
+                    }
                 }
 
                 accumulated_text = ""
@@ -938,7 +1056,12 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                     token = parsed.get("message", {}).get("content", "")
                                     if token:
                                         accumulated_text += token
-                                        await ws.send_json({"type": "token", "content": token})
+                                        await ws.send_json({
+                                            "type": "token",
+                                            "content": token,
+                                            "text": token,
+                                            "token": token
+                                        })
                                 except Exception:
                                     pass
 
@@ -961,8 +1084,10 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     "type": "done",
                     "id": megan_msg_id,
                     "text": clean_text,
+                    "content": clean_text,
                     "audio_url": audio_url
                 })
+                await ws.send_json({"type": "idle"})
     finally:
         logger.info("WebSocket Chat Client getrennt")
     return ws
@@ -1146,6 +1271,7 @@ def create_app() -> web.Application:
     app.router.add_get("/ws/chat", handle_chat_ws)
     app.router.add_get("/api/audio/{filename}", handle_audio_serve)
     app.router.add_get("/api/audio/tts/{filename}", handle_audio_serve)
+    app.router.add_post("/api/audio/transcribe", handle_audio_transcribe)
 
     # ComfyUI Render & Gallery
     app.router.add_post("/api/render", handle_render)
