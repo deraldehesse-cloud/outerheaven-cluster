@@ -2782,6 +2782,11 @@
         </div>
 
         <div class="flex items-center space-x-2">
+          <!-- Button: ComfyUI neu laden / neu starten -->
+          <button type="button" id="btnRestartComfyFromEditor" onclick="restartComfyUIFromEditor()" title="ComfyUI Dienst (comfyui.service) neu starten, um Python-Änderungen zu aktivieren"
+                  class="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-300 hover:text-amber-200 border border-amber-600/50 rounded font-bold text-xs font-mono shadow transition flex items-center space-x-1.5">
+            <span>🔄</span> <span>ComfyUI neu starten</span>
+          </button>
           <span id="customNodeEditorBackupInfo" class="text-[10px] text-emerald-400 font-mono hidden"></span>
           <button type="button" id="btnSaveCustomNodeFile" onclick="saveCustomNodeFileContent()"
                   class="px-4 py-1.5 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-slate-950 font-bold rounded text-xs font-mono shadow transition flex items-center space-x-1.5">
@@ -2790,13 +2795,28 @@
         </div>
       </div>
 
-      <!-- Editor Area -->
-      <div class="flex-1 relative flex flex-col bg-black/90 overflow-hidden">
+      <!-- Editor Area mit synchronisierten Zeilennummern -->
+      <div class="flex-1 relative flex bg-black/95 overflow-hidden">
+        <!-- Zeilennummern -->
+        <div id="customNodeLineNumbers" class="w-12 bg-slate-950/90 text-slate-600 font-mono text-xs text-right pr-2.5 pt-3.5 select-none overflow-hidden shrink-0 border-r border-slate-800/80 leading-5">
+          1
+        </div>
+        <!-- Monospace Textarea -->
         <textarea id="customNodeCodeArea" spellcheck="false"
                   oninput="onCustomNodeCodeInput()"
+                  onscroll="syncCustomNodeLineScroll()"
                   onkeydown="handleEditorTabKey(event)"
                   placeholder="Lade Quellcode..."
-                  class="w-full h-full bg-black/95 text-slate-100 p-3.5 font-mono text-xs leading-relaxed resize-none focus:outline-none scrollbar-thin select-text"></textarea>
+                  class="flex-1 h-full bg-black/95 text-slate-100 p-3.5 pt-3.5 font-mono text-xs leading-5 resize-none focus:outline-none scrollbar-thin select-text whitespace-pre overflow-auto"></textarea>
+      </div>
+
+      <!-- Syntax-Fehler-Banner (wird bei ast.parse Fehlern eingeblendet) -->
+      <div id="customNodeEditorErrorBanner" class="hidden px-3 py-2 bg-rose-950/90 border-t border-rose-800 text-rose-200 text-xs font-mono flex items-center justify-between shrink-0">
+        <div class="flex items-center space-x-2 truncate">
+          <span class="text-rose-400 font-bold text-sm">⚠️</span>
+          <span id="customNodeEditorErrorMsg" class="truncate font-semibold">Syntaxfehler</span>
+        </div>
+        <button type="button" onclick="dismissCustomNodeErrorBanner()" class="text-rose-400 hover:text-white font-bold text-xs px-2 py-0.5 ml-2 transition">✕</button>
       </div>
 
       <!-- Status Bar Footer -->
@@ -2805,7 +2825,8 @@
           <span id="customNodeEditorPathDisplay" class="text-cyan-400">--</span>
           <span id="customNodeEditorSizeDisplay" class="text-slate-500">0 Bytes</span>
         </div>
-        <div>
+        <div class="flex items-center space-x-3">
+          <span id="customNodeEditorLinesDisplay" class="text-slate-500">1 Zeilen</span>
           <span class="text-slate-500">ast.parse() Validierung aktiv</span>
         </div>
       </div>
@@ -9451,11 +9472,11 @@
             </div>
           </div>
 
-          <!-- Kachel-Aktionen: 🔍 Info / Vorschau & ✏️ Bearbeiten -->
+          <!-- Kachel-Aktionen: 🔍 Info / Details & ✏️ Bearbeiten -->
           <div class="flex items-center gap-1.5 pt-1.5 border-t border-slate-900">
             <button type="button" onclick="openCustomNodeInfoModal('${escapeHtml(node.name)}')"
               class="flex-1 px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 hover:border-cyan-500/60 font-mono text-[10px] font-bold flex items-center justify-center gap-1 transition shadow-sm">
-              <span>🔍</span> <span>Info / Vorschau</span>
+              <span>🔍</span> <span>Info / Details</span>
             </button>
             <button type="button" onclick="openCustomNodeEditorModal('${escapeHtml(node.name)}')"
               class="flex-1 px-2 py-1 rounded bg-amber-950/40 hover:bg-amber-950 border border-amber-800/80 hover:border-amber-500 text-amber-300 font-mono text-[10px] font-bold flex items-center justify-center gap-1 transition shadow-sm">
@@ -9471,19 +9492,23 @@
       if (!md || !md.trim()) {
         return '<div class="p-4 text-center text-slate-500 italic text-xs">Keine Dokumentation (README.md) vorhanden.</div>';
       }
-      let html = escapeHtml(md)
+      let html = escapeHtml(md);
+      // Code-Blöcke (``` ... ```)
+      html = html.replace(/```(?:[a-z0-9_-]+)?\n([\s\S]*?)```/gim, '<pre class="my-2 p-3 bg-black/95 border border-slate-800 rounded font-mono text-[11px] text-cyan-300 overflow-x-auto select-text"><code>$1</code></pre>');
+      // Headers & Formatierung
+      html = html
         .replace(/^### (.*$)/gim, '<h3 class="text-xs font-bold text-amber-300 mt-2 mb-1">$1</h3>')
         .replace(/^## (.*$)/gim, '<h2 class="text-sm font-bold text-cyan-300 mt-3 mb-1 border-b border-slate-800 pb-1">$1</h2>')
         .replace(/^# (.*$)/gim, '<h1 class="text-base font-extrabold text-pink-300 mt-3 mb-2 border-b border-slate-700 pb-1">$1</h1>')
-        .replace(/\\*\\*(.*?)\\*\\*/gim, '<strong class="text-slate-100">$1</strong>')
-        .replace(/\\*(.*?)\\*/gim, '<em class="text-slate-300">$1</em>')
+        .replace(/\*\*(.*?)\*\*/gim, '<strong class="text-slate-100">$1</strong>')
+        .replace(/\*(.*?)\*/gim, '<em class="text-slate-300">$1</em>')
         .replace(/`([^`]+)`/gim, '<code class="px-1 py-0.5 rounded bg-slate-900 border border-slate-700 text-amber-300 font-mono text-[10px]">$1</code>')
-        .replace(/^\\s*[\\-\\*]\\s+(.*$)/gim, '<li class="ml-4 list-disc text-slate-300">$1</li>')
-        .replace(/\\n\\n/gim, '<br><br>');
+        .replace(/^\s*[\-\*]\s+(.*$)/gim, '<li class="ml-4 list-disc text-slate-300">$1</li>')
+        .replace(/\n\n/gim, '<br><br>');
       return `<div class="prose prose-invert max-w-none text-xs leading-relaxed text-slate-300 font-sans">${html}</div>`;
     }
 
-    // Modal 1: Info / Vorschau
+    // Modal 1: Info / Details (Gerenderte Beschreibung & NODE_CLASS_MAPPINGS)
     async function openCustomNodeInfoModal(nodeName) {
       const modal = document.getElementById("customNodeInfoModal");
       const title = document.getElementById("customNodeInfoTitle");
@@ -9522,7 +9547,7 @@
         if (commitEl) commitEl.textContent = (data.git && data.git.commit) ? `${data.git.branch || 'HEAD'} @ ${data.git.commit}` : 'Keine Git-Historie';
         if (msgEl) msgEl.textContent = (data.git && data.git.message) ? data.git.message : '--';
 
-        // Bereitgestellte Node-Klassen (NODE_CLASS_MAPPINGS)
+        // Bereitgestellte Node-Klassen (NODE_CLASS_MAPPINGS & NODE_DISPLAY_NAME_MAPPINGS)
         if (classesList) {
           classesList.innerHTML = "";
           const classes = data.node_classes || [];
@@ -9534,10 +9559,20 @@
           } else {
             classes.forEach(cls => {
               const disp = dispNames[cls];
-              const pill = document.createElement("span");
-              pill.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950/70 border border-cyan-700/60 text-cyan-200 flex items-center gap-1";
-              pill.innerHTML = `<span>⚡ ${escapeHtml(cls)}</span>${disp ? `<span class="text-slate-400 font-normal">(${escapeHtml(disp)})</span>` : ''}`;
-              classesList.appendChild(pill);
+              const item = document.createElement("div");
+              item.className = "w-full p-2 rounded bg-cyan-950/30 border border-cyan-800/50 text-cyan-200 flex flex-col gap-0.5";
+              item.innerHTML = `
+                <div class="flex items-center justify-between gap-2 flex-wrap">
+                  <span class="font-mono font-bold text-xs text-amber-300 flex items-center gap-1.5">
+                    <span>⚡</span> <span>${escapeHtml(cls)}</span>
+                  </span>
+                  ${disp ? `<span class="px-2 py-0.5 rounded text-[10px] font-sans font-semibold bg-cyan-900/60 text-cyan-200 border border-cyan-700/60">${escapeHtml(disp)}</span>` : ''}
+                </div>
+                <div class="text-[10px] text-slate-400 font-sans mt-0.5">
+                  ${disp ? `ComfyUI Graph-Knoten: <strong>${escapeHtml(disp)}</strong> (Klasse: <code>${escapeHtml(cls)}</code>)` : `Registrierter Graph-Knoten (Python-Klasse: <code>${escapeHtml(cls)}</code>)`}
+                </div>
+              `;
+              classesList.appendChild(item);
             });
           }
         }
@@ -9558,7 +9593,7 @@
       if (modal) modal.classList.add("hidden");
     }
 
-    // Modal 2: Bearbeiten Editor
+    // Modal 2: Bearbeiten Editor (Inline-Code-Editor mit Zeilennummern, ast.parse und ComfyUI-Neustart)
     async function openCustomNodeEditorModal(nodeName, initialFile) {
       activeEditorNodeName = nodeName;
       const modal = document.getElementById("customNodeEditorModal");
@@ -9567,6 +9602,7 @@
       const codeArea = document.getElementById("customNodeCodeArea");
       const syntaxBadge = document.getElementById("customNodeEditorSyntaxBadge");
       const backupInfo = document.getElementById("customNodeEditorBackupInfo");
+      dismissCustomNodeErrorBanner();
 
       if (title) title.textContent = `Node-Editor: ${nodeName}`;
       if (syntaxBadge) {
@@ -9574,7 +9610,10 @@
         syntaxBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 border border-slate-700 text-slate-300";
       }
       if (backupInfo) backupInfo.classList.add("hidden");
-      if (codeArea) codeArea.value = "Lade Dateiliste und Quellcode...";
+      if (codeArea) {
+        codeArea.value = "Lade Dateiliste und Quellcode...";
+        updateCustomNodeLineNumbers();
+      }
       if (fileSelect) fileSelect.innerHTML = '<option value="">Lade Dateien...</option>';
       if (modal) modal.classList.remove("hidden");
 
@@ -9617,6 +9656,7 @@
       const syntaxBadge = document.getElementById("customNodeEditorSyntaxBadge");
       const pathDisplay = document.getElementById("customNodeEditorPathDisplay");
       const sizeDisplay = document.getElementById("customNodeEditorSizeDisplay");
+      dismissCustomNodeErrorBanner();
 
       if (pathDisplay) pathDisplay.textContent = `${nodeName} / ${filePath}`;
       if (syntaxBadge) {
@@ -9637,6 +9677,7 @@
         console.error("loadCustomNodeFileContent failed:", err);
         if (codeArea) codeArea.value = `# Netzwerkfehler: ${err.message}`;
       }
+      updateCustomNodeLineNumbers();
     }
 
     function onCustomNodeFileChange(filePath) {
@@ -9651,6 +9692,35 @@
       }
     }
 
+    function updateCustomNodeLineNumbers() {
+      const codeArea = document.getElementById("customNodeCodeArea");
+      const lineCol = document.getElementById("customNodeLineNumbers");
+      const linesDisplay = document.getElementById("customNodeEditorLinesDisplay");
+      if (!codeArea || !lineCol) return;
+
+      const lines = (codeArea.value.match(/\n/g) || []).length + 1;
+      let numbersHtml = "";
+      for (let i = 1; i <= lines; i++) {
+        numbersHtml += `${i}<br>`;
+      }
+      lineCol.innerHTML = numbersHtml;
+      if (linesDisplay) linesDisplay.textContent = `${lines} Zeilen`;
+      syncCustomNodeLineScroll();
+    }
+
+    function syncCustomNodeLineScroll() {
+      const codeArea = document.getElementById("customNodeCodeArea");
+      const lineCol = document.getElementById("customNodeLineNumbers");
+      if (codeArea && lineCol) {
+        lineCol.scrollTop = codeArea.scrollTop;
+      }
+    }
+
+    function dismissCustomNodeErrorBanner() {
+      const banner = document.getElementById("customNodeEditorErrorBanner");
+      if (banner) banner.classList.add("hidden");
+    }
+
     function onCustomNodeCodeInput() {
       const syntaxBadge = document.getElementById("customNodeEditorSyntaxBadge");
       const sizeDisplay = document.getElementById("customNodeEditorSizeDisplay");
@@ -9662,6 +9732,7 @@
       if (sizeDisplay && codeArea) {
         sizeDisplay.textContent = `${codeArea.value.length} Zeichen`;
       }
+      updateCustomNodeLineNumbers();
     }
 
     async function saveCustomNodeFileContent() {
@@ -9671,6 +9742,8 @@
       const saveBtn = document.getElementById("btnSaveCustomNodeFile");
       const syntaxBadge = document.getElementById("customNodeEditorSyntaxBadge");
       const backupInfo = document.getElementById("customNodeEditorBackupInfo");
+      const errorBanner = document.getElementById("customNodeEditorErrorBanner");
+      const errorMsg = document.getElementById("customNodeEditorErrorMsg");
       const code = codeArea ? codeArea.value : "";
 
       const origBtnHtml = saveBtn ? saveBtn.innerHTML : "";
@@ -9691,6 +9764,7 @@
 
         const data = await res.json();
         if (data.success) {
+          dismissCustomNodeErrorBanner();
           if (syntaxBadge) {
             syntaxBadge.textContent = "✔ Syntax OK (ast.parse validiert)";
             syntaxBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-700 shadow";
@@ -9699,14 +9773,19 @@
             backupInfo.textContent = data.backup ? `Backup: ${data.backup}` : "Backup erstellt";
             backupInfo.classList.remove("hidden");
           }
-          alert(`✔ Datei '${activeEditorFilePath}' erfolgreich gespeichert!\\n\\n- Python Syntax: Valide (ast.parse)\\n- Backup: ${data.backup || '.bak'}`);
+          alert(`✔ Datei '${activeEditorFilePath}' erfolgreich gespeichert!\n\n- Python Syntax: Valide (ast.parse)\n- Backup: ${data.backup || '.bak'}`);
         } else {
           // Syntax Error or Save Error
+          const errText = data.error || 'Fehler beim Validieren / Speichern';
           if (syntaxBadge) {
-            syntaxBadge.textContent = `❌ ${data.error || 'Syntaxfehler'}`;
+            syntaxBadge.textContent = `❌ ${errText}`;
             syntaxBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-700 shadow animate-pulse";
           }
-          alert(`❌ Speichern abgebrochen:\\n\\n${data.error || 'Fehler beim Validieren'}`);
+          if (errorBanner && errorMsg) {
+            errorMsg.textContent = `${errText}${data.lineno ? ` (Zeile ${data.lineno})` : ''}`;
+            errorBanner.classList.remove("hidden");
+          }
+          alert(`❌ Speichern abgebrochen:\n\n${errText}`);
         }
       } catch (err) {
         console.error("saveCustomNodeFileContent failed:", err);
@@ -9719,6 +9798,35 @@
         if (saveBtn) {
           saveBtn.disabled = false;
           saveBtn.innerHTML = origBtnHtml;
+        }
+      }
+    }
+
+    async function restartComfyUIFromEditor() {
+      const btn = document.getElementById("btnRestartComfyFromEditor");
+      if (!confirm("ComfyUI Dienst (comfyui.service) auf outerheaven jetzt neu starten, um Codeänderungen aktiv zu schalten?")) {
+        return;
+      }
+      const origHtml = btn ? btn.innerHTML : "";
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span>⏳</span> <span>Starte ComfyUI neu...</span>';
+      }
+      try {
+        const res = await fetch("/api/nodes/custom/restart", { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+          alert(`✔ ${data.message || 'ComfyUI erfolgreich neu gestartet!'}`);
+        } else {
+          alert(`❌ Fehler beim ComfyUI-Neustart: ${data.error || data.message || 'Unbekannt'}`);
+        }
+      } catch (err) {
+        console.error("restartComfyUIFromEditor error:", err);
+        alert(`Netzwerkfehler beim Neustart von ComfyUI: ${err.message}`);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
         }
       }
     }

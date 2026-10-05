@@ -7434,6 +7434,13 @@ async def handle_custom_node_file_post(request: web.Request) -> web.Response:
         return web.json_response({"success": False, **(res if isinstance(res, dict) else {"error": str(res)})}, status=status_code)
     return web.json_response(res)
 
+async def handle_custom_nodes_restart(request: web.Request) -> web.Response:
+    """POST /api/nodes/custom/restart - Triggers ComfyUI service restart so modified Python code takes effect."""
+    if not ccn:
+        return web.json_response({"success": False, "error": "comfy_custom_nodes Modul nicht verfügbar"}, status=500)
+    ok, msg = await asyncio.to_thread(ccn.restart_comfyui)
+    return web.json_response({"success": ok, "message": msg}, status=200 if ok else 500)
+
 # --- App Setup & Multi-Binding ---
 
 jinja_env = jinja2.Environment(
@@ -7490,6 +7497,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/nodes/custom/{node_name}/details", handle_custom_node_details)
     app.router.add_get("/api/nodes/custom/{node_name}/file", handle_custom_node_file_get)
     app.router.add_post("/api/nodes/custom/{node_name}/file", handle_custom_node_file_post)
+    app.router.add_post("/api/nodes/custom/restart", handle_custom_nodes_restart)
 
     # Workflow Persistence & Storage
     app.router.add_post("/api/workflows/save", handle_workflows_save)

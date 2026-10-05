@@ -113,13 +113,22 @@ def _extract_node_mappings(target_py_file: Path) -> Tuple[List[str], Dict[str, s
                                 if isinstance(k, ast.Constant) and isinstance(v, ast.Constant):
                                     if k.value is not None and v.value is not None:
                                         display_names[str(k.value)] = str(v.value)
-                    # Subscript assignment: NODE_CLASS_MAPPINGS['Key'] = Value
+                    # Subscript assignment: NODE_CLASS_MAPPINGS['Key'] = Value or NODE_DISPLAY_NAME_MAPPINGS['Key'] = ...
                     elif isinstance(target, ast.Subscript):
-                        if isinstance(target.value, ast.Name) and target.value.id == "NODE_CLASS_MAPPINGS":
-                            if isinstance(target.slice, ast.Constant) and target.slice.value is not None:
-                                mappings.append(str(target.slice.value))
-                            elif hasattr(target.slice, "value") and getattr(target.slice, "value", None) is not None:
-                                mappings.append(str(getattr(target.slice, "value")))
+                        if isinstance(target.value, ast.Name):
+                            if target.value.id == "NODE_CLASS_MAPPINGS":
+                                if isinstance(target.slice, ast.Constant) and target.slice.value is not None:
+                                    mappings.append(str(target.slice.value))
+                                elif hasattr(target.slice, "value") and getattr(target.slice, "value", None) is not None:
+                                    mappings.append(str(getattr(target.slice, "value")))
+                            elif target.value.id == "NODE_DISPLAY_NAME_MAPPINGS":
+                                k_val = None
+                                if isinstance(target.slice, ast.Constant) and target.slice.value is not None:
+                                    k_val = str(target.slice.value)
+                                elif hasattr(target.slice, "value") and getattr(target.slice, "value", None) is not None:
+                                    k_val = str(getattr(target.slice, "value"))
+                                if k_val and isinstance(node.value, ast.Constant) and node.value.value is not None:
+                                    display_names[k_val] = str(node.value.value)
 
             # 2. Call expression: NODE_CLASS_MAPPINGS.update({...})
             elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
@@ -131,6 +140,13 @@ def _extract_node_mappings(target_py_file: Path) -> Tuple[List[str], Dict[str, s
                                 for k in arg.keys:
                                     if isinstance(k, ast.Constant) and k.value is not None:
                                         mappings.append(str(k.value))
+                    elif isinstance(func.value, ast.Name) and func.value.id == "NODE_DISPLAY_NAME_MAPPINGS":
+                        for arg in node.value.args:
+                            if isinstance(arg, ast.Dict):
+                                for k, v in zip(arg.keys, arg.values):
+                                    if isinstance(k, ast.Constant) and isinstance(v, ast.Constant):
+                                        if k.value is not None and v.value is not None:
+                                            display_names[str(k.value)] = str(v.value)
     except Exception as e:
         logger.debug(f"AST parse failed on {target_py_file.name}, using regex fallback: {e}")
 
@@ -144,6 +160,18 @@ def _extract_node_mappings(target_py_file: Path) -> Tuple[List[str], Dict[str, s
         if dict_match:
             keys = re.findall(r'[\'"]([^\'"]+)[\'"]\s*:', dict_match.group(1))
             mappings.extend(keys)
+
+    # Regex Fallback for Display Names
+    if not display_names:
+        matches_disp_sub = re.findall(r'NODE_DISPLAY_NAME_MAPPINGS\s*\[\s*[\'"]([^\'"]+)[\'"]\s*\]\s*=\s*[\'"]([^\'"]+)[\'"]', content)
+        for k, v in matches_disp_sub:
+            display_names[k] = v
+        disp_match = re.search(r'NODE_DISPLAY_NAME_MAPPINGS\s*=\s*\{([^}]+)\}', content, re.DOTALL)
+        if disp_match:
+            pairs = re.findall(r'[\'"]([^\'"]+)[\'"]\s*:\s*[\'"]([^\'"]+)[\'"]', disp_match.group(1))
+            for k, v in pairs:
+                if k not in display_names:
+                    display_names[k] = v
 
     # Clean duplicates while preserving order
     clean_mappings = sorted(list(dict.fromkeys(mappings)))
@@ -257,6 +285,17 @@ def get_custom_node_details(node_name: str) -> Optional[Dict[str, Any]]:
         classes, display_names = _extract_node_mappings(init_file) if init_file.exists() else ([], {})
         git_info = _get_git_info(node_path)
         readme = _find_readme(node_path)
+        if not readme and init_file.exists():
+            try:
+                content = init_file.read_text(encoding="utf-8", errors="ignore")
+                tree = ast.parse(content)
+                docstring = ast.get_docstring(tree)
+                if docstring:
+                    readme = f"# {clean_name}\n\n*Dokumentation aus `__init__.py` Docstring:*\n\n{docstring}"
+            except Exception:
+                pass
+        if not readme:
+            readme = f"# {clean_name}\n\nKeine README.md gefunden. Dieses Paket exportiert {len(classes)} Node-Klassen."
 
         # File list
         files = []
@@ -446,3 +485,26 @@ def save_custom_node_file(node_name: str, rel_path: Optional[str], code: str) ->
     except Exception as e:
         logger.error(f"Fehler beim Speichern von {target_file}: {e}")
         return False, {"error": f"Fehler beim Speichern: {e}"}
+
+
+def restart_comfyui() -> Tuple[bool, str]:
+    """
+    Triggers systemctl --user restart comfyui.service on Outer Heaven,
+    allowing modified custom node Python files to take effect immediately.
+    """
+    try:
+        res = subprocess.run(
+            ["systemctl", "--user", "restart", "comfyui.service"],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        if res.returncode == 0:
+            return True, "ComfyUI Dienst (comfyui.service) erfolgreich neu gestartet."
+        else:
+            err = res.stderr.strip() or res.stdout.strip() or f"Fehlercode {res.returncode}"
+            return False, f"Fehler beim Neustart von ComfyUI: {err}"
+    except Exception as e:
+        logger.error(f"Fehler beim Neustart von comfyui.service: {e}")
+        return False, f"Ausnahme beim Neustart von ComfyUI: {e}"
+
