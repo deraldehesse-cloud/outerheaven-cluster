@@ -188,7 +188,34 @@ except ImportError:
     ]
     def init_mission_tasks_db(): pass
     def get_mission_tasks(): return []
-    def add_mission_task(title, project="Megan Mobile Companion", task_type="Allgemeine Aufgabe", details="", status="Zu erledigen", priority="Normal", assignee="Hermes"): return 1
+    def add_mission_task(title, project="Megan Mobile Companion", task_type="Allgemeine Aufgabe", details="", status="Zu erledigen", priority="Normal", assignee="Hermes"):
+        try:
+            KANBAN_DB.parent.mkdir(parents=True, exist_ok=True)
+            with sqlite3.connect(str(KANBAN_DB), timeout=3.0) as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS mission_tasks (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        title TEXT NOT NULL,
+                        project TEXT NOT NULL,
+                        task_type TEXT NOT NULL,
+                        details TEXT,
+                        status TEXT NOT NULL,
+                        priority TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        assignee TEXT NOT NULL
+                    )
+                """)
+                cur = conn.cursor()
+                now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+                cur.execute("""
+                    INSERT INTO mission_tasks (title, project, task_type, details, status, priority, created_at, assignee)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (title, project, task_type, details, status, priority, now_str, assignee))
+                conn.commit()
+                return cur.lastrowid
+        except Exception as e:
+            logger.error(f"Fallback add_mission_task error: {e}")
+            return 1
     def update_mission_task_status(task_id, new_status): return True
     def get_mission_task_by_id(task_id): return None
     def update_mission_task_result(task_id, result, new_status=None): return True
@@ -644,45 +671,72 @@ def check_autonomous_intent(text: str) -> Optional[str]:
         return f"\n[AUTONOME SYSTEM-DIAGNOSE]:\n{json.dumps(s.get('status', {}), indent=2, ensure_ascii=False)}"
 
     # 3. Megan Task & Script Intent (Zentrales Kanban-Board)
-    script_pattern = r'(?:schreib(?:e)?|programmier(?:e)?|erstell(?:e)?|entwickl(?:e)?|bau(?:e)?)\s+(?:mir\s+|uns\s+)?(?:ein\s+|mal\s+ein\s+|bitte\s+ein\s+)?(?:skript|script|tool|python[\s-]skript|code)\s*(?:für|zu|das|um)?\s*(.+)'
-    task_pattern = r'(?:erstell(?:e)?|leg(?:e)?|pack(?:e)?|mach(?:e)?)\s+(?:mir\s+|uns\s+)?(?:eine\s+|mal\s+eine\s+|bitte\s+eine\s+|ne\s+)?aufgabe\s*(?:an\s+|für\s+|zu\s+|auf(?:s|\s+das)?\s+board)?\s*(.+)'
-    
-    m_script = re.search(script_pattern, text, re.IGNORECASE)
-    m_task = re.search(task_pattern, text, re.IGNORECASE)
-    is_explicit_task_phrase = any(k in t_lower for k in ["aufgabe erstellen", "neue aufgabe", "task erstellen", "aufgabe anlegen"])
+    # Flexible Intent-Erkennung für Skripte, Tools, Code und Board-Aufgaben
+    script_pattern_1 = r'(?:(?:kannst\s+du\s+(?:mir\s+)?)?(?:schreib(?:e)?|programmier(?:e)?|erstell(?:e)?|entwickl(?:e)?|bau(?:e)?|mach(?:e)?)\s+(?:mir\s+|uns\s+)?(?:mal\s+|bitte\s+)?(?:ein\s+|einen\s+|mal\s+ein\s+|bitte\s+ein\s+)?(?:skript|script|tool|python[\s-]skript|programm|code))\b\s*(.*)'
+    script_pattern_2 = r'(?:(?:kannst\s+du\s+(?:mir\s+)?)?(?:ein\s+|einen\s+)?(?:skript|script|tool|python[\s-]skript|code)\s+(?:schreiben|bauen|erstellen|programmieren|entwickeln|machen))\s*(.*)'
+    script_pattern_3 = r'^(?:schreib(?:e)?\s+mir\s+(?:mal\s+|bitte\s+)?)(.+)'
 
-    if m_script or m_task or is_explicit_task_phrase:
-        if m_script:
-            req = m_script.group(1).strip()
-            req = re.sub(r'^(?:für|zu|das|um)\s+', '', req, flags=re.IGNORECASE).strip()
-            req = re.sub(r'^[,\.\:\-\s]+', '', req).strip()
-            title = f"Skript: {req[:40]}" if len(req) > 40 else f"Skript: {req}"
+    task_pattern_1 = r'(?:(?:kannst\s+du\s+(?:mir\s+)?)?(?:erstell(?:e)?|leg(?:e)?|pack(?:e)?|mach(?:e)?|trag(?:e)?|setz(?:e)?)\s+(?:mir\s+|uns\s+)?(?:mal\s+|bitte\s+)?(?:eine\s+|mal\s+eine\s+|bitte\s+eine\s+|ne\s+|einen\s+)?(?:aufgabe|task|ticket|todo)\b\s*(?:an|auf(?:s|\s+das)?\s+board)?)\s*(.*)'
+    task_pattern_2 = r'(?:(?:neue[n]?\s+)?(?:aufgabe|task)\s+(?:anlegen|erstellen|hinzufügen|aufnehmen|eintragen))\s*(?:[:\-\s]\s*)?(.*)'
+
+    explicit_task_phrase = any(k in t_lower for k in [
+        "aufgabe anlegen", "aufgabe erstellen", "neue aufgabe",
+        "task anlegen", "task erstellen", "neuer task",
+        "aufgabe fürs board", "aufgabe auf das board", "mach mal ein skript", "bau ein tool", "schreib mir ein skript"
+    ])
+
+    m_script = re.search(script_pattern_1, text, re.IGNORECASE) or re.search(script_pattern_2, text, re.IGNORECASE) or re.search(script_pattern_3, text, re.IGNORECASE)
+    m_task = re.search(task_pattern_1, text, re.IGNORECASE) or re.search(task_pattern_2, text, re.IGNORECASE)
+
+    if m_script or m_task or explicit_task_phrase:
+        is_script = bool(m_script) or any(k in t_lower for k in ["skript", "script", "tool", "code", "programm", "python"])
+        
+        # Raw extrahierten Text ermitteln
+        raw_req = ""
+        if m_script and m_script.groups() and m_script.group(1):
+            raw_req = m_script.group(1).strip()
+        elif m_task and m_task.groups() and m_task.group(1):
+            raw_req = m_task.group(1).strip()
+        elif not raw_req:
+            for trigger in ["aufgabe anlegen", "aufgabe erstellen", "neue aufgabe", "task anlegen", "task erstellen", "mach mal ein skript", "bau ein tool", "schreib mir"]:
+                if trigger in t_lower:
+                    idx = t_lower.find(trigger) + len(trigger)
+                    raw_req = text[idx:].strip()
+                    break
+
+        # Aufgabentitel sauber bereinigen
+        cleaned = re.sub(r'^[,\.\:\-\s]+', '', raw_req).strip()
+        cleaned = re.sub(r'^(?:für|zu|zum|zur|das|dass|um|welches|die|der|den|ein|eine|einen|mit\s+dem\s+titel|namens)\s+', '', cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r'^[,\.\:\-\s]+', '', cleaned).strip()
+        cleaned = re.sub(r'[\.\?!,;:\s]+$', '', cleaned).strip()
+        if cleaned:
+            cleaned = cleaned[0].upper() + cleaned[1:]
+
+        req_l = (cleaned or text).lower()
+        if is_script:
+            title = f"Skript: {cleaned[:50]}" if cleaned and not cleaned.lower().startswith(("skript", "script", "tool", "code")) else (cleaned[:50] if cleaned else "Neues Automatisierungs-Skript")
             task_type = "Code / Skripting (Assignee: Hermes)"
             assignee = "Hermes"
-            details = f"Anforderung von Boss via Megan-Chat:\n{text}\n\nZiel: Python-Skript für: {req}"
+            details = f"Anforderung von Boss via Megan-Chat:\n{text}\n\nZiel: Python-Skript / Tool für: {cleaned or text}"
+        elif any(k in req_l for k in ["bild", "render", "foto", "sdxl", "lora"]):
+            title = cleaned[:50] if cleaned else "Bild-Render Aufgabe"
+            task_type = "Bild-Render (Assignee: Megan / ComfyUI)"
+            assignee = "Megan"
+            details = f"Aufgabe via Megan Mobile Companion von Boss:\n{text}"
+        elif any(k in req_l for k in ["wartung", "check", "system", "cluster", "dienst", "service"]):
+            title = cleaned[:50] if cleaned else "System / Wartung"
+            task_type = "System / Cluster-Wartung (Assignee: Hermes)"
+            assignee = "Hermes"
+            details = f"Aufgabe via Megan Mobile Companion von Boss:\n{text}"
+        elif any(k in req_l for k in ["analyse", "recherche", "prüfung", "untersuch"]):
+            title = cleaned[:50] if cleaned else "Analyse & Recherche"
+            task_type = "Analyse & Recherche (Assignee: Hermes)"
+            assignee = "Hermes"
+            details = f"Aufgabe via Megan Mobile Companion von Boss:\n{text}"
         else:
-            req = m_task.group(1).strip() if m_task else text
-            req = re.sub(r'^(?:für|zu|das|um)\s+', '', req, flags=re.IGNORECASE).strip()
-            req = re.sub(r'^[,\.\:\-\s]+', '', req).strip()
-            
-            req_l = req.lower()
-            if any(k in req_l for k in ["bild", "render", "foto", "sdxl", "lora"]):
-                task_type = "Bild-Render (Assignee: Megan / ComfyUI)"
-                assignee = "Megan"
-            elif any(k in req_l for k in ["wartung", "check", "system", "cluster", "dienst", "service"]):
-                task_type = "System / Cluster-Wartung (Assignee: Hermes)"
-                assignee = "Hermes"
-            elif any(k in req_l for k in ["analyse", "recherche", "prüfung", "untersuch"]):
-                task_type = "Analyse & Recherche (Assignee: Hermes)"
-                assignee = "Hermes"
-            elif any(k in req_l for k in ["code", "skript", "script", "programm"]):
-                task_type = "Code / Skripting (Assignee: Hermes)"
-                assignee = "Hermes"
-            else:
-                task_type = "Allgemeine Aufgabe"
-                assignee = "Hermes"
-
-            title = req[:50] if req else "Neue Aufgabe via Megan-Voice"
+            title = cleaned[:50] if cleaned else "Neue Aufgabe via Megan-Voice"
+            task_type = "Allgemeine Aufgabe (Assignee: Hermes)"
+            assignee = "Hermes"
             details = f"Aufgabe via Megan Mobile Companion von Boss:\n{text}"
 
         project = "Megan Mobile Companion"
@@ -694,7 +748,7 @@ def check_autonomous_intent(text: str) -> Optional[str]:
             status="Zu erledigen",
             priority="Normal",
             assignee=assignee
-        )
+        ) or 1
         
         broadcast_ws_sync({
             "type": "task_created",
@@ -713,9 +767,13 @@ def check_autonomous_intent(text: str) -> Optional[str]:
             f"- Projekt: {project}\n"
             f"- Typ: {task_type}\n"
             f"- Zuweisung: {assignee}\n\n"
-            f"WICHTIGSTE ANWEISUNG FÜR DEINE ANTWORT:\n"
-            f"Bestätige dem Boss authentisch, herzlich und charmant auf Deutsch per Sprachnachricht, dass die Aufgabe jetzt auf unserem Board liegt.\n"
-            f"Sag ihm z.B.: „Alles klar, Boss! Ich habe die Aufgabe '{title}' soeben auf unser Board gelegt und {assignee} zugewiesen. Liegt bereit!“"
+            f"STRIKTE ANWEISUNG FÜR DEINE JETZIGE ANTWORT:\n"
+            f"Bestätige dem Boss sofort authentisch, charmant und exakt auf Deutsch per Sprachnachricht, dass die Aufgabe jetzt auf unserem Board liegt.\n"
+            f"Nenne in deiner Antwort unbedingt genau diese Details:\n"
+            f"- Aufgabentitel: '{title}'\n"
+            f"- Aufgabentyp: '{task_type}'\n"
+            f"- Zuweisung an: {assignee}\n"
+            f"Sag ihm z.B.: „Alles klar, Boss! Ich habe die Aufgabe '{title}' ({task_type}) soeben auf unser Board gelegt und {assignee} zugewiesen. Liegt bereit!“"
         )
 
     # 4. ComfyUI Workflow / Bildgenerierung (Megan Erotic Chat vs. Catlord Comic)
@@ -1342,15 +1400,21 @@ def transcribe_audio_local(audio_path: str, language: str = "de") -> str:
     model = get_whisper_model()
     if not model:
         raise RuntimeError("Whisper model not available")
-    segments, _ = model.transcribe(
-        audio_path,
-        language=language,
-        beam_size=5,
-        vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=500)
-    )
-    parts = [s.text.strip() for s in segments if s.text and s.text.strip()]
-    return " ".join(parts).strip()
+    try:
+        segments, _ = model.transcribe(
+            audio_path,
+            language="de",
+            initial_prompt="Dies ist ein deutsches Sprachkommando für Megan und das Outer Heaven Cluster. Begriffe: Megan, Catlord, Hermes, ComfyUI, Python, Script, Aufgabe, Workflow, LoRA, Render.",
+            condition_on_previous_text=False,
+            temperature=0.0,
+            vad_filter=True,
+            no_speech_threshold=0.6
+        )
+        parts = [s.text.strip() for s in segments if s.text and s.text.strip()]
+        return " ".join(parts).strip()
+    except Exception as e:
+        logger.warning(f"[megan-stt] Fehler bei lokaler Transkription oder keine Sprache: {e}")
+        return ""
 
 async def handle_audio_transcribe(request: web.Request) -> web.Response:
     """POST /api/audio/transcribe - Transcribes uploaded audio via Mission Control (:8000) or local faster-whisper."""
@@ -1358,7 +1422,8 @@ async def handle_audio_transcribe(request: web.Request) -> web.Response:
     try:
         raw_body = await request.read()
         if not raw_body:
-            return web.json_response({"status": "error", "error": "No audio data provided", "text": ""}, status=400)
+            logger.info("[Transcribe Output]: ")
+            return web.json_response({"status": "ok", "text": ""})
 
         # 1. Forward to Mission Control (:8000) if running to save RAM and leverage existing model instance
         try:
@@ -1374,8 +1439,9 @@ async def handle_audio_transcribe(request: web.Request) -> web.Response:
                 ) as resp:
                     if resp.status == 200:
                         res_data = await resp.json()
-                        logger.info(f"[megan-stt] Transkription via Mission Control: '{res_data.get('text', '')}'")
-                        return web.json_response(res_data)
+                        transcribed_text = (res_data.get("text") or "").strip()
+                        logger.info(f"[Transcribe Output]: {transcribed_text}")
+                        return web.json_response({"status": "ok", "text": transcribed_text})
                     else:
                         logger.warning(f"[megan-stt] Mission Control /api/audio/transcribe HTTP {resp.status}, wechsle auf lokalen Fallback")
         except Exception as fwd_err:
@@ -1408,11 +1474,13 @@ async def handle_audio_transcribe(request: web.Request) -> web.Response:
             f.write(audio_bytes)
 
         text = await asyncio.to_thread(transcribe_audio_local, temp_path, "de")
-        logger.info(f"[megan-stt] Lokale Transkription erfolgreich: '{text}'")
-        return web.json_response({"status": "ok", "text": text})
+        transcribed_text = (text or "").strip()
+        logger.info(f"[Transcribe Output]: {transcribed_text}")
+        return web.json_response({"status": "ok", "text": transcribed_text})
     except Exception as e:
         logger.error(f"[megan-stt] Fehler bei Transkription: {e}", exc_info=True)
-        return web.json_response({"status": "error", "error": str(e), "text": ""}, status=500)
+        logger.info("[Transcribe Output]: ")
+        return web.json_response({"status": "ok", "text": ""})
     finally:
         if temp_path and os.path.exists(temp_path):
             try:
@@ -1474,6 +1542,12 @@ async def handle_chat(request: web.Request) -> web.Response:
         c = str(m.get("text", "")).strip()
         if c:
             messages.append({"role": r, "content": c})
+
+    if intent_context:
+        messages.append({
+            "role": "system",
+            "content": "[AKTUELLE TASK-PFLICHT]: Antworte direkt auf Deutsch und bestätige dem Boss verbindlich und charmant die soeben angelegte Aufgabe (inkl. Titel, Aufgabentyp und Zuweisung an Hermes)!"
+        })
 
     payload = {
         "model": MEGAN_MODEL,
@@ -1575,6 +1649,12 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     c = str(m.get("text", "")).strip()
                     if c:
                         messages.append({"role": r, "content": c})
+
+                if intent_context:
+                    messages.append({
+                        "role": "system",
+                        "content": "[AKTUELLE TASK-PFLICHT]: Antworte direkt auf Deutsch und bestätige dem Boss verbindlich und charmant die soeben angelegte Aufgabe (inkl. Titel, Aufgabentyp und Zuweisung an Hermes)!"
+                    })
 
                 payload = {
                     "model": MEGAN_MODEL,

@@ -6342,16 +6342,22 @@ def transcribe_audio_file(audio_path: str, language: str = "de") -> str:
     model = get_whisper_model()
     if not model:
         raise RuntimeError("Whisper model not available")
-    segments, _ = model.transcribe(
-        audio_path,
-        language=language,
-        beam_size=5,
-        vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=500)
-    )
-    parts = [s.text.strip() for s in segments if s.text and s.text.strip()]
-    raw_transcript = " ".join(parts).strip()
-    return correct_transcript_speech_patterns(raw_transcript)
+    try:
+        segments, _ = model.transcribe(
+            audio_path,
+            language="de",
+            initial_prompt="Dies ist ein deutsches Sprachkommando für Megan und das Outer Heaven Cluster. Begriffe: Megan, Catlord, Hermes, ComfyUI, Python, Script, Aufgabe, Workflow, LoRA, Render.",
+            condition_on_previous_text=False,
+            temperature=0.0,
+            vad_filter=True,
+            no_speech_threshold=0.6
+        )
+        parts = [s.text.strip() for s in segments if s.text and s.text.strip()]
+        raw_transcript = " ".join(parts).strip()
+        return correct_transcript_speech_patterns(raw_transcript)
+    except Exception as e:
+        logger.warning(f"Whisper transcription failed or no speech detected: {e}")
+        return ""
 
 def build_chat_system_instruction(request: web.Request, user_message: str) -> str:
     """Hermes Cluster Technical Advisor System Prompt."""
@@ -7278,7 +7284,8 @@ async def handle_audio_transcribe(request: web.Request) -> web.Response:
             reader = await request.multipart()
             part = await reader.next()
             if not part:
-                return web.json_response({"status": "error", "error": "No file in multipart"}, status=400)
+                logger.info("[Transcribe Output]: ")
+                return web.json_response({"status": "ok", "text": ""})
             filename = getattr(part, 'filename', None) or "recording.m4a"
             ext = os.path.splitext(filename)[1] or ".m4a"
             temp_path = f"/tmp/megan_stt_{secrets.token_hex(6)}{ext}"
@@ -7291,16 +7298,20 @@ async def handle_audio_transcribe(request: web.Request) -> web.Response:
         else:
             body = await request.read()
             if not body:
-                return web.json_response({"status": "error", "error": "No audio data provided"}, status=400)
+                logger.info("[Transcribe Output]: ")
+                return web.json_response({"status": "ok", "text": ""})
             temp_path = f"/tmp/megan_stt_{secrets.token_hex(6)}.m4a"
             with open(temp_path, "wb") as f:
                 f.write(body)
 
         text = transcribe_audio_file(temp_path, language="de")
-        return web.json_response({"status": "ok", "text": text})
+        transcribed_text = (text or "").strip()
+        logger.info(f"[Transcribe Output]: {transcribed_text}")
+        return web.json_response({"status": "ok", "text": transcribed_text})
     except Exception as e:
         logger.error(f"Error in handle_audio_transcribe: {e}")
-        return web.json_response({"status": "error", "error": str(e)}, status=500)
+        logger.info("[Transcribe Output]: ")
+        return web.json_response({"status": "ok", "text": ""})
     finally:
         if temp_path and os.path.exists(temp_path):
             try:
