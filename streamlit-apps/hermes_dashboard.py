@@ -445,19 +445,18 @@ with tab_creator:
         c1, c2, c3 = st.columns(3)
         with c1:
             f_project = st.selectbox("Projekt:", [
+                "Megan Mobile Companion",
                 "Catlord Project",
-                "Megan Companion",
                 "ComfyUI / Arc A770",
-                "Android App (OpenUp / Megan)",
                 "Server & Infrastruktur"
             ])
         with c2:
             f_type = st.selectbox("Aufgaben-Typ:", [
-                "Bild-Render (SDXL / LoRA)",
-                "3D-Mesh Rekonstruktion",
-                "LLM / Prompt-Optimierung",
-                "Audio / TTS Pipeline",
-                "System-Wartung"
+                "Bild-Render (Assignee: Megan / ComfyUI)",
+                "Code / Skripting (Assignee: Hermes)",
+                "System / Cluster-Wartung (Assignee: Hermes)",
+                "Analyse & Recherche (Assignee: Hermes)",
+                "Allgemeine Aufgabe"
             ])
         with c3:
             f_priority = st.selectbox("Priorität:", ["Normal", "Hoch", "Kritisch"])

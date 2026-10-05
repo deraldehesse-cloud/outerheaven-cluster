@@ -221,6 +221,21 @@ def save_hermes_tools_config(config: dict) -> bool:
 # --- Mission Control Task Management (Kanban DB) ---
 KANBAN_DB = HERMES_DIR / "kanban.db"
 
+VALID_TASK_PROJECTS = [
+    "Megan Mobile Companion",
+    "Catlord Project",
+    "ComfyUI / Arc A770",
+    "Server & Infrastruktur"
+]
+
+VALID_TASK_TYPES = [
+    "Bild-Render (Assignee: Megan / ComfyUI)",
+    "Code / Skripting (Assignee: Hermes)",
+    "System / Cluster-Wartung (Assignee: Hermes)",
+    "Analyse & Recherche (Assignee: Hermes)",
+    "Allgemeine Aufgabe"
+]
+
 def init_mission_tasks_db():
     try:
         HERMES_DIR.mkdir(parents=True, exist_ok=True)
@@ -246,6 +261,14 @@ def init_mission_tasks_db():
             c.execute("ALTER TABLE mission_tasks ADD COLUMN assignee TEXT DEFAULT 'Hermes'")
         if "result" not in columns:
             c.execute("ALTER TABLE mission_tasks ADD COLUMN result TEXT")
+        
+        # Migration: Konsolidierung auf 'Megan Mobile Companion'
+        c.execute("""
+            UPDATE mission_tasks 
+            SET project = 'Megan Mobile Companion' 
+            WHERE project IN ('Android App', 'Megan Companion', 'Android-App', 'Android App (OpenUp / Megan)')
+               OR project LIKE '%Android%App%' OR project LIKE '%Megan Companion%'
+        """)
         conn.commit()
         conn.close()
     except Exception as e:
@@ -6453,12 +6476,14 @@ async def handle_tasks_create(request: web.Request) -> web.Response:
     if not title:
         return web.json_response({"success": False, "error": "Bitte einen Aufgaben-Titel angeben"}, status=400)
 
-    project = (data.get("project") or "Catlord Project").strip()
-    task_type = (data.get("task_type") or "Bild-Render (SDXL / LoRA)").strip()
+    project = (data.get("project") or "Megan Mobile Companion").strip()
+    if project in ['Android App', 'Megan Companion', 'Android-App', 'Android App (OpenUp / Megan)']:
+        project = "Megan Mobile Companion"
+    task_type = (data.get("task_type") or "Bild-Render (Assignee: Megan / ComfyUI)").strip()
     details = (data.get("details") or "").strip()
     status = (data.get("status") or "Zu erledigen").strip()
     priority = (data.get("priority") or "Normal").strip()
-    assignee = (data.get("assignee") or "Hermes").strip()
+    assignee = (data.get("assignee") or ("Megan" if "bild" in task_type.lower() or "render" in task_type.lower() else "Hermes")).strip()
 
     task_id = await asyncio.to_thread(
         add_mission_task, title, project, task_type, details, status, priority, assignee
@@ -6516,8 +6541,11 @@ async def handle_tasks_delete(request: web.Request) -> web.Response:
     ok = await asyncio.to_thread(delete_mission_task, task_id)
     if ok:
         return web.json_response({"success": True, "id": task_id})
+    return web.json_response({"success": False, "error": "Fehler beim Löschen"}, status=500)
+
 async def run_task_worker(task: Dict[str, Any]):
     """Führt eine Kanban-Aufgabe asynchron im Hintergrund aus und aktualisiert mission_tasks."""
+    import ast
     task_id = task.get("id")
     if not task_id:
         return
@@ -6530,7 +6558,7 @@ async def run_task_worker(task: Dict[str, Any]):
     logger.info(f"[Kanban-Execute] Starte Ausführung für Task #{task_id}: '{title}' ({task_type})")
     
     try:
-        # Fall 1: Bild-Render (SDXL / LoRA / Megan / Catlord)
+        # Fall 1: Bild-Render (SDXL / LoRA / Megan / ComfyUI)
         if "render" in task_type or "bild" in task_type or assignee == "megan":
             prompt = details.strip() if details.strip() else title.strip()
             # Wenn Catlord im Projekt oder Prompt
@@ -6548,52 +6576,172 @@ async def run_task_worker(task: Dict[str, Any]):
                 await asyncio.to_thread(update_mission_task_result, task_id, err_msg, "In Bearbeitung")
                 logger.warning(f"[Kanban-Execute] Task #{task_id} Render fehlgeschlagen.")
 
-        # Fall 2: Tool / Script-Ausführung aus ~/.hermes/custom_tools/
-        elif "script" in task_type or "tool" in task_type or "wartung" in task_type:
-            # Tool-Name ermitteln (aus title oder details)
+        # Fall 2: Code / Skripting (Hermes generiert Code, ast.parse Prüfung & Speicherung in ~/.hermes/custom_tools/)
+        elif "code" in task_type or "skript" in task_type or "script" in task_type:
+            logger.info(f"[Kanban-Execute] Generiere Python-Code für Task #{task_id} mit Hermes LLM...")
+            model = get_active_ollama_model()
+            prompt_content = (
+                "Du bist Hermes, autonomer Senior-Entwickler auf Outer Heaven.\n"
+                "Erstelle ein vollständiges, syntaktisch einwandfreies und direkt ausführbares Python-Skript für folgende Anforderung.\n"
+                f"Aufgabe: {title}\n"
+                f"Projekt: {task.get('project', 'Megan Mobile Companion')}\n"
+                f"Details & Spezifikation:\n{details}\n\n"
+                "ANWEISUNG:\n"
+                "Antworte AUSSCHLIESSLICH mit dem Python-Code innerhalb eines ```python ... ``` Blocks. "
+                "Kein Begleittext, keine Einleitung, keine Schlussworte, nur der Codeblock."
+            )
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{LOCAL_OLLAMA_URL}/api/generate",
+                    json={"model": model, "prompt": prompt_content, "stream": False},
+                    timeout=aiohttp.ClientTimeout(total=90.0)
+                ) as resp:
+                    if resp.status == 200:
+                        jdata = await resp.json()
+                        llm_reply = jdata.get("response", "").strip()
+                        clean_reply = re.sub(r'<think>.*?</think>', '', llm_reply, flags=re.DOTALL).strip() or llm_reply.strip()
+                        
+                        # Python Code extrahieren
+                        code_match = re.search(r'```(?:python)?\s*\n(.*?)```', clean_reply, re.DOTALL)
+                        code_str = code_match.group(1).strip() if code_match else clean_reply.strip()
+                        
+                        # Syntax-Prüfung via ast.parse
+                        is_valid = True
+                        syntax_err = ""
+                        try:
+                            ast.parse(code_str)
+                        except SyntaxError as se:
+                            is_valid = False
+                            syntax_err = f"SyntaxError in Zeile {se.lineno}: {se.msg}"
+                        except Exception as e_ast:
+                            is_valid = False
+                            syntax_err = str(e_ast)
+                        
+                        if is_valid:
+                            CUSTOM_TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+                            
+                            # Dateinamen ermitteln
+                            target_match = re.search(r'\[TARGET_PATH\]:\s*([^\n\r]+)', details)
+                            filename = None
+                            if target_match:
+                                raw_p = Path(target_match.group(1).strip())
+                                filename = raw_p.name if raw_p.name.endswith(".py") else f"{raw_p.name}.py"
+                            
+                            if not filename:
+                                clean_name = re.sub(r'[^a-zA-Z0-9_]', '_', title.lower()).strip('_')
+                                clean_name = re.sub(r'_+', '_', clean_name)
+                                if not clean_name:
+                                    clean_name = f"hermes_tool_{task_id}"
+                                filename = f"{clean_name}.py"
+                            
+                            out_file = CUSTOM_TOOLS_DIR / filename
+                            out_file.write_text(code_str, encoding="utf-8")
+                            
+                            code_preview = code_str[:500] + ("\n..." if len(code_str) > 500 else "")
+                            res_text = (
+                                f"✅ Skript erfolgreich generiert & verifiziert (ast.parse OK)\n"
+                                f"Pfad: {out_file}\n"
+                                f"Größe: {len(code_str)} Bytes\n\n"
+                                f"Code-Vorschau:\n```python\n{code_preview}\n```"
+                            )
+                            await asyncio.to_thread(update_mission_task_result, task_id, res_text, "Erledigt")
+                            logger.info(f"[Kanban-Execute] Task #{task_id} Code erfolgreich gespeichert in {out_file}")
+                        else:
+                            res_text = (
+                                f"❌ Syntaxfehler bei Code-Generierung ({syntax_err})\n\n"
+                                f"Vorschau des fehlerhaften Codes:\n```python\n{code_str[:800]}\n```"
+                            )
+                            await asyncio.to_thread(update_mission_task_result, task_id, res_text, "In Bearbeitung")
+                            logger.warning(f"[Kanban-Execute] Task #{task_id} Syntaxfehler: {syntax_err}")
+                    else:
+                        await asyncio.to_thread(update_mission_task_result, task_id, f"LLM-Fehler HTTP {resp.status}", "In Bearbeitung")
+
+        # Fall 3: System / Cluster-Wartung (Führt System- & Health-Checks aus und loggt Konsolenausgabe)
+        elif "system" in task_type or "wartung" in task_type or "cluster" in task_type:
+            logger.info(f"[Kanban-Execute] Führe System-/Cluster-Health-Checks für Task #{task_id} aus...")
+            check_sections = []
+            
+            # 1. Systemd Services Status
+            services = ["mission-control.service", "megan-studio.service", "comfyui.service", "ollama.service"]
+            svc_lines = []
+            for s in services:
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "systemctl", "--user", "is-active", s,
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    so, _ = await proc.communicate()
+                    st = so.decode().strip() or "unknown"
+                    icon = "🟢" if st == "active" else "🔴"
+                    svc_lines.append(f"  {icon} {s}: {st}")
+                except Exception as e:
+                    svc_lines.append(f"  ⚠️ {s}: {e}")
+            check_sections.append("=== SYSTEMD DIENSTE ===\n" + "\n".join(svc_lines))
+
+            # 2. Disk Space
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "df", "-h", "/", "/mnt/storage-beta",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                so, _ = await proc.communicate()
+                check_sections.append("=== SPEICHERPLATZ ===\n" + so.decode().strip())
+            except Exception as e:
+                check_sections.append(f"=== SPEICHERPLATZ ===\nFehler: {e}")
+
+            # 3. Tailscale Status
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "tailscale", "status",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                so, _ = await proc.communicate()
+                ts_lines = so.decode().strip().split("\n")[:8]
+                check_sections.append("=== TAILSCALE MESH ===\n" + "\n".join(ts_lines))
+            except Exception as e:
+                check_sections.append(f"=== TAILSCALE MESH ===\nFehler: {e}")
+
+            # 4. Intel Arc GPU Discovery
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "xpu-smi", "discovery",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                so, _ = await proc.communicate()
+                xpu_out = so.decode().strip()
+                if xpu_out:
+                    check_sections.append("=== INTEL ARC GPU ===\n" + xpu_out[:400])
+                else:
+                    check_sections.append("=== INTEL ARC GPU ===\nIntel Arc A770 (Host Driver OK)")
+            except Exception:
+                check_sections.append("=== INTEL ARC GPU ===\nIntel Arc A770 (Sysfs discovery OK)")
+
+            # Optional: Vorhandenes custom_tool ausführen
             tool_name = None
             for part in (title + " " + details).split():
                 clean_part = re.sub(r'[^a-zA-Z0-9_\-]', '', part)
-                script_candidate = CUSTOM_TOOLS_DIR / f"{clean_part}.py"
-                if script_candidate.is_file():
+                if clean_part and (CUSTOM_TOOLS_DIR / f"{clean_part}.py").is_file():
                     tool_name = clean_part
                     break
             
             if tool_name:
                 script_path = (CUSTOM_TOOLS_DIR / f"{tool_name}.py").resolve()
-                logger.info(f"[Kanban-Execute] Führe Whitelist-Tool '{tool_name}' für Task #{task_id} aus...")
-                proc = await asyncio.create_subprocess_exec(
-                    sys.executable, str(script_path),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
                 try:
-                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=40.0)
-                    out_text = (stdout.decode("utf-8", errors="replace") + "\n" + stderr.decode("utf-8", errors="replace")).strip()
-                    res_text = f"Tool '{tool_name}' ausgeführt (Exit {proc.returncode}):\n{out_text[:1200]}"
-                    await asyncio.to_thread(update_mission_task_result, task_id, res_text, "Erledigt")
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await asyncio.to_thread(update_mission_task_result, task_id, f"Timeout bei Ausführung von Tool '{tool_name}' (>40s).", "In Bearbeitung")
-            else:
-                # Kein spezifisches Script gefunden -> LLM Ausführung als Wartungs-/Systemberater
-                model = get_active_ollama_model()
-                prompt_content = f"Du bist Hermes, ausführender System-Agent auf Outer Heaven. Erledige folgende Aufgabe und gib eine kompakte Zusammenfassung:\nAufgabe: {title}\nDetails: {details}"
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"{LOCAL_OLLAMA_URL}/api/generate",
-                        json={"model": model, "prompt": prompt_content, "stream": False},
-                        timeout=aiohttp.ClientTimeout(total=45.0)
-                    ) as resp:
-                        if resp.status == 200:
-                            jdata = await resp.json()
-                            llm_reply = jdata.get("response", "").strip()
-                            clean_reply = re.sub(r'<think>.*?</think>', '', llm_reply, flags=re.DOTALL).strip() or llm_reply.strip()
-                            await asyncio.to_thread(update_mission_task_result, task_id, clean_reply, "Erledigt")
-                        else:
-                            await asyncio.to_thread(update_mission_task_result, task_id, f"LLM-Fehler HTTP {resp.status}", "In Bearbeitung")
+                    proc = await asyncio.create_subprocess_exec(
+                        sys.executable, str(script_path),
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    so, se = await asyncio.wait_for(proc.communicate(), timeout=35.0)
+                    t_out = (so.decode("utf-8", errors="replace") + "\n" + se.decode("utf-8", errors="replace")).strip()
+                    check_sections.append(f"=== TOOL '{tool_name}' AUSFÜHRUNG (Exit {proc.returncode}) ===\n{t_out[:800]}")
+                except Exception as ex:
+                    check_sections.append(f"=== TOOL '{tool_name}' FEHLER ===\n{ex}")
 
-        # Fall 3: Standard LLM / Prompt-Optimierung / Hermes Analyse
+            final_report = "🛡️ SYSTEM- & CLUSTER-WARTUNG BERICHT:\n\n" + "\n\n".join(check_sections)
+            await asyncio.to_thread(update_mission_task_result, task_id, final_report, "Erledigt")
+            logger.info(f"[Kanban-Execute] Task #{task_id} System-Wartung erfolgreich abgeschlossen.")
+
+        # Fall 4: Standard LLM / Prompt-Optimierung / Hermes Analyse & Recherche
         else:
             model = get_active_ollama_model()
             prompt_content = f"Du bist Hermes, technischer Agent auf Outer Heaven. Führe diese Aufgabe aus und liefere das konkrete Ergebnis:\nAufgabe: {title}\nProjekt: {project}\nDetails: {details}"

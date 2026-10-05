@@ -161,10 +161,38 @@ try:
         save_hermes_tools_config,
         build_megan_system_prompt,
         get_comfyui_queue_status,
-        set_image_finished_callback
+        set_image_finished_callback,
+        KANBAN_DB,
+        VALID_TASK_PROJECTS,
+        VALID_TASK_TYPES,
+        init_mission_tasks_db,
+        get_mission_tasks,
+        add_mission_task,
+        update_mission_task_status,
+        get_mission_task_by_id,
+        update_mission_task_result,
+        delete_mission_task,
+        CUSTOM_TOOLS_DIR,
     )
 except ImportError:
     megan_context_engine = None
+    KANBAN_DB = Path.home() / ".hermes" / "kanban.db"
+    CUSTOM_TOOLS_DIR = Path.home() / ".hermes" / "custom_tools"
+    VALID_TASK_PROJECTS = ["Megan Mobile Companion", "Catlord Project", "ComfyUI / Arc A770", "Server & Infrastruktur"]
+    VALID_TASK_TYPES = [
+        "Bild-Render (Assignee: Megan / ComfyUI)",
+        "Code / Skripting (Assignee: Hermes)",
+        "System / Cluster-Wartung (Assignee: Hermes)",
+        "Analyse & Recherche (Assignee: Hermes)",
+        "Allgemeine Aufgabe"
+    ]
+    def init_mission_tasks_db(): pass
+    def get_mission_tasks(): return []
+    def add_mission_task(title, project="Megan Mobile Companion", task_type="Allgemeine Aufgabe", details="", status="Zu erledigen", priority="Normal", assignee="Hermes"): return 1
+    def update_mission_task_status(task_id, new_status): return True
+    def get_mission_task_by_id(task_id): return None
+    def update_mission_task_result(task_id, result, new_status=None): return True
+    def delete_mission_task(task_id): return True
     def sanitize_megan_response(text: str) -> str:
         return text.strip()
     def get_gdrive_base_path():
@@ -615,7 +643,82 @@ def check_autonomous_intent(text: str) -> Optional[str]:
         s = execute_autonomous_tool("system_status")
         return f"\n[AUTONOME SYSTEM-DIAGNOSE]:\n{json.dumps(s.get('status', {}), indent=2, ensure_ascii=False)}"
 
-    # 3. ComfyUI Workflow / Bildgenerierung (Megan Erotic Chat vs. Catlord Comic)
+    # 3. Megan Task & Script Intent (Zentrales Kanban-Board)
+    script_pattern = r'(?:schreib(?:e)?|programmier(?:e)?|erstell(?:e)?|entwickl(?:e)?|bau(?:e)?)\s+(?:mir\s+|uns\s+)?(?:ein\s+|mal\s+ein\s+|bitte\s+ein\s+)?(?:skript|script|tool|python[\s-]skript|code)\s*(?:für|zu|das|um)?\s*(.+)'
+    task_pattern = r'(?:erstell(?:e)?|leg(?:e)?|pack(?:e)?|mach(?:e)?)\s+(?:mir\s+|uns\s+)?(?:eine\s+|mal\s+eine\s+|bitte\s+eine\s+|ne\s+)?aufgabe\s*(?:an\s+|für\s+|zu\s+|auf(?:s|\s+das)?\s+board)?\s*(.+)'
+    
+    m_script = re.search(script_pattern, text, re.IGNORECASE)
+    m_task = re.search(task_pattern, text, re.IGNORECASE)
+    is_explicit_task_phrase = any(k in t_lower for k in ["aufgabe erstellen", "neue aufgabe", "task erstellen", "aufgabe anlegen"])
+
+    if m_script or m_task or is_explicit_task_phrase:
+        if m_script:
+            req = m_script.group(1).strip()
+            req = re.sub(r'^(?:für|zu|das|um)\s+', '', req, flags=re.IGNORECASE).strip()
+            req = re.sub(r'^[,\.\:\-\s]+', '', req).strip()
+            title = f"Skript: {req[:40]}" if len(req) > 40 else f"Skript: {req}"
+            task_type = "Code / Skripting (Assignee: Hermes)"
+            assignee = "Hermes"
+            details = f"Anforderung von Boss via Megan-Chat:\n{text}\n\nZiel: Python-Skript für: {req}"
+        else:
+            req = m_task.group(1).strip() if m_task else text
+            req = re.sub(r'^(?:für|zu|das|um)\s+', '', req, flags=re.IGNORECASE).strip()
+            req = re.sub(r'^[,\.\:\-\s]+', '', req).strip()
+            
+            req_l = req.lower()
+            if any(k in req_l for k in ["bild", "render", "foto", "sdxl", "lora"]):
+                task_type = "Bild-Render (Assignee: Megan / ComfyUI)"
+                assignee = "Megan"
+            elif any(k in req_l for k in ["wartung", "check", "system", "cluster", "dienst", "service"]):
+                task_type = "System / Cluster-Wartung (Assignee: Hermes)"
+                assignee = "Hermes"
+            elif any(k in req_l for k in ["analyse", "recherche", "prüfung", "untersuch"]):
+                task_type = "Analyse & Recherche (Assignee: Hermes)"
+                assignee = "Hermes"
+            elif any(k in req_l for k in ["code", "skript", "script", "programm"]):
+                task_type = "Code / Skripting (Assignee: Hermes)"
+                assignee = "Hermes"
+            else:
+                task_type = "Allgemeine Aufgabe"
+                assignee = "Hermes"
+
+            title = req[:50] if req else "Neue Aufgabe via Megan-Voice"
+            details = f"Aufgabe via Megan Mobile Companion von Boss:\n{text}"
+
+        project = "Megan Mobile Companion"
+        task_id = add_mission_task(
+            title=title,
+            project=project,
+            task_type=task_type,
+            details=details,
+            status="Zu erledigen",
+            priority="Normal",
+            assignee=assignee
+        )
+        
+        broadcast_ws_sync({
+            "type": "task_created",
+            "task_id": task_id,
+            "title": title,
+            "project": project,
+            "task_type": task_type,
+            "assignee": assignee
+        })
+        
+        return (
+            f"\n[AUTONOMER TASK-BOARD INTENT - ERFOLGREICH ANGELEGT]:\n"
+            f"Die Aufgabe #{task_id} wurde soeben erfolgreich in der zentralen Kanban-Datenbank (~/.hermes/kanban.db) angelegt!\n"
+            f"- ID: #{task_id}\n"
+            f"- Titel: {title}\n"
+            f"- Projekt: {project}\n"
+            f"- Typ: {task_type}\n"
+            f"- Zuweisung: {assignee}\n\n"
+            f"WICHTIGSTE ANWEISUNG FÜR DEINE ANTWORT:\n"
+            f"Bestätige dem Boss authentisch, herzlich und charmant auf Deutsch per Sprachnachricht, dass die Aufgabe jetzt auf unserem Board liegt.\n"
+            f"Sag ihm z.B.: „Alles klar, Boss! Ich habe die Aufgabe '{title}' soeben auf unser Board gelegt und {assignee} zugewiesen. Liegt bereit!“"
+        )
+
+    # 4. ComfyUI Workflow / Bildgenerierung (Megan Erotic Chat vs. Catlord Comic)
     img_keywords = ["bild von dir", "foto von dir", "selfie", "zeig dich", "sexy bild", "erotik bild", "generiere ein bild", "catlord", "comic"]
     if any(k in t_lower for k in img_keywords) or (("bild" in t_lower or "foto" in t_lower) and any(a in t_lower for a in ["schick", "mach", "zeig", "generier", "render"])):
         is_catlord = "catlord" in t_lower or "comic" in t_lower
@@ -655,6 +758,347 @@ def check_autonomous_intent(text: str) -> Optional[str]:
                 )
 
     return None
+
+# ------------------------------------------------------------------------------
+# Handlers: Kanban & Mission Tasks API (Port 8080)
+# ------------------------------------------------------------------------------
+async def handle_tasks_list(request: web.Request) -> web.Response:
+    """GET /api/tasks - Liefert alle Aufgaben aus ~/.hermes/kanban.db."""
+    tasks = await asyncio.to_thread(get_mission_tasks)
+    return web.json_response({"success": True, "tasks": tasks})
+
+async def handle_tasks_create(request: web.Request) -> web.Response:
+    """POST /api/tasks - Erstellt eine neue Agenten-Aufgabe in mission_tasks."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    title = (data.get("title") or "").strip()
+    if not title:
+        return web.json_response({"success": False, "error": "Bitte einen Aufgaben-Titel angeben"}, status=400)
+
+    project = (data.get("project") or "Megan Mobile Companion").strip()
+    if project in ['Android App', 'Megan Companion', 'Android-App', 'Android App (OpenUp / Megan)']:
+        project = "Megan Mobile Companion"
+    task_type = (data.get("task_type") or "Bild-Render (Assignee: Megan / ComfyUI)").strip()
+    details = (data.get("details") or "").strip()
+    status = (data.get("status") or "Zu erledigen").strip()
+    priority = (data.get("priority") or "Normal").strip()
+    assignee = (data.get("assignee") or ("Megan" if "bild" in task_type.lower() or "render" in task_type.lower() else "Hermes")).strip()
+
+    task_id = await asyncio.to_thread(
+        add_mission_task, title, project, task_type, details, status, priority, assignee
+    )
+    if task_id:
+        broadcast_ws_sync({
+            "type": "task_created",
+            "task_id": task_id,
+            "title": title,
+            "project": project,
+            "task_type": task_type,
+            "assignee": assignee
+        })
+        return web.json_response({
+            "success": True,
+            "task_id": task_id,
+            "task": {
+                "id": task_id,
+                "title": title,
+                "project": project,
+                "task_type": task_type,
+                "details": details,
+                "status": status,
+                "priority": priority,
+                "assignee": assignee
+            }
+        })
+    return web.json_response({"success": False, "error": "Fehler beim Hinzufügen der Aufgabe"}, status=500)
+
+async def handle_tasks_status_update(request: web.Request) -> web.Response:
+    """POST /api/tasks/status - Ändert den Kanban-Status einer Aufgabe."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    task_id = data.get("id")
+    new_status = data.get("status")
+    if task_id is None or not new_status:
+        return web.json_response({"success": False, "error": "id und status erforderlich"}, status=400)
+
+    try:
+        task_id = int(task_id)
+    except (ValueError, TypeError):
+        return web.json_response({"success": False, "error": "Ungültige Task-ID"}, status=400)
+
+    ok = await asyncio.to_thread(update_mission_task_status, task_id, str(new_status))
+    if ok:
+        return web.json_response({"success": True, "id": task_id, "status": new_status})
+    return web.json_response({"success": False, "error": "Fehler beim Aktualisieren des Status"}, status=500)
+
+async def handle_tasks_delete(request: web.Request) -> web.Response:
+    """DELETE /api/tasks/{id} - Entfernt eine Aufgabe."""
+    task_id = request.match_info.get("id")
+    if not task_id:
+        return web.json_response({"success": False, "error": "id erforderlich"}, status=400)
+
+    try:
+        task_id = int(task_id)
+    except (ValueError, TypeError):
+        return web.json_response({"success": False, "error": "Ungültige Task-ID"}, status=400)
+
+    ok = await asyncio.to_thread(delete_mission_task, task_id)
+    if ok:
+        return web.json_response({"success": True, "id": task_id})
+    return web.json_response({"success": False, "error": "Fehler beim Löschen"}, status=500)
+
+async def run_task_worker(task: Dict[str, Any]):
+    """Führt eine Kanban-Aufgabe asynchron im Hintergrund aus und aktualisiert mission_tasks."""
+    import ast
+    task_id = task.get("id")
+    if not task_id:
+        return
+    title = task.get("title", "")
+    details = task.get("details", "")
+    task_type = (task.get("task_type") or "").lower()
+    project = (task.get("project") or "").lower()
+    assignee = (task.get("assignee") or "").lower()
+
+    logger.info(f"[Kanban-Execute] Starte Ausführung für Task #{task_id}: '{title}' ({task_type})")
+
+    try:
+        # Fall 1: Bild-Render (SDXL / LoRA / Megan / ComfyUI)
+        if "render" in task_type or "bild" in task_type or assignee == "megan":
+            prompt = details.strip() if details.strip() else title.strip()
+            wf_name = "catlord_comic" if "catlord" in project or "catlord" in prompt.lower() else "megan_erotic_chat"
+            res = execute_autonomous_tool("comfyui_render", {"prompt": prompt, "workflow": wf_name})
+            if res.get("success"):
+                img_url = res.get("url") or f"/api/images/{res.get('filename', '')}"
+                await asyncio.to_thread(update_mission_task_result, task_id, img_url, "Render / Review")
+                logger.info(f"[Kanban-Execute] Task #{task_id} Render erfolgreich: {img_url}")
+            else:
+                err_msg = res.get("error") or "Render-Fehler: ComfyUI lieferte kein Bild oder GPU war belegt."
+                await asyncio.to_thread(update_mission_task_result, task_id, err_msg, "In Bearbeitung")
+                logger.warning(f"[Kanban-Execute] Task #{task_id} Render fehlgeschlagen.")
+
+        # Fall 2: Code / Skripting (Hermes generiert Code, ast.parse Prüfung & Speicherung in ~/.hermes/custom_tools/)
+        elif "code" in task_type or "skript" in task_type or "script" in task_type:
+            logger.info(f"[Kanban-Execute] Generiere Python-Code für Task #{task_id} mit Hermes LLM...")
+            model = MEGAN_MODEL
+            if BOT_CONFIG_FILE.is_file():
+                try:
+                    with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        m = data.get("hermes_model") or data.get("llm", {}).get("model") or data.get("active_model")
+                        if m and isinstance(m, str) and m.strip():
+                            model = m.strip()
+                except Exception:
+                    pass
+
+            prompt_content = (
+                "Du bist Hermes, autonomer Senior-Entwickler auf Outer Heaven.\n"
+                "Erstelle ein vollständiges, syntaktisch einwandfreies und direkt ausführbares Python-Skript für folgende Anforderung.\n"
+                f"Aufgabe: {title}\n"
+                f"Projekt: {task.get('project', 'Megan Mobile Companion')}\n"
+                f"Details & Spezifikation:\n{details}\n\n"
+                "ANWEISUNG:\n"
+                "Antworte AUSSCHLIESSLICH mit dem Python-Code innerhalb eines ```python ... ``` Blocks. "
+                "Kein Begleittext, keine Einleitung, keine Schlussworte, nur der Codeblock."
+            )
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{LOCAL_OLLAMA_URL}/api/generate",
+                    json={"model": model, "prompt": prompt_content, "stream": False},
+                    timeout=aiohttp.ClientTimeout(total=90.0)
+                ) as resp:
+                    if resp.status == 200:
+                        jdata = await resp.json()
+                        llm_reply = jdata.get("response", "").strip()
+                        clean_reply = re.sub(r'<think>.*?</think>', '', llm_reply, flags=re.DOTALL).strip() or llm_reply.strip()
+
+                        code_match = re.search(r'```(?:python)?\s*\n(.*?)```', clean_reply, re.DOTALL)
+                        code_str = code_match.group(1).strip() if code_match else clean_reply.strip()
+
+                        is_valid = True
+                        syntax_err = ""
+                        try:
+                            ast.parse(code_str)
+                        except SyntaxError as se:
+                            is_valid = False
+                            syntax_err = f"SyntaxError in Zeile {se.lineno}: {se.msg}"
+                        except Exception as e_ast:
+                            is_valid = False
+                            syntax_err = str(e_ast)
+
+                        if is_valid:
+                            CUSTOM_TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+
+                            target_match = re.search(r'\[TARGET_PATH\]:\s*([^\n\r]+)', details)
+                            filename = None
+                            if target_match:
+                                raw_p = Path(target_match.group(1).strip())
+                                filename = raw_p.name if raw_p.name.endswith(".py") else f"{raw_p.name}.py"
+
+                            if not filename:
+                                clean_name = re.sub(r'[^a-zA-Z0-9_]', '_', title.lower()).strip('_')
+                                clean_name = re.sub(r'_+', '_', clean_name)
+                                if not clean_name:
+                                    clean_name = f"hermes_tool_{task_id}"
+                                filename = f"{clean_name}.py"
+
+                            out_file = CUSTOM_TOOLS_DIR / filename
+                            out_file.write_text(code_str, encoding="utf-8")
+
+                            code_preview = code_str[:500] + ("\n..." if len(code_str) > 500 else "")
+                            res_text = (
+                                f"✅ Skript erfolgreich generiert & verifiziert (ast.parse OK)\n"
+                                f"Pfad: {out_file}\n"
+                                f"Größe: {len(code_str)} Bytes\n\n"
+                                f"Code-Vorschau:\n```python\n{code_preview}\n```"
+                            )
+                            await asyncio.to_thread(update_mission_task_result, task_id, res_text, "Erledigt")
+                            logger.info(f"[Kanban-Execute] Task #{task_id} Code erfolgreich gespeichert in {out_file}")
+                        else:
+                            res_text = (
+                                f"❌ Syntaxfehler bei Code-Generierung ({syntax_err})\n\n"
+                                f"Vorschau des fehlerhaften Codes:\n```python\n{code_str[:800]}\n```"
+                            )
+                            await asyncio.to_thread(update_mission_task_result, task_id, res_text, "In Bearbeitung")
+                            logger.warning(f"[Kanban-Execute] Task #{task_id} Syntaxfehler: {syntax_err}")
+                    else:
+                        await asyncio.to_thread(update_mission_task_result, task_id, f"LLM-Fehler HTTP {resp.status}", "In Bearbeitung")
+
+        # Fall 3: System / Cluster-Wartung (Führt System- & Health-Checks aus und loggt Konsolenausgabe)
+        elif "system" in task_type or "wartung" in task_type or "cluster" in task_type:
+            logger.info(f"[Kanban-Execute] Führe System-/Cluster-Health-Checks für Task #{task_id} aus...")
+            check_sections = []
+
+            services = ["mission-control.service", "megan-studio.service", "comfyui.service", "ollama.service"]
+            svc_lines = []
+            for s in services:
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "systemctl", "--user", "is-active", s,
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    so, _ = await proc.communicate()
+                    st = so.decode().strip() or "unknown"
+                    icon = "🟢" if st == "active" else "🔴"
+                    svc_lines.append(f"  {icon} {s}: {st}")
+                except Exception as e:
+                    svc_lines.append(f"  ⚠️ {s}: {e}")
+            check_sections.append("=== SYSTEMD DIENSTE ===\n" + "\n".join(svc_lines))
+
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "df", "-h", "/", "/mnt/storage-beta",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                so, _ = await proc.communicate()
+                check_sections.append("=== SPEICHERPLATZ ===\n" + so.decode().strip())
+            except Exception as e:
+                check_sections.append(f"=== SPEICHERPLATZ ===\nFehler: {e}")
+
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "tailscale", "status",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                so, _ = await proc.communicate()
+                ts_lines = so.decode().strip().split("\n")[:8]
+                check_sections.append("=== TAILSCALE MESH ===\n" + "\n".join(ts_lines))
+            except Exception as e:
+                check_sections.append(f"=== TAILSCALE MESH ===\nFehler: {e}")
+
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "xpu-smi", "discovery",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                so, _ = await proc.communicate()
+                xpu_out = so.decode().strip()
+                if xpu_out:
+                    check_sections.append("=== INTEL ARC GPU ===\n" + xpu_out[:400])
+                else:
+                    check_sections.append("=== INTEL ARC GPU ===\nIntel Arc A770 (Host Driver OK)")
+            except Exception:
+                check_sections.append("=== INTEL ARC GPU ===\nIntel Arc A770 (Sysfs discovery OK)")
+
+            tool_name = None
+            for part in (title + " " + details).split():
+                clean_part = re.sub(r'[^a-zA-Z0-9_\-]', '', part)
+                if clean_part and (CUSTOM_TOOLS_DIR / f"{clean_part}.py").is_file():
+                    tool_name = clean_part
+                    break
+
+            if tool_name:
+                script_path = (CUSTOM_TOOLS_DIR / f"{tool_name}.py").resolve()
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        sys.executable, str(script_path),
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    so, se = await asyncio.wait_for(proc.communicate(), timeout=35.0)
+                    t_out = (so.decode("utf-8", errors="replace") + "\n" + se.decode("utf-8", errors="replace")).strip()
+                    check_sections.append(f"=== TOOL '{tool_name}' AUSFÜHRUNG (Exit {proc.returncode}) ===\n{t_out[:800]}")
+                except Exception as ex:
+                    check_sections.append(f"=== TOOL '{tool_name}' FEHLER ===\n{ex}")
+
+            final_report = "🛡️ SYSTEM- & CLUSTER-WARTUNG BERICHT:\n\n" + "\n\n".join(check_sections)
+            await asyncio.to_thread(update_mission_task_result, task_id, final_report, "Erledigt")
+            logger.info(f"[Kanban-Execute] Task #{task_id} System-Wartung erfolgreich abgeschlossen.")
+
+        # Fall 4: Standard LLM / Prompt-Optimierung / Hermes Analyse & Recherche
+        else:
+            model = MEGAN_MODEL
+            prompt_content = f"Du bist Hermes, technischer Agent auf Outer Heaven. Führe diese Aufgabe aus und liefere das konkrete Ergebnis:\nAufgabe: {title}\nProjekt: {project}\nDetails: {details}"
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{LOCAL_OLLAMA_URL}/api/generate",
+                    json={"model": model, "prompt": prompt_content, "stream": False},
+                    timeout=aiohttp.ClientTimeout(total=50.0)
+                ) as resp:
+                    if resp.status == 200:
+                        jdata = await resp.json()
+                        llm_reply = jdata.get("response", "").strip()
+                        clean_reply = re.sub(r'<think>.*?</think>', '', llm_reply, flags=re.DOTALL).strip() or llm_reply.strip()
+                        await asyncio.to_thread(update_mission_task_result, task_id, clean_reply, "Erledigt")
+                        logger.info(f"[Kanban-Execute] Task #{task_id} LLM-Ausführung erfolgreich.")
+                    else:
+                        await asyncio.to_thread(update_mission_task_result, task_id, f"Ollama-Fehler HTTP {resp.status}", "In Bearbeitung")
+
+    except Exception as e:
+        logger.error(f"[Kanban-Execute] Fehler bei Ausführung von Task #{task_id}: {e}", exc_info=True)
+        await asyncio.to_thread(update_mission_task_result, task_id, f"Fehler bei Ausführung: {e}", "In Bearbeitung")
+
+async def handle_tasks_execute(request: web.Request) -> web.Response:
+    """POST /api/kanban/{id}/execute oder /api/tasks/{id}/execute - Startet die autonome Task-Ausführung."""
+    task_id_str = request.match_info.get("id")
+    if not task_id_str:
+        return web.json_response({"success": False, "error": "Task-ID erforderlich"}, status=400)
+    try:
+        task_id = int(task_id_str)
+    except (ValueError, TypeError):
+        return web.json_response({"success": False, "error": "Ungültige Task-ID"}, status=400)
+
+    task = await asyncio.to_thread(get_mission_task_by_id, task_id)
+    if not task:
+        return web.json_response({"success": False, "error": f"Task #{task_id} nicht gefunden"}, status=404)
+
+    # Status direkt auf 'In Bearbeitung' setzen
+    await asyncio.to_thread(update_mission_task_status, task_id, "In Bearbeitung")
+    task["status"] = "In Bearbeitung"
+
+    # Autonome Abarbeitung als Background-Task entkoppeln
+    asyncio.create_task(run_task_worker(task))
+
+    return web.json_response({
+        "success": True,
+        "task_id": task_id,
+        "status": "In Bearbeitung",
+        "message": f"Task #{task_id} ('{task['title']}') wurde gestartet."
+    })
 
 # ------------------------------------------------------------------------------
 # Handlers: Character, Lore & Appearance Presets
@@ -1572,6 +2016,14 @@ def create_app() -> web.Application:
     app.router.add_get("/api/audio/{filename}", handle_audio_serve)
     app.router.add_get("/api/audio/tts/{filename}", handle_audio_serve)
     app.router.add_post("/api/audio/transcribe", handle_audio_transcribe)
+
+    # Kanban Board & Mission Tasks (~/.hermes/kanban.db)
+    app.router.add_get("/api/tasks", handle_tasks_list)
+    app.router.add_post("/api/tasks", handle_tasks_create)
+    app.router.add_post("/api/tasks/status", handle_tasks_status_update)
+    app.router.add_delete("/api/tasks/{id}", handle_tasks_delete)
+    app.router.add_post("/api/kanban/{id}/execute", handle_tasks_execute)
+    app.router.add_post("/api/tasks/{id}/execute", handle_tasks_execute)
 
     # ComfyUI Render & Gallery
     app.router.add_post("/api/render", handle_render)

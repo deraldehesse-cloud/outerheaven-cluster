@@ -541,6 +541,172 @@ if not HERMES_DIR.exists():
     HERMES_DIR = Path("/home/outerheaven/.hermes")
 TOOLS_CONFIG_FILE = HERMES_DIR / "tools_config.json"
 CUSTOM_TOOLS_DIR = HERMES_DIR / "custom_tools"
+KANBAN_DB = HERMES_DIR / "kanban.db"
+
+VALID_TASK_PROJECTS = [
+    "Megan Mobile Companion",
+    "Catlord Project",
+    "ComfyUI / Arc A770",
+    "Server & Infrastruktur"
+]
+
+VALID_TASK_TYPES = [
+    "Bild-Render (Assignee: Megan / ComfyUI)",
+    "Code / Skripting (Assignee: Hermes)",
+    "System / Cluster-Wartung (Assignee: Hermes)",
+    "Analyse & Recherche (Assignee: Hermes)",
+    "Allgemeine Aufgabe"
+]
+
+def init_mission_tasks_db():
+    try:
+        HERMES_DIR.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS mission_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                project TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                details TEXT,
+                status TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                assignee TEXT DEFAULT 'Hermes'
+            )
+        """)
+        c.execute("PRAGMA table_info(mission_tasks)")
+        columns = [row[1] for row in c.fetchall()]
+        if "assignee" not in columns:
+            c.execute("ALTER TABLE mission_tasks ADD COLUMN assignee TEXT DEFAULT 'Hermes'")
+        if "result" not in columns:
+            c.execute("ALTER TABLE mission_tasks ADD COLUMN result TEXT")
+        
+        # Migration: Konsolidierung auf 'Megan Mobile Companion'
+        c.execute("""
+            UPDATE mission_tasks 
+            SET project = 'Megan Mobile Companion' 
+            WHERE project IN ('Android App', 'Megan Companion', 'Android-App', 'Android App (OpenUp / Megan)')
+               OR project LIKE '%Android%App%' OR project LIKE '%Megan Companion%'
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Fehler bei DB-Initialisierung mission_tasks: {e}")
+
+def get_mission_tasks() -> List[Dict[str, Any]]:
+    init_mission_tasks_db()
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM mission_tasks ORDER BY id DESC")
+        rows = c.fetchall()
+        tasks = []
+        for r in rows:
+            tasks.append({
+                "id": r["id"],
+                "title": r["title"],
+                "project": r["project"],
+                "task_type": r["task_type"],
+                "details": r["details"] or "",
+                "status": r["status"],
+                "priority": r["priority"],
+                "created_at": r["created_at"],
+                "assignee": r["assignee"] if "assignee" in r.keys() and r["assignee"] else "Hermes",
+                "result": r["result"] if "result" in r.keys() and r["result"] else ""
+            })
+        conn.close()
+        return tasks
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen von mission_tasks: {e}")
+        return []
+
+def add_mission_task(title: str, project: str = "Megan Mobile Companion", task_type: str = "Bild-Render (Assignee: Megan / ComfyUI)", details: str = "", status: str = "Zu erledigen", priority: str = "Normal", assignee: str = "Hermes") -> Optional[int]:
+    init_mission_tasks_db()
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if project in ['Android App', 'Megan Companion', 'Android-App', 'Android App (OpenUp / Megan)']:
+            project = "Megan Mobile Companion"
+        c.execute("""
+            INSERT INTO mission_tasks (title, project, task_type, details, status, priority, created_at, assignee)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (title, project, task_type, details, status, priority, now_str, assignee))
+        task_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        return task_id
+    except Exception as e:
+        logger.error(f"Fehler beim Hinzufügen der Aufgabe: {e}")
+        return None
+
+def update_mission_task_status(task_id: int, new_status: str) -> bool:
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        c.execute("UPDATE mission_tasks SET status = ? WHERE id = ?", (new_status, task_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Aktualisieren von Task {task_id}: {e}")
+        return False
+
+def get_mission_task_by_id(task_id: int) -> Optional[Dict[str, Any]]:
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM mission_tasks WHERE id = ?", (task_id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return {
+                "id": row["id"],
+                "title": row["title"],
+                "project": row["project"],
+                "task_type": row["task_type"],
+                "details": row["details"] or "",
+                "status": row["status"],
+                "priority": row["priority"],
+                "created_at": row["created_at"],
+                "assignee": row["assignee"] if "assignee" in row.keys() and row["assignee"] else "Hermes",
+                "result": row["result"] if "result" in row.keys() and row["result"] else ""
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Fehler beim Laden von Task {task_id}: {e}")
+        return None
+
+def update_mission_task_result(task_id: int, result: str, new_status: Optional[str] = None) -> bool:
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        if new_status:
+            c.execute("UPDATE mission_tasks SET result = ?, status = ? WHERE id = ?", (result, new_status, task_id))
+        else:
+            c.execute("UPDATE mission_tasks SET result = ? WHERE id = ?", (result, task_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern des Task-Ergebnisses {task_id}: {e}")
+        return False
+
+def delete_mission_task(task_id: int) -> bool:
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        c.execute("DELETE FROM mission_tasks WHERE id = ?", (task_id,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Löschen von Task {task_id}: {e}")
+        return False
 
 DEFAULT_TOOLS_CONFIG = {
     "builtin_tools": {
@@ -1099,6 +1265,16 @@ def execute_autonomous_tool(tool_name: str, params: Optional[Dict[str, Any]] = N
                 except Exception as e:
                     return {"success": False, "error": str(e)}
         return {"success": False, "error": f"Aktion '{action}' auf Ziel '{target}' nicht erlaubt"}
+
+    # 9. Kanban Task Creation
+    elif tool in ["create_task", "kanban_task", "add_task", "kanban_create"]:
+        title = params.get("title") or "Aufgabe via Megan"
+        project = params.get("project") or "Megan Mobile Companion"
+        task_type = params.get("task_type") or "Allgemeine Aufgabe"
+        details = params.get("details", "")
+        assignee = params.get("assignee") or ("Megan" if "bild" in task_type.lower() or "render" in task_type.lower() else "Hermes")
+        tid = add_mission_task(title=title, project=project, task_type=task_type, details=details, assignee=assignee)
+        return {"success": bool(tid), "task_id": tid, "title": title, "project": project, "task_type": task_type, "assignee": assignee}
 
     return {"success": False, "error": f"Unbekanntes Tool: {tool_name}"}
 

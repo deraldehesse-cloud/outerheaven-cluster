@@ -542,6 +542,16 @@
             </div>
           </div>
           <div class="flex items-center space-x-2">
+            <div class="flex items-center space-x-1.5 bg-slate-900 border border-slate-700 rounded px-2 py-1">
+              <span class="text-[10px] text-slate-400 font-bold uppercase">📁 PROJEKT:</span>
+              <select id="taskProjectFilter" onchange="filterMissionTasks()" class="bg-transparent text-cyan-300 text-xs font-mono cursor-pointer focus:outline-none font-bold">
+                <option value="ALL">Alle Projekte</option>
+                <option value="Megan Mobile Companion">Megan Mobile Companion</option>
+                <option value="Catlord Project">Catlord Project</option>
+                <option value="ComfyUI / Arc A770">ComfyUI / Arc A770</option>
+                <option value="Server & Infrastruktur">Server & Infrastruktur</option>
+              </select>
+            </div>
             <button type="button" onclick="loadMissionTasks()" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded text-xs font-bold transition flex items-center space-x-1" title="Aufgaben aktualisieren">
               <span>⟳</span> <span>REFRESH</span>
             </button>
@@ -557,14 +567,14 @@
             <span class="font-bold text-cyan-300 flex items-center space-x-1.5">
               <span>➕</span> <span>GEFÜHRTE AUFGABENERSTELLUNG</span>
             </span>
-            <span class="text-[10px] text-slate-400">Erstelle Pipeline-Aufträge für ComfyUI, Catlord oder Megan</span>
+            <span class="text-[10px] text-slate-400">Erstelle Aufträge für ComfyUI, Hermes (Code / System) oder Megan</span>
           </div>
 
           <form id="newTaskForm" onsubmit="event.preventDefault(); submitNewTask();" class="space-y-3 text-xs">
             <!-- Row 1: Titel -->
             <div>
               <label class="block text-[11px] text-slate-300 font-bold mb-1">Aufgaben-Titel / Kurzbeschreibung: *</label>
-              <input type="text" id="taskTitleInput" required placeholder="z. B. Catlord Szene 01: Cash Dach-Render"
+              <input type="text" id="taskTitleInput" required placeholder="z. B. Skript für GPU Monitoring oder Megan Pose-Render..."
                      class="w-full bg-black/70 border border-slate-700 rounded px-3 py-2 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition font-mono">
             </div>
 
@@ -574,8 +584,8 @@
               <div>
                 <label class="block text-[11px] text-slate-300 font-bold mb-1">Zuweisung (Agent):</label>
                 <select id="taskAssigneeSelect" class="w-full bg-slate-950 border border-cyan-500/50 rounded px-2.5 py-1.5 text-cyan-300 focus:outline-none focus:border-cyan-400 font-mono cursor-pointer font-bold">
-                  <option value="Hermes">⚡ Hermes</option>
                   <option value="Megan">💋 Megan</option>
+                  <option value="Hermes">⚡ Hermes</option>
                 </select>
               </div>
 
@@ -583,10 +593,9 @@
               <div>
                 <label class="block text-[11px] text-slate-300 font-bold mb-1">Projekt:</label>
                 <select id="taskProjectSelect" class="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-400 font-mono cursor-pointer">
+                  <option value="Megan Mobile Companion">Megan Mobile Companion</option>
                   <option value="Catlord Project">Catlord Project</option>
-                  <option value="Megan Companion">Megan Companion</option>
                   <option value="ComfyUI / Arc A770">ComfyUI / Arc A770</option>
-                  <option value="Android App (OpenUp / Megan)">Android App (OpenUp / Megan)</option>
                   <option value="Server & Infrastruktur">Server & Infrastruktur</option>
                 </select>
               </div>
@@ -595,11 +604,11 @@
               <div>
                 <label class="block text-[11px] text-slate-300 font-bold mb-1">Aufgaben-Typ:</label>
                 <select id="taskTypeSelect" onchange="onTaskTypeChange(this.value)" class="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-400 font-mono cursor-pointer">
-                  <option value="Bild-Render (SDXL / LoRA)">Bild-Render (SDXL / LoRA)</option>
-                  <option value="3D-Mesh Rekonstruktion">3D-Mesh Rekonstruktion</option>
-                  <option value="LLM / Prompt-Optimierung">LLM / Prompt-Optimierung</option>
-                  <option value="Audio / TTS Pipeline">Audio / TTS Pipeline</option>
-                  <option value="System-Wartung">System-Wartung</option>
+                  <option value="Bild-Render (Assignee: Megan / ComfyUI)">Bild-Render (Assignee: Megan / ComfyUI)</option>
+                  <option value="Code / Skripting (Assignee: Hermes)">Code / Skripting (Assignee: Hermes)</option>
+                  <option value="System / Cluster-Wartung (Assignee: Hermes)">System / Cluster-Wartung (Assignee: Hermes)</option>
+                  <option value="Analyse & Recherche (Assignee: Hermes)">Analyse & Recherche (Assignee: Hermes)</option>
+                  <option value="Allgemeine Aufgabe">Allgemeine Aufgabe</option>
                 </select>
               </div>
 
@@ -623,7 +632,7 @@
               </div>
             </div>
 
-            <!-- Quick Preset Controls (wenn Bild-Render aktiv) -->
+            <!-- Quick Preset Controls (nur wenn Bild-Render aktiv) -->
             <div id="renderPresetRow" class="p-2.5 rounded bg-black/40 border border-slate-800 space-y-2">
               <div class="flex items-center justify-between text-[11px] text-slate-400">
                 <span class="font-bold text-amber-300">🎨 SDXL Preset-Schnellauswahl:</span>
@@ -645,17 +654,7 @@
               </div>
             </div>
 
-            <!-- Row 3: Details / Prompt / Pfade -->
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-[11px] text-slate-300 font-bold">Details / Prompt / Pfade:</label>
-                <span class="text-[10px] text-cyan-400 font-mono">ComfyUI / Task-Prompt</span>
-              </div>
-              <textarea id="taskDetailsInput" rows="3" placeholder="Zusätzliche Workflow-Parameter, Prompts, Dateipfade oder Notizen..."
-                        class="w-full bg-black/70 border border-slate-700 rounded p-2.5 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-mono text-xs"></textarea>
-            </div>
-
-            <!-- Danbooru Tags & Negative Prompt Row (für Render-Tasks) -->
+            <!-- Danbooru Tags & Negative Prompt Row (nur für Bild-Render) -->
             <div id="danbooruTaskHelperRow" class="p-2.5 rounded bg-black/40 border border-cyan-900/50 space-y-2">
               <div class="relative">
                 <div class="flex items-center justify-between mb-0.5">
@@ -672,6 +671,33 @@
                 <input type="text" id="taskNegativePromptInput"
                        value="ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, mutated"
                        class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-cyan-400 font-mono">
+              </div>
+            </div>
+
+            <!-- Row 3: Prominentes Anforderungs- & Beschreibungsfeld -->
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label id="taskDetailsLabel" class="block text-[11px] text-slate-300 font-bold">Bild-Prompt / Beschreibung:</label>
+                <span id="taskDetailsBadge" class="text-[10px] text-cyan-400 font-mono">ComfyUI / SDXL Prompt</span>
+              </div>
+              <textarea id="taskDetailsInput" rows="3" placeholder="z. B. 1girl, megan in high-tech laboratory, holding tablet, highly detailed..."
+                        class="w-full bg-black/70 border border-slate-700 rounded p-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-mono text-xs"></textarea>
+            </div>
+
+            <!-- Optional: Ziel-Dateipfad & Host (bei Code, System, Analyse) -->
+            <div id="taskTargetRow" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-3 p-2.5 rounded bg-black/40 border border-slate-800">
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 font-mono mb-0.5">Ziel-Dateipfad (optional):</label>
+                <input type="text" id="taskTargetFileInput" placeholder="z. B. ~/.hermes/custom_tools/cluster_health.py"
+                       class="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-400 font-mono">
+              </div>
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 font-mono mb-0.5">Ziel-Host / Node (optional):</label>
+                <select id="taskTargetHostSelect" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-400 font-mono">
+                  <option value="outerheaven">outerheaven (Haupt-Node / Arc A770)</option>
+                  <option value="fox">fox (Secondary Node / Ollama)</option>
+                  <option value="cluster">Gesamter Cluster</option>
+                </select>
               </div>
             </div>
 
@@ -9947,9 +9973,19 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         currentMissionTasks = data.tasks || [];
-        renderMissionTasks(currentMissionTasks);
+        filterMissionTasks();
       } catch (err) {
         console.error("Error loading mission tasks:", err);
+      }
+    }
+
+    function filterMissionTasks() {
+      const filterVal = document.getElementById("taskProjectFilter")?.value || "ALL";
+      if (filterVal === "ALL") {
+        renderMissionTasks(currentMissionTasks);
+      } else {
+        const filtered = currentMissionTasks.filter(t => t.project === filterVal);
+        renderMissionTasks(filtered);
       }
     }
 
@@ -9963,6 +9999,7 @@
         if (icon) icon.textContent = "✕";
         if (text) text.textContent = "SCHLIESSEN";
         document.getElementById("taskTitleInput")?.focus();
+        onTaskTypeChange(document.getElementById("taskTypeSelect")?.value);
       } else {
         card.classList.add("hidden");
         if (icon) icon.textContent = "➕";
@@ -9971,12 +10008,53 @@
     }
 
     function onTaskTypeChange(taskType) {
+      const t = (taskType || "").toLowerCase();
+      const isRender = t.includes("render") || t.includes("bild");
+      const isCode = t.includes("code") || t.includes("skript") || t.includes("script");
+      const isSystem = t.includes("system") || t.includes("wartung");
+      const isAnalyse = t.includes("analyse") || t.includes("recherche");
+
       const presetRow = document.getElementById("renderPresetRow");
-      if (!presetRow) return;
-      if (taskType === "Bild-Render (SDXL / LoRA)") {
-        presetRow.classList.remove("hidden");
+      const danbooruRow = document.getElementById("danbooruTaskHelperRow");
+      const targetRow = document.getElementById("taskTargetRow");
+      const detailsLabel = document.getElementById("taskDetailsLabel");
+      const detailsBadge = document.getElementById("taskDetailsBadge");
+      const detailsInput = document.getElementById("taskDetailsInput");
+      const assigneeSelect = document.getElementById("taskAssigneeSelect");
+
+      if (assigneeSelect) {
+        assigneeSelect.value = isRender ? "Megan" : "Hermes";
+      }
+
+      if (isRender) {
+        if (presetRow) presetRow.classList.remove("hidden");
+        if (danbooruRow) danbooruRow.classList.remove("hidden");
+        if (targetRow) targetRow.classList.add("hidden");
+        if (detailsLabel) detailsLabel.textContent = "Bild-Prompt / Beschreibung:";
+        if (detailsBadge) detailsBadge.textContent = "ComfyUI / SDXL Prompt";
+        if (detailsInput) detailsInput.placeholder = "z. B. 1girl, megan in high-tech laboratory, holding tablet, highly detailed...";
       } else {
-        presetRow.classList.add("hidden");
+        if (presetRow) presetRow.classList.add("hidden");
+        if (danbooruRow) danbooruRow.classList.add("hidden");
+        if (targetRow) targetRow.classList.remove("hidden");
+
+        if (isCode) {
+          if (detailsLabel) detailsLabel.textContent = "Code-Anforderung / Spezifikation:";
+          if (detailsBadge) detailsBadge.textContent = "Hermes Code Generator (ast.parse)";
+          if (detailsInput) detailsInput.placeholder = "Beschreibe das gewünschte Tool / Python-Skript, Ein-/Ausgabe, Funktionen, Abhängigkeiten...";
+        } else if (isSystem) {
+          if (detailsLabel) detailsLabel.textContent = "Wartungs-Anforderung / Health-Checks:";
+          if (detailsBadge) detailsBadge.textContent = "Hermes System Diagnostics";
+          if (detailsInput) detailsInput.placeholder = "Welche System-Checks, Services oder Wartungsarbeiten sollen ausgeführt werden? (Optional leer lassen für Standard-Cluster-Health)...";
+        } else if (isAnalyse) {
+          if (detailsLabel) detailsLabel.textContent = "Analyse-Fragestellung / Recherche-Auftrag:";
+          if (detailsBadge) detailsBadge.textContent = "Hermes Analysis & Deep Context";
+          if (detailsInput) detailsInput.placeholder = "Konkrete Fragestellung, Log-Analysen, Cluster-Recherchen...";
+        } else {
+          if (detailsLabel) detailsLabel.textContent = "Aufgabenbeschreibung / Details:";
+          if (detailsBadge) detailsBadge.textContent = "Task Details";
+          if (detailsInput) detailsInput.placeholder = "Detaillierte Aufgabenbeschreibung...";
+        }
       }
     }
 
@@ -10064,6 +10142,8 @@
       const detailsInput = document.getElementById("taskDetailsInput");
       const danbooruInput = document.getElementById("taskDanbooruInput");
       const negInput = document.getElementById("taskNegativePromptInput");
+      const targetFileInput = document.getElementById("taskTargetFileInput");
+      const targetHostSelect = document.getElementById("taskTargetHostSelect");
       const msgBox = document.getElementById("taskFormMsg");
       const submitBtn = document.getElementById("btnSubmitTask");
 
@@ -10074,21 +10154,34 @@
       }
 
       let finalDetails = detailsInput ? detailsInput.value.trim() : "";
-      const danbooruTags = danbooruInput ? danbooruInput.value.trim().replace(/,\s*$/, "") : "";
-      const negPrompt = negInput ? negInput.value.trim() : "";
+      const selectedType = typeSelect ? typeSelect.value : "";
+      const isRender = selectedType.toLowerCase().includes("render") || selectedType.toLowerCase().includes("bild");
 
-      if (danbooruTags) {
-        finalDetails = finalDetails ? `${danbooruTags}\n\n${finalDetails}` : danbooruTags;
-      }
-      if (negPrompt && (typeSelect?.value || "").includes("Render")) {
-        finalDetails = `${finalDetails}\n[NEGATIVE]: ${negPrompt}`;
+      if (isRender) {
+        const danbooruTags = danbooruInput ? danbooruInput.value.trim().replace(/,\s*$/, "") : "";
+        const negPrompt = negInput ? negInput.value.trim() : "";
+        if (danbooruTags) {
+          finalDetails = finalDetails ? `${danbooruTags}\n\n${finalDetails}` : danbooruTags;
+        }
+        if (negPrompt) {
+          finalDetails = `${finalDetails}\n[NEGATIVE]: ${negPrompt}`;
+        }
+      } else {
+        const targetFile = targetFileInput ? targetFileInput.value.trim() : "";
+        const targetHost = targetHostSelect ? targetHostSelect.value.trim() : "";
+        if (targetFile) {
+          finalDetails = `${finalDetails}\n[TARGET_PATH]: ${targetFile}`.trim();
+        }
+        if (targetHost && targetHost !== "outerheaven") {
+          finalDetails = `${finalDetails}\n[TARGET_HOST]: ${targetHost}`.trim();
+        }
       }
 
       const payload = {
         title: title,
         assignee: assigneeSelect ? assigneeSelect.value : "Hermes",
-        project: projectSelect ? projectSelect.value : "Catlord Project",
-        task_type: typeSelect ? typeSelect.value : "Bild-Render (SDXL / LoRA)",
+        project: projectSelect ? projectSelect.value : "Megan Mobile Companion",
+        task_type: selectedType || "Allgemeine Aufgabe",
         priority: prioritySelect ? prioritySelect.value : "Normal",
         status: statusSelect ? statusSelect.value : "Zu erledigen",
         details: finalDetails
@@ -10106,6 +10199,7 @@
         if (data.success) {
           if (titleInput) titleInput.value = "";
           if (detailsInput) detailsInput.value = "";
+          if (targetFileInput) targetFileInput.value = "";
           if (msgBox) {
             msgBox.textContent = `✔ Aufgabe '${title}' erfolgreich angelegt!`;
             msgBox.className = "text-xs font-mono text-emerald-400 font-bold";
