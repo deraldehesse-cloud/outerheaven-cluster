@@ -165,14 +165,51 @@
           </div>
         </div>
 
+        <!-- Danbooru Tags Input with Autocomplete -->
+        <div class="relative">
+          <div class="flex items-center justify-between mb-0.5">
+            <label class="block text-[9px] uppercase font-bold text-cyan-300 font-mono">🏷️ Danbooru-Tags:</label>
+            <span class="text-[9px] text-slate-500 font-mono">Autocomplete aktiv</span>
+          </div>
+          <input type="text" id="danbooruTagsInput" placeholder="Tag tippen (z.B. masterpiece, green_eyes, solo)..."
+                 oninput="handleDanbooruInput(this.value)"
+                 class="w-full bg-slate-950 border border-cyan-800/80 rounded px-2 py-1 text-xs text-cyan-200 focus:border-cyan-400 focus:outline-none font-mono">
+          <div id="danbooruSuggestions" class="hidden absolute z-50 left-0 right-0 mt-1 bg-slate-900 border border-cyan-700/80 rounded shadow-2xl max-h-36 overflow-y-auto scrollbar-thin text-xs"></div>
+        </div>
+
+        <!-- Positive Prompt / Fließtext -->
         <div>
-          <label class="block text-[9px] uppercase font-bold text-slate-400 font-mono mb-0.5">Prompt:</label>
+          <label class="block text-[9px] uppercase font-bold text-slate-400 font-mono mb-0.5">Prompt (Szenen-Beschreibung):</label>
           <textarea id="renderPrompt" rows="2" placeholder="1girl, megan, solo, smiling, couch pov, cozy room, soft cinematic lighting..."
+                    oninput="updatePromptInspector()"
                     class="w-full bg-slate-950 border border-slate-700 rounded p-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none resize-none"></textarea>
         </div>
 
-        <button onclick="triggerRender()" class="w-full py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded text-xs font-bold font-mono shadow transition">
-          ⚡ ComfyUI Render ausführen
+        <!-- Negative Prompt -->
+        <div>
+          <label class="block text-[9px] uppercase font-bold text-slate-400 font-mono mb-0.5">Negative Prompt:</label>
+          <textarea id="renderNegativePrompt" rows="1" placeholder="lowres, bad anatomy, text, watermark, bad hands..."
+                    class="w-full bg-slate-950 border border-slate-700 rounded p-1.5 text-[11px] text-slate-300 focus:border-cyan-500 focus:outline-none resize-none">ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, mutated</textarea>
+        </div>
+
+        <!-- Prompt Inspector (Transparente Vorschau vor dem Render) -->
+        <div class="bg-black/60 rounded p-2 border border-slate-800 text-[10px] font-mono space-y-1">
+          <div class="flex items-center justify-between text-slate-400">
+            <span class="font-bold text-amber-400 flex items-center gap-1"><span>🔍</span><span>PROMPT-INSPEKTOR (COMFYUI NODE 8188):</span></span>
+            <button type="button" onclick="updatePromptInspector()" class="text-cyan-400 hover:underline">Aktualisieren</button>
+          </div>
+          <div class="text-slate-400">Finaler KSampler-String:</div>
+          <textarea id="promptInspectorPreview" rows="2"
+                    class="w-full bg-slate-950 border border-amber-500/40 rounded p-1.5 text-[10px] text-amber-200 focus:border-amber-400 focus:outline-none leading-relaxed"
+                    title="Dieser String wird real an ComfyUI gesendet – kann manuell editiert werden!"></textarea>
+          <div class="flex items-center justify-between text-[9px] text-slate-500">
+            <span>WD14-Tagger Preset: <span class="text-emerald-400">SDXL Anime/Photo v2</span></span>
+            <button type="button" onclick="loadSampleDanbooruSet()" class="text-cyan-400 hover:underline">+ Standard-Tags</button>
+          </div>
+        </div>
+
+        <button onclick="triggerRender()" class="w-full py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded text-xs font-bold font-mono shadow transition flex items-center justify-center space-x-1.5">
+          <span>⚡ ComfyUI Render ausführen</span>
         </button>
       </div>
 
@@ -503,12 +540,93 @@
     }
 
     // --------------------------------------------------------------------------
+    // Danbooru Autocomplete & Prompt Inspector Engine
+    // --------------------------------------------------------------------------
+    let danbooruDebounce = null;
+
+    async function handleDanbooruInput(val) {
+      clearTimeout(danbooruDebounce);
+      const box = document.getElementById('danbooruSuggestions');
+      if (!val || val.trim().length < 2) {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+        updatePromptInspector();
+        return;
+      }
+
+      // Den letzten getippten Tag nach dem letzten Komma ermitteln
+      const parts = val.split(',');
+      const lastTag = parts[parts.length - 1].trim();
+      if (lastTag.length < 2) {
+        box.classList.add('hidden');
+        return;
+      }
+
+      danbooruDebounce = setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/danbooru/tags?q=${encodeURIComponent(lastTag)}&limit=12`);
+          const data = await res.json();
+          if (data.tags && data.tags.length > 0) {
+            box.innerHTML = data.tags.map(t => `
+              <div onclick="addDanbooruTag('${escapeHtml(t.tag)}')"
+                   class="px-2.5 py-1.5 hover:bg-cyan-950/80 cursor-pointer flex items-center justify-between border-b border-slate-800/60 transition">
+                <span class="font-bold text-cyan-300 font-mono">${escapeHtml(t.tag)}</span>
+                <span class="text-[9px] text-slate-500">${t.count || ''}</span>
+              </div>
+            `).join('');
+            box.classList.remove('hidden');
+          } else {
+            box.classList.add('hidden');
+          }
+        } catch (e) {
+          console.warn("Danbooru search failed:", e);
+        }
+      }, 150);
+
+      updatePromptInspector();
+    }
+
+    function addDanbooruTag(tag) {
+      const input = document.getElementById('danbooruTagsInput');
+      const box = document.getElementById('danbooruSuggestions');
+      const parts = input.value.split(',').map(s => s.trim()).filter(Boolean);
+      // Letzten unvollständigen Eintrag ersetzen
+      if (parts.length > 0) parts.pop();
+      parts.push(tag);
+      input.value = parts.join(', ') + ', ';
+      box.classList.add('hidden');
+      input.focus();
+      updatePromptInspector();
+    }
+
+    function loadSampleDanbooruSet() {
+      const defaultTags = "masterpiece, best quality, 1girl, solo, megan, emerald green eyes, fiery orange hair, soft skin, highres";
+      const input = document.getElementById('danbooruTagsInput');
+      input.value = defaultTags + ", ";
+      updatePromptInspector();
+    }
+
+    function updatePromptInspector() {
+      const danbooru = (document.getElementById('danbooruTagsInput')?.value || '').trim().replace(/,\s*$/, '');
+      const prompt = (document.getElementById('renderPrompt')?.value || '').trim();
+      const inspector = document.getElementById('promptInspectorPreview');
+      
+      const combined = [danbooru, prompt].filter(Boolean).join(', ');
+      if (inspector) {
+        inspector.value = combined || "1girl, megan, solo, photorealistic, masterpiece, 8k uhd";
+      }
+    }
+
+    // --------------------------------------------------------------------------
     // ComfyUI Render & Gallery
     // --------------------------------------------------------------------------
     async function triggerRender() {
-      const prompt = document.getElementById('renderPrompt').value;
+      // Prompt Inspector Inhalt hat Vorrang (da Big Boss hier manuell feintunen kann)
+      const inspectorPrompt = document.getElementById('promptInspectorPreview')?.value?.trim();
+      const prompt = inspectorPrompt || document.getElementById('renderPrompt').value;
       if (!prompt) return alert("Prompt eingeben!");
 
+      const negative_prompt = document.getElementById('renderNegativePrompt')?.value?.trim() || "";
       const sampler = document.getElementById('botRenderSampler').value;
       const scheduler = document.getElementById('botRenderScheduler').value;
       const steps = parseInt(document.getElementById('botRenderSteps').value) || 14;
@@ -516,12 +634,21 @@
       const width = parseInt(document.getElementById('botRenderWidth').value) || 512;
       const height = parseInt(document.getElementById('botRenderHeight').value) || 768;
 
-      await fetch('/api/render', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({prompt, sampler, scheduler, steps, cfg, width, height})
-      });
-      alert("ComfyUI Render erfolgreich eingereiht!");
+      try {
+        const res = await fetch('/api/render', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({prompt, negative_prompt, sampler, scheduler, steps, cfg, width, height})
+        });
+        const data = await res.json();
+        if (data.success || data.prompt_id || data.status === "queued") {
+          alert("⚡ ComfyUI Render erfolgreich eingereiht!");
+        } else {
+          alert("Render-Status: " + (data.error || "Im Hintergrund eingereiht"));
+        }
+      } catch (e) {
+        alert("Fehler beim Senden des Render-Auftrags: " + e.message);
+      }
       setTimeout(loadGallery, 3000);
     }
 

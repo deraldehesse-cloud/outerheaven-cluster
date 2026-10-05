@@ -647,9 +647,32 @@
 
             <!-- Row 3: Details / Prompt / Pfade -->
             <div>
-              <label class="block text-[11px] text-slate-300 font-bold mb-1">Details / Prompt / Pfade:</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-[11px] text-slate-300 font-bold">Details / Prompt / Pfade:</label>
+                <span class="text-[10px] text-cyan-400 font-mono">ComfyUI / Task-Prompt</span>
+              </div>
               <textarea id="taskDetailsInput" rows="3" placeholder="Zusätzliche Workflow-Parameter, Prompts, Dateipfade oder Notizen..."
                         class="w-full bg-black/70 border border-slate-700 rounded p-2.5 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-mono text-xs"></textarea>
+            </div>
+
+            <!-- Danbooru Tags & Negative Prompt Row (für Render-Tasks) -->
+            <div id="danbooruTaskHelperRow" class="p-2.5 rounded bg-black/40 border border-cyan-900/50 space-y-2">
+              <div class="relative">
+                <div class="flex items-center justify-between mb-0.5">
+                  <label class="block text-[10px] uppercase font-bold text-cyan-300 font-mono">🏷️ Danbooru-Tagging (Autocomplete):</label>
+                  <button type="button" onclick="insertDanbooruSampleToTask()" class="text-[10px] text-cyan-400 hover:underline font-mono">+ Standard-Tags einfügen</button>
+                </div>
+                <input type="text" id="taskDanbooruInput" placeholder="Tags tippen (z.B. 1girl, megan, solo, emerald_eyes, smile)..."
+                       oninput="handleTaskDanbooruInput(this.value)"
+                       class="w-full bg-slate-950 border border-cyan-800/80 rounded px-2.5 py-1 text-xs text-cyan-200 focus:outline-none focus:border-cyan-400 font-mono">
+                <div id="taskDanbooruSuggestions" class="hidden absolute z-50 left-0 right-0 mt-1 bg-slate-900 border border-cyan-700 rounded shadow-xl max-h-36 overflow-y-auto scrollbar-thin text-xs"></div>
+              </div>
+              <div>
+                <label class="block text-[10px] uppercase font-bold text-slate-400 font-mono mb-0.5">Negative Prompt:</label>
+                <input type="text" id="taskNegativePromptInput"
+                       value="ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, mutated"
+                       class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-cyan-400 font-mono">
+              </div>
             </div>
 
             <!-- Submit & Status message -->
@@ -9356,6 +9379,66 @@
       }
     }
 
+    // --------------------------------------------------------------------------
+    // Danbooru Task Helper (Mission Control)
+    // --------------------------------------------------------------------------
+    let taskDanbooruDebounce = null;
+
+    async function handleTaskDanbooruInput(val) {
+      clearTimeout(taskDanbooruDebounce);
+      const box = document.getElementById("taskDanbooruSuggestions");
+      if (!val || val.trim().length < 2) {
+        if (box) box.classList.add("hidden");
+        return;
+      }
+      const parts = val.split(",");
+      const lastTag = parts[parts.length - 1].trim();
+      if (lastTag.length < 2) {
+        if (box) box.classList.add("hidden");
+        return;
+      }
+
+      taskDanbooruDebounce = setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/danbooru/tags?q=${encodeURIComponent(lastTag)}&limit=12`);
+          const data = await res.json();
+          if (box && data.tags && data.tags.length > 0) {
+            box.innerHTML = data.tags.map(t => `
+              <div onclick="addTaskDanbooruTag('${escapeHtml(t.tag)}')"
+                   class="px-2.5 py-1.5 hover:bg-cyan-950/80 cursor-pointer flex items-center justify-between border-b border-slate-800/60 transition">
+                <span class="font-bold text-cyan-300 font-mono">${escapeHtml(t.tag)}</span>
+                <span class="text-[9px] text-slate-500">${t.count || ''}</span>
+              </div>
+            `).join('');
+            box.classList.remove("hidden");
+          } else if (box) {
+            box.classList.add("hidden");
+          }
+        } catch (e) {
+          console.warn("Danbooru search failed:", e);
+        }
+      }, 150);
+    }
+
+    function addTaskDanbooruTag(tag) {
+      const input = document.getElementById("taskDanbooruInput");
+      const box = document.getElementById("taskDanbooruSuggestions");
+      if (!input) return;
+      const parts = input.value.split(",").map(s => s.trim()).filter(Boolean);
+      if (parts.length > 0) parts.pop();
+      parts.push(tag);
+      input.value = parts.join(", ") + ", ";
+      if (box) box.classList.add("hidden");
+      input.focus();
+    }
+
+    function insertDanbooruSampleToTask() {
+      const input = document.getElementById("taskDanbooruInput");
+      if (input) {
+        input.value = "masterpiece, best quality, 1girl, megan, solo, emerald green eyes, fiery orange hair, soft skin, highres, ";
+      }
+    }
+
     async function submitNewTask() {
       const titleInput = document.getElementById("taskTitleInput");
       const assigneeSelect = document.getElementById("taskAssigneeSelect");
@@ -9364,6 +9447,8 @@
       const prioritySelect = document.getElementById("taskPrioritySelect");
       const statusSelect = document.getElementById("taskStatusSelect");
       const detailsInput = document.getElementById("taskDetailsInput");
+      const danbooruInput = document.getElementById("taskDanbooruInput");
+      const negInput = document.getElementById("taskNegativePromptInput");
       const msgBox = document.getElementById("taskFormMsg");
       const submitBtn = document.getElementById("btnSubmitTask");
 
@@ -9373,6 +9458,17 @@
         return;
       }
 
+      let finalDetails = detailsInput ? detailsInput.value.trim() : "";
+      const danbooruTags = danbooruInput ? danbooruInput.value.trim().replace(/,\s*$/, "") : "";
+      const negPrompt = negInput ? negInput.value.trim() : "";
+
+      if (danbooruTags) {
+        finalDetails = finalDetails ? `${danbooruTags}\n\n${finalDetails}` : danbooruTags;
+      }
+      if (negPrompt && (typeSelect?.value || "").includes("Render")) {
+        finalDetails = `${finalDetails}\n[NEGATIVE]: ${negPrompt}`;
+      }
+
       const payload = {
         title: title,
         assignee: assigneeSelect ? assigneeSelect.value : "Hermes",
@@ -9380,7 +9476,7 @@
         task_type: typeSelect ? typeSelect.value : "Bild-Render (SDXL / LoRA)",
         priority: prioritySelect ? prioritySelect.value : "Normal",
         status: statusSelect ? statusSelect.value : "Zu erledigen",
-        details: detailsInput ? detailsInput.value.trim() : ""
+        details: finalDetails
       };
 
       if (submitBtn) submitBtn.disabled = true;
@@ -9453,6 +9549,46 @@
       }
     }
 
+    let taskPollingTimer = null;
+
+    async function executeMissionTask(taskId) {
+      const btn = document.getElementById(`btnRunTask_${taskId}`);
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="inline-block animate-spin text-[10px]">⚙️</span> <span>Startet...</span>`;
+      }
+      try {
+        const res = await fetch(`/api/kanban/${taskId}/execute`, { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+          await loadMissionTasks();
+          startTaskPolling();
+        } else {
+          alert("Fehler beim Starten der Aufgabe: " + (data.error || "Unbekannt"));
+          if (btn) btn.disabled = false;
+        }
+      } catch (err) {
+        console.error("Execute task error:", err);
+        alert("Netzwerkfehler beim Task-Start: " + err.message);
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    function startTaskPolling() {
+      if (taskPollingTimer) clearInterval(taskPollingTimer);
+      let pollCount = 0;
+      taskPollingTimer = setInterval(async () => {
+        pollCount++;
+        await loadMissionTasks();
+        const hasRunning = Array.from(document.querySelectorAll("[id^='btnRunTask_']")).some(el => el.textContent.includes("Läuft"));
+        if (!hasRunning || pollCount > 30) {
+          clearInterval(taskPollingTimer);
+          taskPollingTimer = null;
+        }
+      }, 3000);
+    }
+
+
     function renderMissionTasks(tasks) {
       const colTodo = document.getElementById("col_tasks_todo");
       const colProg = document.getElementById("col_tasks_in_progress");
@@ -9511,6 +9647,43 @@
             ? `<div class="text-[10px] text-slate-400 bg-slate-950/80 p-2 rounded border border-slate-900 whitespace-pre-wrap leading-relaxed max-h-24 overflow-y-auto scrollbar-thin">${escapeHtml(task.details)}</div>`
             : "";
 
+          // Result preview (image or text output)
+          let resultHtml = "";
+          if (task.result && task.result.trim()) {
+            const resTrimmed = task.result.trim();
+            const isImg = resTrimmed.startsWith("http") || resTrimmed.startsWith("/outputs/") || resTrimmed.startsWith("/api/gallery/") || resTrimmed.startsWith("/api/images/") || /\.(png|jpg|jpeg|webp)$/i.test(resTrimmed);
+            if (isImg) {
+              resultHtml = `
+                <div class="mt-1.5 rounded overflow-hidden border border-cyan-500/50 bg-black/80">
+                  <div class="text-[9px] text-cyan-400 font-bold px-1.5 py-0.5 bg-cyan-950/80 border-b border-cyan-900/60 flex items-center justify-between">
+                    <span>🎨 RENDER-ERGEBNIS</span>
+                    <a href="${escapeHtml(resTrimmed)}" target="_blank" class="hover:underline">Öffnen ↗</a>
+                  </div>
+                  <img src="${escapeHtml(resTrimmed)}" alt="Render Result" class="w-full max-h-40 object-cover cursor-pointer hover:opacity-95 transition" onclick="window.open('${escapeHtml(resTrimmed)}', '_blank')">
+                </div>
+              `;
+            } else {
+              resultHtml = `
+                <div class="mt-1.5 p-2 rounded bg-cyan-950/40 border border-cyan-800/60 text-[10px] text-cyan-200 font-mono whitespace-pre-wrap max-h-28 overflow-y-auto scrollbar-thin leading-relaxed">
+                  <div class="text-[9px] text-cyan-400 font-bold mb-1 flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span><span>STATUS / OUTPUT:</span>
+                  </div>
+                  ${escapeHtml(resTrimmed)}
+                </div>
+              `;
+            }
+          }
+
+          const isRunning = task.status === "In Bearbeitung";
+          const runButtonHtml = `
+            <button type="button" id="btnRunTask_${task.id}" onclick="executeMissionTask(${task.id})"
+                    class="px-2 py-0.5 rounded ${isRunning ? 'bg-amber-950/80 border-amber-600/80 text-amber-300' : 'bg-emerald-950/90 hover:bg-emerald-900 border-emerald-700/80 text-emerald-300'} border text-[10px] font-bold flex items-center gap-1 transition shadow-sm"
+                    title="${isRunning ? 'Wird gerade ausgeführt' : 'Task jetzt autonom starten'}">
+              <span class="${isRunning ? 'inline-block animate-spin text-[10px]' : ''}">${isRunning ? '⚙️' : '▶'}</span>
+              <span>${isRunning ? 'Läuft...' : 'Ausführen'}</span>
+            </button>
+          `;
+
           card.innerHTML = `
             <div class="flex items-start justify-between gap-1.5">
               <span class="font-bold text-slate-100 text-xs leading-snug">${escapeHtml(task.title)}</span>
@@ -9522,8 +9695,12 @@
               <span class="px-1.5 py-0.2 rounded border font-bold ${prioColor}">⚡ ${escapeHtml(task.priority)}</span>
             </div>
             ${detailsHtml}
+            ${resultHtml}
             <div class="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px]">
-              <span class="text-slate-600 text-[9px]">${escapeHtml(task.created_at || "")}</span>
+              <div class="flex items-center space-x-1.5">
+                ${runButtonHtml}
+                <span class="text-slate-600 text-[9px]">${escapeHtml(task.created_at || "")}</span>
+              </div>
               <div class="flex items-center space-x-1.5">
                 ${statusName !== "Zu erledigen" ? `<button type="button" onclick="moveMissionTask(${task.id}, '${escapeHtml(statusName)}', 'prev')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs" title="Einen Schritt zurück">◀</button>` : ""}
                 ${statusName !== "Erledigt" ? `<button type="button" onclick="moveMissionTask(${task.id}, '${escapeHtml(statusName)}', 'next')" class="px-1.5 py-0.5 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 text-xs font-bold" title="Einen Schritt vor">▶</button>` : ""}

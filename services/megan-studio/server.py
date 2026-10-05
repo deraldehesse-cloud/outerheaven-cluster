@@ -825,7 +825,7 @@ async def handle_chat(request: web.Request) -> web.Response:
     )
 
     system_instruction = get_active_megan_prompt()
-    intent_context = check_autonomous_intent(user_msg)
+    intent_context = await asyncio.to_thread(check_autonomous_intent, user_msg)
     if intent_context:
         system_instruction += f"\n\n{intent_context}"
 
@@ -910,7 +910,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 )
 
                 system_prompt = get_active_megan_prompt()
-                intent_context = check_autonomous_intent(user_text)
+                intent_context = await asyncio.to_thread(check_autonomous_intent, user_text)
                 if intent_context:
                     system_prompt += f"\n\n{intent_context}"
 
@@ -1031,7 +1031,8 @@ async def handle_render(request: web.Request) -> web.Response:
             return web.json_response({"error": "Prompt erforderlich"}, status=400)
 
         # Trigger ComfyUI workflow via autonomous tool
-        result = execute_autonomous_tool("comfyui_render", body)
+        # Entkoppelt: blockierendes urlopen/Queueing im Thread-Pool, Polling läuft ohnehin im Daemon-Thread
+        result = await asyncio.to_thread(execute_autonomous_tool, "comfyui_render", body)
         return web.json_response(result)
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
@@ -1059,7 +1060,14 @@ async def handle_gallery_file(request: web.Request) -> web.Response:
     path = (COMFYUI_OUTPUT_DIR / filename).resolve()
     if not path.is_file() or not str(path).startswith(str(COMFYUI_OUTPUT_DIR.resolve())):
         return web.HTTPNotFound(text="Bild nicht gefunden")
-    return web.FileResponse(path)
+    # Fester Content-Type (Android-Clients zeigen sonst schwarze Bilder durch falsches MIME-Sniffing)
+    ext = path.suffix.lower()
+    ctype = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(ext, "image/png")
+    return web.FileResponse(path, headers={
+        "Content-Type": ctype,
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "public, max-age=3600",
+    })
 
 async def start_background_worker(app: web.Application):
     """Starts autonomous Megan housekeeping & cataloging agent worker in background."""

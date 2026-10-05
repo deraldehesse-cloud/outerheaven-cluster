@@ -244,6 +244,8 @@ def init_mission_tasks_db():
         columns = [row[1] for row in c.fetchall()]
         if "assignee" not in columns:
             c.execute("ALTER TABLE mission_tasks ADD COLUMN assignee TEXT DEFAULT 'Hermes'")
+        if "result" not in columns:
+            c.execute("ALTER TABLE mission_tasks ADD COLUMN result TEXT")
         conn.commit()
         conn.close()
     except Exception as e:
@@ -269,7 +271,8 @@ def get_mission_tasks() -> List[Dict[str, Any]]:
                 "status": r["status"],
                 "priority": r["priority"],
                 "created_at": r["created_at"],
-                "assignee": r["assignee"] if "assignee" in r.keys() and r["assignee"] else "Hermes"
+                "assignee": r["assignee"] if "assignee" in r.keys() and r["assignee"] else "Hermes",
+                "result": r["result"] if "result" in r.keys() and r["result"] else ""
             })
         conn.close()
         return tasks
@@ -307,6 +310,49 @@ def update_mission_task_status(task_id: int, new_status: str) -> bool:
         return True
     except Exception as e:
         logger.error(f"Fehler beim Aktualisieren von Task {task_id}: {e}")
+        return False
+
+def get_mission_task_by_id(task_id: int) -> Optional[Dict[str, Any]]:
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM mission_tasks WHERE id = ?", (task_id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return {
+                "id": row["id"],
+                "title": row["title"],
+                "project": row["project"],
+                "task_type": row["task_type"],
+                "details": row["details"] or "",
+                "status": row["status"],
+                "priority": row["priority"],
+                "created_at": row["created_at"],
+                "assignee": row["assignee"] if "assignee" in row.keys() and row["assignee"] else "Hermes",
+                "result": row["result"] if "result" in row.keys() and row["result"] else ""
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Fehler beim Laden von Task {task_id}: {e}")
+        return None
+
+def update_mission_task_result(task_id: int, result: str, new_status: Optional[str] = None) -> bool:
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        if new_status:
+            c.execute("UPDATE mission_tasks SET result = ?, status = ? WHERE id = ?", (result, new_status, task_id))
+        else:
+            c.execute("UPDATE mission_tasks SET result = ? WHERE id = ?", (result, task_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern des Task-Ergebnisses {task_id}: {e}")
         return False
 
 def delete_mission_task(task_id: int) -> bool:
@@ -3533,6 +3579,35 @@ def build_direct_megan_comfy_prompt(user_text: str = "", situation: str = "", en
 
     return final_positive, final_negative
 
+RENDER_JOBS: Dict[str, Dict[str, Any]] = {}
+
+def start_render_job(prompt_text: str, negative_prompt: str) -> str:
+    """Startet einen ComfyUI-Render entkoppelt (asyncio.create_task) und liefert eine Job-ID zum Polling."""
+    job_id = f"rj_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+    RENDER_JOBS[job_id] = {"status": "rendering", "prompt": prompt_text, "created": time.time()}
+    # alte Jobs aufräumen
+    for k in [k for k, v in RENDER_JOBS.items() if time.time() - v.get("created", 0) > 3600]:
+        RENDER_JOBS.pop(k, None)
+
+    async def _run():
+        try:
+            res = await render_comfy_image_direct(prompt_text=prompt_text, negative_prompt=negative_prompt)
+            if res and res.get("url"):
+                RENDER_JOBS[job_id].update({"status": "done", "image": {"url": res["url"], "filename": res.get("filename"), "prompt": prompt_text}})
+            else:
+                RENDER_JOBS[job_id].update({"status": "error", "error": "Render fehlgeschlagen (GPU belegt oder ComfyUI offline/Timeout)"})
+        except Exception as e:
+            RENDER_JOBS[job_id].update({"status": "error", "error": str(e) or type(e).__name__})
+
+    asyncio.create_task(_run())
+    return job_id
+
+async def handle_render_job(request: web.Request) -> web.Response:
+    job = RENDER_JOBS.get(request.match_info.get("job_id", ""))
+    if not job:
+        return web.json_response({"status": "unknown"}, status=404)
+    return web.json_response(job)
+
 async def render_comfy_image_direct(
     prompt_text: str,
     negative_prompt: str = "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, mutated, extra limbs",
@@ -6441,7 +6516,133 @@ async def handle_tasks_delete(request: web.Request) -> web.Response:
     ok = await asyncio.to_thread(delete_mission_task, task_id)
     if ok:
         return web.json_response({"success": True, "id": task_id})
-    return web.json_response({"success": False, "error": "Fehler beim Löschen der Aufgabe"}, status=500)
+async def run_task_worker(task: Dict[str, Any]):
+    """Führt eine Kanban-Aufgabe asynchron im Hintergrund aus und aktualisiert mission_tasks."""
+    task_id = task.get("id")
+    if not task_id:
+        return
+    title = task.get("title", "")
+    details = task.get("details", "")
+    task_type = (task.get("task_type") or "").lower()
+    project = (task.get("project") or "").lower()
+    assignee = (task.get("assignee") or "").lower()
+
+    logger.info(f"[Kanban-Execute] Starte Ausführung für Task #{task_id}: '{title}' ({task_type})")
+    
+    try:
+        # Fall 1: Bild-Render (SDXL / LoRA / Megan / Catlord)
+        if "render" in task_type or "bild" in task_type or assignee == "megan":
+            prompt = details.strip() if details.strip() else title.strip()
+            # Wenn Catlord im Projekt oder Prompt
+            if "catlord" in project or "catlord" in prompt.lower():
+                prompt = f"catlord comic style, {prompt}"
+            
+            pos_p, neg_p = build_direct_megan_comfy_prompt(prompt)
+            render_res = await render_comfy_image_direct(prompt_text=pos_p, negative_prompt=neg_p)
+            if render_res and render_res.get("url"):
+                img_url = render_res.get("url")
+                await asyncio.to_thread(update_mission_task_result, task_id, img_url, "Render / Review")
+                logger.info(f"[Kanban-Execute] Task #{task_id} Render erfolgreich: {img_url}")
+            else:
+                err_msg = "Render-Fehler: ComfyUI lieferte kein Bild oder GPU war belegt."
+                await asyncio.to_thread(update_mission_task_result, task_id, err_msg, "In Bearbeitung")
+                logger.warning(f"[Kanban-Execute] Task #{task_id} Render fehlgeschlagen.")
+
+        # Fall 2: Tool / Script-Ausführung aus ~/.hermes/custom_tools/
+        elif "script" in task_type or "tool" in task_type or "wartung" in task_type:
+            # Tool-Name ermitteln (aus title oder details)
+            tool_name = None
+            for part in (title + " " + details).split():
+                clean_part = re.sub(r'[^a-zA-Z0-9_\-]', '', part)
+                script_candidate = CUSTOM_TOOLS_DIR / f"{clean_part}.py"
+                if script_candidate.is_file():
+                    tool_name = clean_part
+                    break
+            
+            if tool_name:
+                script_path = (CUSTOM_TOOLS_DIR / f"{tool_name}.py").resolve()
+                logger.info(f"[Kanban-Execute] Führe Whitelist-Tool '{tool_name}' für Task #{task_id} aus...")
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, str(script_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                try:
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=40.0)
+                    out_text = (stdout.decode("utf-8", errors="replace") + "\n" + stderr.decode("utf-8", errors="replace")).strip()
+                    res_text = f"Tool '{tool_name}' ausgeführt (Exit {proc.returncode}):\n{out_text[:1200]}"
+                    await asyncio.to_thread(update_mission_task_result, task_id, res_text, "Erledigt")
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await asyncio.to_thread(update_mission_task_result, task_id, f"Timeout bei Ausführung von Tool '{tool_name}' (>40s).", "In Bearbeitung")
+            else:
+                # Kein spezifisches Script gefunden -> LLM Ausführung als Wartungs-/Systemberater
+                model = get_active_ollama_model()
+                prompt_content = f"Du bist Hermes, ausführender System-Agent auf Outer Heaven. Erledige folgende Aufgabe und gib eine kompakte Zusammenfassung:\nAufgabe: {title}\nDetails: {details}"
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{LOCAL_OLLAMA_URL}/api/generate",
+                        json={"model": model, "prompt": prompt_content, "stream": False},
+                        timeout=aiohttp.ClientTimeout(total=45.0)
+                    ) as resp:
+                        if resp.status == 200:
+                            jdata = await resp.json()
+                            llm_reply = jdata.get("response", "").strip()
+                            clean_reply = re.sub(r'<think>.*?</think>', '', llm_reply, flags=re.DOTALL).strip() or llm_reply.strip()
+                            await asyncio.to_thread(update_mission_task_result, task_id, clean_reply, "Erledigt")
+                        else:
+                            await asyncio.to_thread(update_mission_task_result, task_id, f"LLM-Fehler HTTP {resp.status}", "In Bearbeitung")
+
+        # Fall 3: Standard LLM / Prompt-Optimierung / Hermes Analyse
+        else:
+            model = get_active_ollama_model()
+            prompt_content = f"Du bist Hermes, technischer Agent auf Outer Heaven. Führe diese Aufgabe aus und liefere das konkrete Ergebnis:\nAufgabe: {title}\nProjekt: {project}\nDetails: {details}"
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{LOCAL_OLLAMA_URL}/api/generate",
+                    json={"model": model, "prompt": prompt_content, "stream": False},
+                    timeout=aiohttp.ClientTimeout(total=50.0)
+                ) as resp:
+                    if resp.status == 200:
+                        jdata = await resp.json()
+                        llm_reply = jdata.get("response", "").strip()
+                        clean_reply = re.sub(r'<think>.*?</think>', '', llm_reply, flags=re.DOTALL).strip() or llm_reply.strip()
+                        await asyncio.to_thread(update_mission_task_result, task_id, clean_reply, "Erledigt")
+                        logger.info(f"[Kanban-Execute] Task #{task_id} LLM-Ausführung erfolgreich.")
+                    else:
+                        await asyncio.to_thread(update_mission_task_result, task_id, f"Ollama-Fehler HTTP {resp.status}", "In Bearbeitung")
+
+    except Exception as e:
+        logger.error(f"[Kanban-Execute] Fehler bei Ausführung von Task #{task_id}: {e}", exc_info=True)
+        await asyncio.to_thread(update_mission_task_result, task_id, f"Fehler bei Ausführung: {e}", "In Bearbeitung")
+
+async def handle_tasks_execute(request: web.Request) -> web.Response:
+    """POST /api/kanban/{id}/execute oder /api/tasks/{id}/execute - Startet die autonome Task-Ausführung."""
+    task_id_str = request.match_info.get("id")
+    if not task_id_str:
+        return web.json_response({"success": False, "error": "Task-ID erforderlich"}, status=400)
+    try:
+        task_id = int(task_id_str)
+    except (ValueError, TypeError):
+        return web.json_response({"success": False, "error": "Ungültige Task-ID"}, status=400)
+
+    task = await asyncio.to_thread(get_mission_task_by_id, task_id)
+    if not task:
+        return web.json_response({"success": False, "error": f"Task #{task_id} nicht gefunden"}, status=404)
+
+    # Status direkt auf 'In Bearbeitung' setzen
+    await asyncio.to_thread(update_mission_task_status, task_id, "In Bearbeitung")
+    task["status"] = "In Bearbeitung"
+
+    # Autonome Abarbeitung als Background-Task entkoppeln
+    asyncio.create_task(run_task_worker(task))
+
+    return web.json_response({
+        "success": True,
+        "task_id": task_id,
+        "status": "In Bearbeitung",
+        "message": f"Task #{task_id} ('{task['title']}') wurde gestartet."
+    })
 
 
 # --- Dual-Agent WebSocket Chat ---
@@ -7124,15 +7325,10 @@ async def handle_chat_rest(request: web.Request) -> web.Response:
             pos_prompt, neg_prompt = build_direct_megan_comfy_prompt(user_message, sit_req, env_req)
             prompt_to_render = pos_prompt
 
+        render_job_id = None
         if prompt_to_render:
-            logger.info(f"[Direct-Comfy] Dispatching unfiltered prompt directly to KSampler: {prompt_to_render[:120]}...")
-            render_res = await render_comfy_image_direct(prompt_text=prompt_to_render, negative_prompt=neg_prompt)
-            if render_res and render_res.get("url"):
-                image_data = {
-                    "url": render_res.get("url"),
-                    "filename": render_res.get("filename"),
-                    "prompt": prompt_to_render
-                }
+            logger.info(f"[Direct-Comfy] Dispatching unfiltered prompt as background job: {prompt_to_render[:120]}...")
+            render_job_id = start_render_job(prompt_to_render, neg_prompt)
 
         clean_reply = filter_token(clean_reply)
         # Guarantee no refusal or meta advice string is EVER passed to TTS or returned in JSON
@@ -7141,7 +7337,7 @@ async def handle_chat_rest(request: web.Request) -> web.Response:
             "certainly", "as an ai", "i have", "to create", "haptische hardware", "comfyui-werkzeug",
             "system-direktive", "adaptives lernen"
         ])
-        if not clean_reply or is_refusal_response(clean_reply) or (image_data and (is_meta_advice or len(clean_reply) > 250)):
+        if not clean_reply or is_refusal_response(clean_reply) or ((image_data or render_job_id) and (is_meta_advice or len(clean_reply) > 250)):
             clean_reply = "Hier ist dein gewünschtes Bild, Boss! Sag mir, wie es dir gefällt."
         speech_text = clean_reply
         if is_refusal_response(speech_text) or is_meta_advice:
@@ -7158,9 +7354,10 @@ async def handle_chat_rest(request: web.Request) -> web.Response:
 
         return web.json_response({
             "status": "ok",
-            "message": clean_reply or ("Hier ist dein Bild, Boss!" if image_data else "Verstanden."),
+            "message": clean_reply or ("Hier ist dein Bild, Boss!" if (image_data or render_job_id) else "Verstanden."),
             "response": clean_reply,
             "image": image_data,
+            "render_job_id": render_job_id,
             "haptic": haptic_data,
             "audio_url": audio_url
         })
@@ -7311,6 +7508,7 @@ def create_app() -> web.Application:
 
     # ComfyUI Direct Synchronous Render Endpoint (GPURenderLock enforced)
     app.router.add_post("/api/render/direct", handle_comfy_render_direct)
+    app.router.add_get("/api/render/job/{job_id}", handle_render_job)
 
     # Hermes Tool-Leitstand Endpoints (~/.hermes/tools_config.json)
     app.router.add_get("/api/tools", handle_tools_list)
@@ -7322,6 +7520,8 @@ def create_app() -> web.Application:
     app.router.add_get("/api/tasks", handle_tasks_list)
     app.router.add_post("/api/tasks", handle_tasks_create)
     app.router.add_post("/api/tasks/status", handle_tasks_status_update)
+    app.router.add_post("/api/tasks/{id}/execute", handle_tasks_execute)
+    app.router.add_post("/api/kanban/{id}/execute", handle_tasks_execute)
     app.router.add_delete("/api/tasks/{id}", handle_tasks_delete)
 
     # Direct static outputs route
