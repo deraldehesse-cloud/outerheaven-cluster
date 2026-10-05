@@ -1417,6 +1417,68 @@ async def handle_gallery_file(request: web.Request) -> web.Response:
         "Cache-Control": "public, max-age=3600",
     })
 
+# ------------------------------------------------------------------------------
+# Handlers: ComfyUI Custom Nodes Management & Code Inspection
+# ------------------------------------------------------------------------------
+try:
+    import comfy_custom_nodes as ccn
+except ImportError:
+    ccn = None
+
+async def handle_custom_nodes_list(request: web.Request) -> web.Response:
+    """GET /api/nodes/custom - Lists all installed ComfyUI custom nodes."""
+    if not ccn:
+        return web.json_response({"success": False, "error": "comfy_custom_nodes Modul nicht verfügbar"}, status=500)
+    nodes = await asyncio.to_thread(ccn.list_custom_nodes)
+    return web.json_response({"success": True, "nodes": nodes, "count": len(nodes)})
+
+async def handle_custom_node_details(request: web.Request) -> web.Response:
+    """GET /api/nodes/custom/{node_name}/details - Returns metadata, README, Git info, NODE_CLASS_MAPPINGS, and file list."""
+    if not ccn:
+        return web.json_response({"success": False, "error": "comfy_custom_nodes Modul nicht verfügbar"}, status=500)
+    node_name = request.match_info.get("node_name", "").strip()
+    if not node_name:
+        return web.json_response({"success": False, "error": "Node-Name fehlt"}, status=400)
+    details = await asyncio.to_thread(ccn.get_custom_node_details, node_name)
+    if not details:
+        return web.json_response({"success": False, "error": f"Custom Node '{node_name}' nicht gefunden"}, status=404)
+    return web.json_response(details)
+
+async def handle_custom_node_file_get(request: web.Request) -> web.Response:
+    """GET /api/nodes/custom/{node_name}/file?path=... - Returns the source code of a file."""
+    if not ccn:
+        return web.json_response({"success": False, "error": "comfy_custom_nodes Modul nicht verfügbar"}, status=500)
+    node_name = request.match_info.get("node_name", "").strip()
+    rel_path = request.query.get("path")
+    if not node_name:
+        return web.json_response({"success": False, "error": "Node-Name fehlt"}, status=400)
+    ok, res = await asyncio.to_thread(ccn.get_custom_node_file, node_name, rel_path)
+    if not ok:
+        status_code = 404 if "nicht gefunden" in str(res) else 400
+        return web.json_response({"success": False, "error": str(res)}, status=status_code)
+    return web.json_response(res)
+
+async def handle_custom_node_file_post(request: web.Request) -> web.Response:
+    """POST /api/nodes/custom/{node_name}/file - Saves changes, validates via ast.parse, creates .bak backup."""
+    if not ccn:
+        return web.json_response({"success": False, "error": "comfy_custom_nodes Modul nicht verfügbar"}, status=500)
+    node_name = request.match_info.get("node_name", "").strip()
+    if not node_name:
+        return web.json_response({"success": False, "error": "Node-Name fehlt"}, status=400)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Ungültiges JSON"}, status=400)
+
+    rel_path = body.get("path") or request.query.get("path")
+    code = body.get("code") or body.get("content") or ""
+
+    ok, res = await asyncio.to_thread(ccn.save_custom_node_file, node_name, rel_path, code)
+    if not ok:
+        status_code = 400 if isinstance(res, dict) and "Syntaxfehler" in res.get("error", "") else 500
+        return web.json_response({"success": False, **(res if isinstance(res, dict) else {"error": str(res)})}, status=status_code)
+    return web.json_response(res)
+
 async def start_background_worker(app: web.Application):
     """Starts autonomous Megan housekeeping & cataloging agent worker in background."""
     try:
@@ -1510,6 +1572,12 @@ def create_app() -> web.Application:
     app.router.add_get("/api/gallery", handle_gallery_list)
     app.router.add_get("/api/gallery/{filename:.+}", handle_gallery_file)
     app.router.add_get("/api/images/{filename:.+}", handle_gallery_file)
+
+    # ComfyUI Custom Nodes Management & Code Inspection
+    app.router.add_get("/api/nodes/custom", handle_custom_nodes_list)
+    app.router.add_get("/api/nodes/custom/{node_name}/details", handle_custom_node_details)
+    app.router.add_get("/api/nodes/custom/{node_name}/file", handle_custom_node_file_get)
+    app.router.add_post("/api/nodes/custom/{node_name}/file", handle_custom_node_file_post)
 
     # Static assets
     if STATIC_DIR.is_dir():

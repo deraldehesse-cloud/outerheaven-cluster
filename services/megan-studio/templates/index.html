@@ -280,8 +280,22 @@
           <span class="text-amber-300 font-bold uppercase">🛠️ Aktive Cluster-Tools:</span>
           <button onclick="loadHermesTools()" class="text-cyan-400 hover:underline">⟳ Sync</button>
         </div>
-        <div id="toolsList" class="space-y-1 max-h-28 overflow-y-auto scrollbar-thin text-[11px] font-mono pt-1">
+        <div id="toolsList" class="space-y-1 max-h-24 overflow-y-auto scrollbar-thin text-[11px] font-mono pt-1">
           <div class="text-[10px] text-slate-500">Lade Tools...</div>
+        </div>
+      </div>
+
+      <!-- ComfyUI Custom Nodes Section -->
+      <div class="bg-black/40 p-2 rounded border border-slate-800/80 space-y-1 shrink-0">
+        <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 pb-1 border-b border-slate-800">
+          <span class="text-amber-300 font-bold uppercase flex items-center gap-1"><span>⚙️</span><span>ComfyUI Custom Nodes:</span></span>
+          <div class="flex items-center space-x-1.5">
+            <span id="customNodesCountBadge" class="text-slate-500 font-bold text-[10px]">0 Nodes</span>
+            <button onclick="loadCustomNodesList()" class="text-cyan-400 hover:underline">⟳ Sync</button>
+          </div>
+        </div>
+        <div id="customNodesList" class="space-y-1.5 max-h-36 overflow-y-auto scrollbar-thin text-[11px] font-mono pt-1">
+          <div class="text-[10px] text-slate-500">Lade Custom Nodes...</div>
         </div>
       </div>
 
@@ -291,7 +305,7 @@
 
   <script>
     async function refreshData() {
-      await Promise.all([loadVaultLore(), loadGallery(), loadStatus(), loadChatHistory(), loadHermesTools(), loadCharPresets()]);
+      await Promise.all([loadVaultLore(), loadGallery(), loadStatus(), loadChatHistory(), loadHermesTools(), loadCustomNodesList(), loadCharPresets()]);
     }
 
     async function loadStatus() {
@@ -707,9 +721,489 @@
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    // --------------------------------------------------------------------------
+    // ComfyUI Custom Nodes Management & Code Inspection
+    // --------------------------------------------------------------------------
+    let currentCustomNodesList = [];
+    let activeEditorNodeName = null;
+    let activeEditorFilePath = null;
+    let activeEditorDetails = null;
+
+    async function loadCustomNodesList() {
+      const container = document.getElementById("customNodesList");
+      const badge = document.getElementById("customNodesCountBadge");
+      if (!container) return;
+
+      try {
+        const res = await fetch("/api/nodes/custom");
+        const data = await res.json();
+        if (data.success && Array.isArray(data.nodes)) {
+          currentCustomNodesList = data.nodes;
+          if (badge) badge.textContent = `${data.count || data.nodes.length} Nodes`;
+          renderCustomNodes(currentCustomNodesList);
+        } else {
+          container.innerHTML = '<div class="p-2 text-center text-rose-400 italic text-[10px]">Fehler beim Laden.</div>';
+        }
+      } catch (err) {
+        console.error("loadCustomNodesList failed:", err);
+        container.innerHTML = '<div class="p-2 text-center text-slate-500 italic text-[10px]">Custom Nodes nicht erreichbar.</div>';
+      }
+    }
+
+    function renderCustomNodes(nodes) {
+      const container = document.getElementById("customNodesList");
+      if (!container) return;
+      container.innerHTML = "";
+
+      if (!nodes || nodes.length === 0) {
+        container.innerHTML = '<div class="p-2 text-center text-slate-500 italic text-[10px]">Keine Custom Nodes gefunden.</div>';
+        return;
+      }
+
+      nodes.forEach(node => {
+        const card = document.createElement("div");
+        card.className = "p-2 rounded bg-black/60 border border-slate-800 hover:border-amber-500/40 transition space-y-1.5";
+        const gitBadge = node.git_branch
+          ? `<span class="text-[9px] px-1 py-0.2 rounded font-mono font-bold bg-slate-900 border border-slate-700 text-cyan-300">${escapeHtml(node.git_branch)}${node.git_commit ? `:${escapeHtml(node.git_commit)}` : ''}</span>`
+          : '';
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-1.5">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center space-x-1.5 flex-wrap">
+                <span class="font-bold text-slate-200 text-[11px] truncate">${escapeHtml(node.name)}</span>
+                ${gitBadge}
+              </div>
+              <div class="text-[9px] text-amber-400/90 font-mono mt-0.5">
+                ⚡ ${node.nodes_count} bereitgestellte Node(s)
+              </div>
+            </div>
+          </div>
+
+          <!-- Die 2 Buttons: 🔍 Info / Vorschau & ✏️ Bearbeiten -->
+          <div class="flex items-center gap-1 pt-1 border-t border-slate-900">
+            <button type="button" onclick="openCustomNodeInfoModal('${escapeHtml(node.name)}')"
+              class="flex-1 px-1.5 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 hover:border-cyan-500/60 font-mono text-[9px] font-bold flex items-center justify-center gap-1 transition">
+              <span>🔍</span> <span>Info / Vorschau</span>
+            </button>
+            <button type="button" onclick="openCustomNodeEditorModal('${escapeHtml(node.name)}')"
+              class="flex-1 px-1.5 py-0.5 rounded bg-amber-950/40 hover:bg-amber-950 border border-amber-800/80 hover:border-amber-500 text-amber-300 font-mono text-[9px] font-bold flex items-center justify-center gap-1 transition">
+              <span>✏️</span> <span>Bearbeiten</span>
+            </button>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function renderMarkdownSimple(md) {
+      if (!md || !md.trim()) {
+        return '<div class="p-4 text-center text-slate-500 italic text-xs">Keine Dokumentation (README.md) vorhanden.</div>';
+      }
+      let html = escapeHtml(md)
+        .replace(/^### (.*$)/gim, '<h3 class="text-xs font-bold text-amber-300 mt-2 mb-1">$1</h3>')
+        .replace(/^## (.*$)/gim, '<h2 class="text-sm font-bold text-cyan-300 mt-3 mb-1 border-b border-slate-800 pb-1">$1</h2>')
+        .replace(/^# (.*$)/gim, '<h1 class="text-base font-extrabold text-pink-300 mt-3 mb-2 border-b border-slate-700 pb-1">$1</h1>')
+        .replace(/\\*\\*(.*?)\\*\\*/gim, '<strong class="text-slate-100">$1</strong>')
+        .replace(/\\*(.*?)\\*/gim, '<em class="text-slate-300">$1</em>')
+        .replace(/`([^`]+)`/gim, '<code class="px-1 py-0.5 rounded bg-slate-900 border border-slate-700 text-amber-300 font-mono text-[10px]">$1</code>')
+        .replace(/^\\s*[\\-\\*]\\s+(.*$)/gim, '<li class="ml-4 list-disc text-slate-300">$1</li>')
+        .replace(/\\n\\n/gim, '<br><br>');
+      return `<div class="prose prose-invert max-w-none text-xs leading-relaxed text-slate-300 font-sans">${html}</div>`;
+    }
+
+    // Modal 1: Info / Vorschau
+    async function openCustomNodeInfoModal(nodeName) {
+      const modal = document.getElementById("customNodeInfoModal");
+      const title = document.getElementById("customNodeInfoTitle");
+      const pathEl = document.getElementById("customNodeInfoPath");
+      const gitBadge = document.getElementById("customNodeInfoGitBadge");
+      const remoteEl = document.getElementById("customNodeInfoRemote");
+      const commitEl = document.getElementById("customNodeInfoCommit");
+      const msgEl = document.getElementById("customNodeInfoMsg");
+      const classesList = document.getElementById("customNodeInfoClassesList");
+      const classesCount = document.getElementById("customNodeInfoClassesCount");
+      const readmeContainer = document.getElementById("customNodeInfoReadmeContainer");
+      const editBtn = document.getElementById("customNodeInfoEditBtn");
+
+      if (title) title.textContent = nodeName;
+      if (classesList) classesList.innerHTML = '<div class="text-slate-500 italic p-1">Lade Metadaten...</div>';
+      if (readmeContainer) readmeContainer.innerHTML = '<div class="text-slate-500 italic">Lade Dokumentation...</div>';
+      if (editBtn) editBtn.onclick = () => { closeCustomNodeInfoModal(); openCustomNodeEditorModal(nodeName); };
+      if (modal) modal.classList.remove("hidden");
+
+      try {
+        const res = await fetch(`/api/nodes/custom/${encodeURIComponent(nodeName)}/details`);
+        const data = await res.json();
+        if (!data.success) {
+          if (readmeContainer) readmeContainer.innerHTML = `<div class="text-rose-400">${escapeHtml(data.error || 'Fehler beim Laden')}</div>`;
+          return;
+        }
+
+        if (pathEl) pathEl.textContent = data.abs_path || `/mnt/storage-beta/comfyui/custom_nodes/${nodeName}`;
+        if (gitBadge) {
+          gitBadge.textContent = data.git && data.git.branch ? `${data.git.branch}:${data.git.commit || ''}` : 'Kein Git';
+          gitBadge.className = data.git && data.git.has_git
+            ? "px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800"
+            : "px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 text-slate-400 border border-slate-700";
+        }
+        if (remoteEl) remoteEl.textContent = (data.git && data.git.remote) ? data.git.remote : 'Lokal / Nicht konfiguriert';
+        if (commitEl) commitEl.textContent = (data.git && data.git.commit) ? `${data.git.branch || 'HEAD'} @ ${data.git.commit}` : 'Keine Git-Historie';
+        if (msgEl) msgEl.textContent = (data.git && data.git.message) ? data.git.message : '--';
+
+        // Bereitgestellte Node-Klassen (NODE_CLASS_MAPPINGS)
+        if (classesList) {
+          classesList.innerHTML = "";
+          const classes = data.node_classes || [];
+          const dispNames = data.node_display_names || {};
+          if (classesCount) classesCount.textContent = `${classes.length} Nodes`;
+
+          if (classes.length === 0) {
+            classesList.innerHTML = '<div class="text-slate-500 italic p-1">Keine expliziten NODE_CLASS_MAPPINGS registriert.</div>';
+          } else {
+            classes.forEach(cls => {
+              const disp = dispNames[cls];
+              const pill = document.createElement("span");
+              pill.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950/70 border border-cyan-700/60 text-cyan-200 flex items-center gap-1";
+              pill.innerHTML = `<span>⚡ ${escapeHtml(cls)}</span>${disp ? `<span class="text-slate-400 font-normal">(${escapeHtml(disp)})</span>` : ''}`;
+              classesList.appendChild(pill);
+            });
+          }
+        }
+
+        // README / Docstring
+        if (readmeContainer) {
+          readmeContainer.innerHTML = renderMarkdownSimple(data.readme);
+        }
+
+      } catch (err) {
+        console.error("openCustomNodeInfoModal failed:", err);
+        if (readmeContainer) readmeContainer.innerHTML = `<div class="text-rose-400">Netzwerkfehler: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function closeCustomNodeInfoModal() {
+      const modal = document.getElementById("customNodeInfoModal");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    // Modal 2: Bearbeiten Editor
+    async function openCustomNodeEditorModal(nodeName, initialFile) {
+      activeEditorNodeName = nodeName;
+      const modal = document.getElementById("customNodeEditorModal");
+      const title = document.getElementById("customNodeEditorTitle");
+      const fileSelect = document.getElementById("customNodeFileSelect");
+      const codeArea = document.getElementById("customNodeCodeArea");
+      const syntaxBadge = document.getElementById("customNodeEditorSyntaxBadge");
+      const backupInfo = document.getElementById("customNodeEditorBackupInfo");
+
+      if (title) title.textContent = `Node-Editor: ${nodeName}`;
+      if (syntaxBadge) {
+        syntaxBadge.textContent = "Syntax: Bereit";
+        syntaxBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 border border-slate-700 text-slate-300";
+      }
+      if (backupInfo) backupInfo.classList.add("hidden");
+      if (codeArea) codeArea.value = "Lade Dateiliste und Quellcode...";
+      if (fileSelect) fileSelect.innerHTML = '<option value="">Lade Dateien...</option>';
+      if (modal) modal.classList.remove("hidden");
+
+      try {
+        const res = await fetch(`/api/nodes/custom/${encodeURIComponent(nodeName)}/details`);
+        const details = await res.json();
+        if (!details.success) {
+          alert("Fehler beim Laden der Node-Details: " + (details.error || "Unbekannt"));
+          closeCustomNodeEditorModal();
+          return;
+        }
+
+        activeEditorDetails = details;
+        if (fileSelect) {
+          fileSelect.innerHTML = "";
+          const files = details.files || [];
+          files.forEach(f => {
+            const opt = document.createElement("option");
+            opt.value = f.path;
+            opt.textContent = `${f.is_init ? '★ ' : ''}${f.path} (${Math.round(f.size/1024*10)/10} KB)`;
+            fileSelect.appendChild(opt);
+          });
+
+          // Pre-select initialFile or __init__.py or first file
+          const target = initialFile || (files.find(f => f.is_init) ? files.find(f => f.is_init).path : (files[0] ? files[0].path : ""));
+          if (target) {
+            fileSelect.value = target;
+            await loadCustomNodeFileContent(nodeName, target);
+          }
+        }
+      } catch (err) {
+        console.error("openCustomNodeEditorModal failed:", err);
+        alert("Netzwerkfehler beim Öffnen des Node-Editors.");
+      }
+    }
+
+    async function loadCustomNodeFileContent(nodeName, filePath) {
+      activeEditorFilePath = filePath;
+      const codeArea = document.getElementById("customNodeCodeArea");
+      const syntaxBadge = document.getElementById("customNodeEditorSyntaxBadge");
+      const pathDisplay = document.getElementById("customNodeEditorPathDisplay");
+      const sizeDisplay = document.getElementById("customNodeEditorSizeDisplay");
+
+      if (pathDisplay) pathDisplay.textContent = `${nodeName} / ${filePath}`;
+      if (syntaxBadge) {
+        syntaxBadge.textContent = "Syntax: Bereit";
+        syntaxBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 border border-slate-700 text-slate-300";
+      }
+
+      try {
+        const res = await fetch(`/api/nodes/custom/${encodeURIComponent(nodeName)}/file?path=${encodeURIComponent(filePath)}`);
+        const data = await res.json();
+        if (data.success) {
+          if (codeArea) codeArea.value = data.content || "";
+          if (sizeDisplay) sizeDisplay.textContent = `${data.size || (data.content || '').length} Bytes`;
+        } else {
+          if (codeArea) codeArea.value = `# Fehler beim Laden: ${data.error || 'Unbekannt'}`;
+        }
+      } catch (err) {
+        console.error("loadCustomNodeFileContent failed:", err);
+        if (codeArea) codeArea.value = `# Netzwerkfehler: ${err.message}`;
+      }
+    }
+
+    function onCustomNodeFileChange(filePath) {
+      if (activeEditorNodeName && filePath) {
+        loadCustomNodeFileContent(activeEditorNodeName, filePath);
+      }
+    }
+
+    function reloadCurrentCustomNodeFile() {
+      if (activeEditorNodeName && activeEditorFilePath) {
+        loadCustomNodeFileContent(activeEditorNodeName, activeEditorFilePath);
+      }
+    }
+
+    function onCustomNodeCodeInput() {
+      const syntaxBadge = document.getElementById("customNodeEditorSyntaxBadge");
+      const sizeDisplay = document.getElementById("customNodeEditorSizeDisplay");
+      const codeArea = document.getElementById("customNodeCodeArea");
+      if (syntaxBadge) {
+        syntaxBadge.textContent = "Syntax: Geändert (ungespeichert)";
+        syntaxBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800";
+      }
+      if (sizeDisplay && codeArea) {
+        sizeDisplay.textContent = `${codeArea.value.length} Zeichen`;
+      }
+    }
+
+    async function saveCustomNodeFileContent() {
+      if (!activeEditorNodeName || !activeEditorFilePath) return;
+
+      const codeArea = document.getElementById("customNodeCodeArea");
+      const saveBtn = document.getElementById("btnSaveCustomNodeFile");
+      const syntaxBadge = document.getElementById("customNodeEditorSyntaxBadge");
+      const backupInfo = document.getElementById("customNodeEditorBackupInfo");
+      const code = codeArea ? codeArea.value : "";
+
+      const origBtnHtml = saveBtn ? saveBtn.innerHTML : "";
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span>⏳</span> <span>Validieren & Speichern...</span>';
+      }
+
+      try {
+        const res = await fetch(`/api/nodes/custom/${encodeURIComponent(activeEditorNodeName)}/file`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            path: activeEditorFilePath,
+            code: code
+          })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          if (syntaxBadge) {
+            syntaxBadge.textContent = "✔ Syntax OK (ast.parse validiert)";
+            syntaxBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-700 shadow";
+          }
+          if (backupInfo) {
+            backupInfo.textContent = data.backup ? `Backup: ${data.backup}` : "Backup erstellt";
+            backupInfo.classList.remove("hidden");
+          }
+          alert(`✔ Datei '${activeEditorFilePath}' erfolgreich gespeichert!\\n\\n- Python Syntax: Valide (ast.parse)\\n- Backup: ${data.backup || '.bak'}`);
+        } else {
+          // Syntax Error or Save Error
+          if (syntaxBadge) {
+            syntaxBadge.textContent = `❌ ${data.error || 'Syntaxfehler'}`;
+            syntaxBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-700 shadow animate-pulse";
+          }
+          alert(`❌ Speichern abgebrochen:\\n\\n${data.error || 'Fehler beim Validieren'}`);
+        }
+      } catch (err) {
+        console.error("saveCustomNodeFileContent failed:", err);
+        if (syntaxBadge) {
+          syntaxBadge.textContent = `❌ Netzwerkfehler: ${err.message}`;
+          syntaxBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-700";
+        }
+        alert("Netzwerkfehler beim Speichern der Datei.");
+      } finally {
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = origBtnHtml;
+        }
+      }
+    }
+
+    function closeCustomNodeEditorModal() {
+      const modal = document.getElementById("customNodeEditorModal");
+      if (modal) modal.classList.add("hidden");
+      activeEditorNodeName = null;
+      activeEditorFilePath = null;
+    }
+
+    function handleEditorTabKey(e) {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const start = e.target.selectionStart;
+        const end = e.target.selectionEnd;
+        e.target.value = e.target.value.substring(0, start) + "    " + e.target.value.substring(end);
+        e.target.selectionStart = e.target.selectionEnd = start + 4;
+        onCustomNodeCodeInput();
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       refreshData();
     });
   </script>
+
+  <!-- Modal 1: Custom Node Info & Vorschau (README & NODE_CLASS_MAPPINGS) -->
+  <div id="customNodeInfoModal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-5 select-none" onclick="closeCustomNodeInfoModal()">
+    <div class="relative max-w-4xl w-full max-h-[90vh] bg-slate-950/95 border border-cyan-500/60 rounded-xl shadow-2xl flex flex-col overflow-hidden font-mono select-text" onclick="event.stopPropagation()">
+      <!-- Header -->
+      <div class="p-3.5 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between shrink-0">
+        <div class="flex items-center space-x-2.5 min-w-0">
+          <span class="text-lg">🔍</span>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 id="customNodeInfoTitle" class="text-sm font-bold text-cyan-300 truncate">Custom Node Info</h3>
+              <span id="customNodeInfoGitBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 border border-slate-700 text-slate-300">Git: --</span>
+            </div>
+            <div id="customNodeInfoPath" class="text-[10px] text-slate-500 truncate font-mono mt-0.5">/mnt/storage-beta/comfyui/custom_nodes/</div>
+          </div>
+        </div>
+        <button type="button" onclick="closeCustomNodeInfoModal()" class="text-slate-400 hover:text-white text-base font-bold px-2 py-1 transition">✕</button>
+      </div>
+
+      <!-- Scrollable Body -->
+      <div class="p-4 flex-1 overflow-y-auto space-y-4 scrollbar-thin text-xs">
+        <!-- Section: Git & Metadata Summary -->
+        <div id="customNodeInfoMetaBox" class="p-3 rounded-lg bg-black/50 border border-slate-800/80 space-y-1.5 text-[11px]">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-slate-400">
+            <div><span class="text-slate-500">Repository:</span> <span id="customNodeInfoRemote" class="text-slate-200">Lokal</span></div>
+            <div><span class="text-slate-500">Branch / Commit:</span> <span id="customNodeInfoCommit" class="text-cyan-400 font-mono">--</span></div>
+            <div class="md:col-span-2"><span class="text-slate-500">Letzter Commit:</span> <span id="customNodeInfoMsg" class="text-slate-300 italic">--</span></div>
+          </div>
+        </div>
+
+        <!-- Section: Bereitgestellte Node-Klassen (NODE_CLASS_MAPPINGS) -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between pb-1 border-b border-slate-800">
+            <span class="text-[11px] font-bold text-amber-300 uppercase flex items-center space-x-1.5">
+              <span>⚡</span> <span>Bereitgestellte Node-Klassen (NODE_CLASS_MAPPINGS)</span>
+            </span>
+            <span id="customNodeInfoClassesCount" class="text-[10px] px-2 py-0.5 rounded font-bold bg-amber-950/80 text-amber-300 border border-amber-800/60">0 Nodes</span>
+          </div>
+          <div id="customNodeInfoClassesList" class="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto scrollbar-thin p-1">
+            <!-- Injected Node Class Badges -->
+          </div>
+        </div>
+
+        <!-- Section: Dokumentation & Funktionsweise (README.md) -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between pb-1 border-b border-slate-800">
+            <span class="text-[11px] font-bold text-cyan-300 uppercase flex items-center space-x-1.5">
+              <span>📖</span> <span>Dokumentation & Funktionsweise (README)</span>
+            </span>
+          </div>
+          <div id="customNodeInfoReadmeContainer" class="p-4 rounded-lg bg-black/70 border border-slate-800/90 overflow-x-auto leading-relaxed select-text">
+            <div class="text-slate-500 italic">Lade Dokumentation...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="p-3 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between shrink-0">
+        <span class="text-[10px] text-slate-500 font-mono">Outer Heaven Custom Node Inspector</span>
+        <div class="flex items-center space-x-2">
+          <button type="button" id="customNodeInfoEditBtn" onclick="" class="px-3 py-1.5 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-600/80 text-amber-300 font-bold text-xs font-mono transition flex items-center space-x-1.5">
+            <span>✏️</span> <span>Code bearbeiten</span>
+          </button>
+          <button type="button" onclick="closeCustomNodeInfoModal()" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs font-mono transition">
+            Schließen
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Custom Node Code Editor (Dateiauswahl, ast.parse Syntax-Check, .bak Backup) -->
+  <div id="customNodeEditorModal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex items-center justify-center p-2 sm:p-4 select-none" onclick="closeCustomNodeEditorModal()">
+    <div class="relative max-w-5xl w-full h-[92vh] bg-slate-950/98 border border-amber-500/70 rounded-xl shadow-2xl flex flex-col overflow-hidden font-mono select-text" onclick="event.stopPropagation()">
+      <!-- Header -->
+      <div class="p-3 border-b border-slate-800 bg-slate-900/95 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center space-x-2.5 min-w-0">
+          <span class="text-lg">✏️</span>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 id="customNodeEditorTitle" class="text-sm font-bold text-amber-300 truncate">Node-Editor</h3>
+              <span id="customNodeEditorSyntaxBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 border border-slate-700 text-slate-300">Syntax: Bereit</span>
+            </div>
+            <div class="text-[9px] text-slate-500 font-mono mt-0.5">Sicherung: Vor jedem Speichern wird automatisch eine <code class="text-amber-400">.bak</code>-Kopie angelegt.</div>
+          </div>
+        </div>
+        <button type="button" onclick="closeCustomNodeEditorModal()" class="text-slate-400 hover:text-white text-base font-bold px-2 py-1 transition">✕</button>
+      </div>
+
+      <!-- Toolbar: Dateiauswahl + Aktionen -->
+      <div class="px-3 py-2 bg-black/60 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
+        <div class="flex items-center space-x-2 flex-1 min-w-[240px]">
+          <label class="text-[10px] text-slate-400 uppercase font-bold shrink-0">Datei:</label>
+          <select id="customNodeFileSelect" onchange="onCustomNodeFileChange(this.value)"
+                  class="flex-1 max-w-md bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs text-cyan-200 font-mono focus:border-amber-400 focus:outline-none">
+            <option value="">Lade Dateiliste...</option>
+          </select>
+          <button type="button" onclick="reloadCurrentCustomNodeFile()" title="Datei neu vom Server laden"
+                  class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-mono text-xs transition">⟳</button>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <span id="customNodeEditorBackupInfo" class="text-[10px] text-emerald-400 font-mono hidden"></span>
+          <button type="button" id="btnSaveCustomNodeFile" onclick="saveCustomNodeFileContent()"
+                  class="px-4 py-1.5 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-slate-950 font-bold rounded text-xs font-mono shadow transition flex items-center space-x-1.5">
+            <span>💾</span> <span>Speichern & Validieren</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Editor Area -->
+      <div class="flex-1 relative flex flex-col bg-black/90 overflow-hidden">
+        <textarea id="customNodeCodeArea" spellcheck="false"
+                  oninput="onCustomNodeCodeInput()"
+                  onkeydown="handleEditorTabKey(event)"
+                  placeholder="Lade Quellcode..."
+                  class="w-full h-full bg-black/95 text-slate-100 p-3.5 font-mono text-xs leading-relaxed resize-none focus:outline-none scrollbar-thin select-text"></textarea>
+      </div>
+
+      <!-- Status Bar Footer -->
+      <div class="px-3 py-1.5 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between text-[10px] text-slate-400 shrink-0 font-mono">
+        <div class="flex items-center space-x-3">
+          <span id="customNodeEditorPathDisplay" class="text-cyan-400">--</span>
+          <span id="customNodeEditorSizeDisplay" class="text-slate-500">0 Bytes</span>
+        </div>
+        <div>
+          <span class="text-slate-500">ast.parse() Validierung aktiv</span>
+        </div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
