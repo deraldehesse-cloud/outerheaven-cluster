@@ -1692,7 +1692,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     system_prompt += f"\n\n{intent_context}"
 
                 recent_msgs = load_chat_messages(limit=10)
-                messages = [{"role": "system", "content": system_prompt}]
+                messages = [{"role": "system", "content": system_prompt + '\n\n[WICHTIGE SPRACHREGEL]:\nDu sprichst und antwortest AUSSCHLIESSLICH auf Deutsch! Verwende niemals Englisch, keine englischen Floskeln wie "Sure", "Certainly" oder "Okay". Antworte direkt, authentisch und auf Deutsch als Megan.'}]
                 for m in recent_msgs:
                     r = "user" if m.get("sender") == "USER" else "assistant"
                     c = str(m.get("text", "")).strip()
