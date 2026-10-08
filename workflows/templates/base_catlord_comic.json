@@ -1,0 +1,86 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    }
+  },
+  "2": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "batch_size": 1,
+      "width": 1024,
+      "height": 1024
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "1",
+        1
+      ],
+      "text": "catlord comic style, graphic novel illustration, ink contours, vibrant saturated colors, Elliot massive 8kg orange tabby Maine Coon cat, muscular feline ninja tank, long fur, sharp Wolverine claws extended, defensive combat pose, attic apartment background, rim lighting, 8k uhd, high quality"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "1",
+        1
+      ],
+      "text": "human, girl, glasses, dog, ugly, deformed, bad anatomy, extra limbs, extra paws, blurry, lowres, text, watermark, signature, photorealistic"
+    }
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 7.0,
+      "denoise": 1.0,
+      "latent_image": [
+        "2",
+        0
+      ],
+      "model": [
+        "1",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "positive": [
+        "3",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "karras",
+      "seed": 0,
+      "steps": 25
+    }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "5",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    }
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Catlord_Comic",
+      "images": [
+        "6",
+        0
+      ]
+    }
+  }
+}

@@ -636,7 +636,22 @@ async def handle_megan_tools_execute(request: web.Request) -> web.Response:
 
 def check_autonomous_intent(text: str) -> Optional[str]:
     """Detects if user asks for Google Drive project lookup, troubleshooting, or system status."""
-    t_lower = text.lower()
+    t_lower = text.lower().strip()
+    if not t_lower:
+        return None
+
+    # Schneller Ausstieg bei alltäglichen Begrüßungen, Höflichkeiten und Smalltalk
+    greetings = {
+        "hallo", "hi", "hey", "hallo megan", "hi megan", "hey megan",
+        "guten morgen", "guten tag", "guten abend", "gute nacht",
+        "servus", "moin", "tschüss", "tschau", "ciao",
+        "wie gehts", "wie geht's", "wie geht es dir",
+        "danke", "danke schön", "danke dir", "vielen dank",
+        "ok", "okay", "alles klar", "ja", "nein", "gut", "super"
+    }
+    cleaned_simple = re.sub(r'[^\w\s]', '', t_lower).strip()
+    if cleaned_simple in greetings or any(cleaned_simple.startswith(g + " ") for g in ["hallo megan", "hi megan", "hey megan", "guten morgen", "guten tag", "wie geht es dir", "wie gehts"]):
+        return None
 
     # 1. Google Drive / Project Resolution
     if "google drive" in t_lower or "gdrive" in t_lower or "agenten-drive" in t_lower or "projekt" in t_lower:
@@ -777,11 +792,45 @@ def check_autonomous_intent(text: str) -> Optional[str]:
         )
 
     # 4. ComfyUI Workflow / Bildgenerierung (Megan Erotic Chat vs. Catlord Comic)
-    img_keywords = ["bild von dir", "foto von dir", "selfie", "zeig dich", "sexy bild", "erotik bild", "generiere ein bild", "catlord", "comic"]
-    if any(k in t_lower for k in img_keywords) or (("bild" in t_lower or "foto" in t_lower) and any(a in t_lower for a in ["schick", "mach", "zeig", "generier", "render"])):
-        is_catlord = "catlord" in t_lower or "comic" in t_lower
+    # Strikte, explizite Intent-Erkennung für Render-Aufträge:
+    # Nur wenn ein expliziter Bildbefehl vorliegt (z. B. 'erstelle ein bild', 'generiere ein bild', 'zeichne ein bild', 'render ein foto', '/render', etc.)!
+    # Normale Fragen, Begrüßungen oder beiläufige Erwähnungen von "Bild" / "Comic" dürfen NIEMALS ComfyUI triggern.
+    explicit_render_match = (
+        t_lower.startswith(("/render", "/generate", "/draw"))
+        or bool(re.search(r'\b(erstelle|generiere|zeichne|render|male)\b.*?\b(bild|foto|zeichnung|comic|selfie|portrait|szene)\b', t_lower, re.IGNORECASE))
+        or bool(re.search(r'\b(bild|foto|zeichnung|comic|selfie|portrait|szene)\b.*?\b(erstellen|generieren|zeichnen|rendern|malen)\b', t_lower, re.IGNORECASE))
+        or bool(re.search(r'^(?:schick|zeig)\s+(?:mir\s+)?(?:ein\s+|mal\s+ein\s+)?(?:neues\s+)?(?:foto|selfie|bild\s+von\s+dir)\b', t_lower, re.IGNORECASE))
+    )
+    if explicit_render_match:
+        is_catlord = "catlord" in t_lower or "elliot" in t_lower or "comic" in t_lower
         wf_name = "catlord_comic" if is_catlord else "megan_erotic_chat"
-        res = execute_autonomous_tool("comfyui_render", {"prompt": text, "workflow": wf_name})
+        render_payload = {"prompt": text, "workflow": wf_name}
+
+        # Extrahiere optionale Parameter für den dynamischen ComfyGraph-Builder
+        m_steps = re.search(r'(\d+)\s*(?:steps|schritte)', t_lower)
+        if m_steps:
+            render_payload["steps"] = int(m_steps.group(1))
+            render_payload["use_builder"] = True
+
+        m_sampler = re.search(r'\b(euler_ancestral|euler\s*a|euler|dpm\+\+\s*2m\s*sde|dpm\+\+\s*2m|dpmpp_2m_sde|dpmpp_2m|ddim)\b', t_lower)
+        if m_sampler:
+            s_val = m_sampler.group(1).lower().replace(" ", "_").replace("++", "pp")
+            if s_val == "euler_a":
+                s_val = "euler_ancestral"
+            render_payload["sampler_name"] = s_val
+            render_payload["use_builder"] = True
+
+        m_cfg = re.search(r'cfg\s*(?:von\s*)?(\d+(?:\.\d+)?)', t_lower)
+        if m_cfg:
+            render_payload["cfg"] = float(m_cfg.group(1))
+            render_payload["use_builder"] = True
+
+        m_lora = re.search(r'lora\s+([a-zA-Z0-9_\-\.]+)', t_lower)
+        if m_lora:
+            render_payload["lora"] = m_lora.group(1)
+            render_payload["use_builder"] = True
+
+        res = execute_autonomous_tool("comfyui_render", render_payload)
         if res.get("success"):
             was_busy = res.get("is_busy", False) or res.get("busy", False)
             queue_remaining = res.get("queue_remaining", 1)
@@ -1676,59 +1725,65 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     re.IGNORECASE
                 )
 
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(f"{LOCAL_OLLAMA_URL}/api/chat", json=payload) as resp:
-                        async for chunk in resp.content:
-                            if chunk:
-                                try:
-                                    parsed = json.loads(chunk.decode("utf-8"))
-                                    token = parsed.get("message", {}).get("content", "")
-                                    if not token:
-                                        continue
-
-                                    accumulated_text += token
-
-                                    # 1. Filter <think>...</think> Blöcke restlos vor WebSocket-Dispatch ab
-                                    if "<think>" in token or "<think>" in accumulated_text:
-                                        if "</think>" not in accumulated_text:
-                                            in_think = True
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(f"{LOCAL_OLLAMA_URL}/api/chat", json=payload) as resp:
+                            async for chunk in resp.content:
+                                if chunk:
+                                    try:
+                                        parsed = json.loads(chunk.decode("utf-8"))
+                                        token = parsed.get("message", {}).get("content", "")
+                                        if not token:
                                             continue
-                                        else:
-                                            if in_think:
-                                                in_think = False
-                                                # Text nach </think> übernehmen
-                                                after_think = accumulated_text.split("</think>", 1)[1]
-                                                intro_buffer = after_think
+
+                                        accumulated_text += token
+
+                                        # 1. Filter <think>...</think> Blöcke restlos vor WebSocket-Dispatch ab
+                                        if "<think>" in token or "<think>" in accumulated_text:
+                                            if "</think>" not in accumulated_text:
+                                                in_think = True
                                                 continue
+                                            else:
+                                                if in_think:
+                                                    in_think = False
+                                                    # Text nach </think> übernehmen
+                                                    after_think = accumulated_text.split("</think>", 1)[1]
+                                                    intro_buffer = after_think
+                                                    continue
 
-                                    if in_think:
-                                        if "</think>" in token:
-                                            in_think = False
-                                        continue
+                                        if in_think:
+                                            if "</think>" in token:
+                                                in_think = False
+                                            continue
 
-                                    # 2. Englische Einleitungs-Tokens vor dem Dispatch abfangen
-                                    if not intro_dispatched:
-                                        intro_buffer += token
-                                        if any(p in intro_buffer for p in [".", ",", "!", "?", ":", "\n"]) or len(intro_buffer) >= 18:
-                                            cleaned_intro = english_intro_re.sub("", intro_buffer).lstrip()
-                                            if cleaned_intro:
-                                                await ws.send_json({
-                                                    "type": "token",
-                                                    "content": cleaned_intro,
-                                                    "text": cleaned_intro,
-                                                    "token": cleaned_intro
-                                                })
-                                            intro_dispatched = True
-                                            intro_buffer = ""
-                                    else:
-                                        await ws.send_json({
-                                            "type": "token",
-                                            "content": token,
-                                            "text": token,
-                                            "token": token
-                                        })
-                                except Exception:
-                                    pass
+                                        # 2. Englische Einleitungs-Tokens vor dem Dispatch abfangen
+                                        if not intro_dispatched:
+                                            intro_buffer += token
+                                            if any(p in intro_buffer for p in [".", ",", "!", "?", ":", "\n"]) or len(intro_buffer) >= 18:
+                                                cleaned_intro = english_intro_re.sub("", intro_buffer).lstrip()
+                                                if cleaned_intro:
+                                                    await ws.send_json({
+                                                        "type": "token",
+                                                        "content": cleaned_intro,
+                                                        "text": cleaned_intro,
+                                                        "token": cleaned_intro
+                                                    })
+                                                intro_dispatched = True
+                                                intro_buffer = ""
+                                        else:
+                                            await ws.send_json({
+                                                "type": "token",
+                                                "content": token,
+                                                "text": token,
+                                                "token": token
+                                            })
+                                    except Exception:
+                                        pass
+                except Exception as e:
+                    logger.error(f"Ollama Stream unterbrochen: {e}")
+                    await ws.send_json({"type": "error", "message": "Ollama Stream unterbrochen", "text": "Ollama Stream unterbrochen"})
+                    await ws.send_json({"type": "idle"})
+                    continue
 
                 # Eventuellen Rest-Buffer nach kurzem Stream senden
                 if not intro_dispatched and intro_buffer:
@@ -1866,8 +1921,16 @@ async def handle_render(request: web.Request) -> web.Response:
                 "workflow": result.get("workflow", "")
             })
 
-            # 2. Wenn GPU belegt ist: sofort authentische Sprachnachricht von Megan via Piper TTS generieren und senden
-            if is_busy:
+            # 2. Wenn GPU belegt ist: Sprachnachricht NUR bei explizitem Bildbefehl senden
+            is_explicit_render = (
+                body.get("force", False)
+                or body.get("direct", False)
+                or prompt_text.startswith(("/render", "/generate", "/draw"))
+                or bool(re.search(r'\b(erstelle|generiere|zeichne|render|male)\b.*?\b(bild|foto|zeichnung|comic|selfie|portrait|szene)\b', prompt_text, re.IGNORECASE))
+                or bool(re.search(r'\b(bild|foto|zeichnung|comic|selfie|portrait|szene)\b.*?\b(erstellen|generieren|zeichnen|rendern|malen)\b', prompt_text, re.IGNORECASE))
+                or bool(re.search(r'^(?:schick|zeig)\s+(?:mir\s+)?(?:ein\s+|mal\s+ein\s+)?(?:neues\s+)?(?:foto|selfie|bild\s+von\s+dir)\b', prompt_text, re.IGNORECASE))
+            )
+            if is_busy and is_explicit_render:
                 busy_msg = (
                     "Boss, die Grafikkarte rechnet gerade noch an einem anderen Job. "
                     "Ich habe deinen Render hinten angestellt – sobald die A770 frei ist, ziehe ich dein Bild direkt durch!"
@@ -1908,6 +1971,56 @@ async def handle_render(request: web.Request) -> web.Response:
     except Exception as e:
         logger.error(f"Render handler failed: {e}", exc_info=True)
         return web.json_response({"error": str(e)}, status=500)
+
+async def handle_comfy_graph_validate(request: web.Request) -> web.Response:
+    """POST /api/comfy/graph/validate - Validiert einen ComfyUI API Prompt Graph vor Ausführung."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "valid": False, "errors": ["Ungültiges JSON"]}, status=400)
+
+    graph_data = body.get("graph") or body.get("prompt") or body
+    try:
+        from comfy_graph_builder import validate_graph
+        valid, errors = validate_graph(graph_data)
+        node_dict = graph_data.get("prompt", graph_data) if isinstance(graph_data, dict) else {}
+        return web.json_response({
+            "success": True,
+            "valid": valid,
+            "errors": errors,
+            "node_count": len(node_dict) if isinstance(node_dict, dict) else 0
+        })
+    except Exception as e:
+        logger.error(f"Graph-Validierung fehlgeschlagen: {e}", exc_info=True)
+        return web.json_response({"success": False, "valid": False, "errors": [str(e)]}, status=500)
+
+async def handle_comfy_graph_submit(request: web.Request) -> web.Response:
+    """POST /api/comfy/graph/submit - Validiert und sendet einen dynamischen Graph an ComfyUI."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Ungültiges JSON"}, status=400)
+
+    graph_data = body.get("graph") or body.get("prompt") or body
+    if not isinstance(graph_data, dict):
+        return web.json_response({"success": False, "error": "Graph muss ein Dictionary sein"}, status=400)
+
+    try:
+        from comfy_graph_builder import validate_graph
+        valid, errors = validate_graph(graph_data)
+        if not valid:
+            return web.json_response({
+                "success": False,
+                "error": "Graph-Validierung fehlgeschlagen",
+                "validation_errors": errors
+            }, status=400)
+
+        prompt_payload = graph_data.get("prompt", graph_data)
+        res = await asyncio.to_thread(execute_autonomous_tool, "comfyui_render", {"prompt_graph": prompt_payload, "workflow": "dynamic_graph"})
+        return web.json_response(res)
+    except Exception as e:
+        logger.error(f"Fehler bei dynamischem Graph-Submit: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
 
 async def handle_gallery_list(request: web.Request) -> web.Response:
     images = []
@@ -2108,6 +2221,8 @@ def create_app() -> web.Application:
     # ComfyUI Render & Gallery
     app.router.add_post("/api/render", handle_render)
     app.router.add_post("/api/render/direct", handle_render)
+    app.router.add_post("/api/comfy/graph/validate", handle_comfy_graph_validate)
+    app.router.add_post("/api/comfy/graph/submit", handle_comfy_graph_submit)
     app.router.add_get("/api/gallery", handle_gallery_list)
     app.router.add_get("/api/gallery/{filename:.+}", handle_gallery_file)
     app.router.add_get("/api/images/{filename:.+}", handle_gallery_file)

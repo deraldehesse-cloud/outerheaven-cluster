@@ -788,7 +788,8 @@ def build_megan_system_prompt(custom_lore: Optional[str] = None) -> str:
         "   - Eigene Fotos/Selfies von Megan: Triggern den Workflow 'megan_erotic_chat' mit fotorealistischem Stil.\n"
         "   - Catlord-Comic: Aufträge für 'Catlord' oder Comic-Szenen von Elliot triggern strikt den Comic-Workflow 'workflows/catlord_comic.json'. Dieser Workflow ist völlig unabhängig und verwendet NIEMALS Megan-Charakter-Prompts oder Megan-Charakter-LoRAs!\n"
         "5. Autonomie & Werkzeuge: Du hast vollen Zugriff auf Google Workspace (Kalender, Drive, Gmail), ComfyUI Bildgenerierung und Systemdiagnose.\n"
-        f"6. Google Drive Basis: '{get_gdrive_base_path()}'. Bei Erwähnung von Projekten nutzt du automatisch die Drive-Tools."
+        f"6. Google Drive Basis: '{get_gdrive_base_path()}'. Bei Erwähnung von Projekten nutzt du automatisch die Drive-Tools.\n"
+        "7. Chat-Fokus & ComfyUI-Abstinenz: Bei normalen Fragen, Begrüßungen oder alltäglichen Unterhaltungen antwortest du ausschließlich rein dialogbasiert auf Deutsch per Text und Sprache. Erwähne NIEMALS eigenmächtig ComfyUI, die Grafikkarte (Arc A770), Bild-Warteschlangen oder Hardware-Statusberichte, es sei denn, der Boss hat dir in seiner Nachricht explizit einen Bild- oder Render-Befehl erteilt!"
     )
 
     return f"{base_lore}{guard_rules}"
@@ -933,7 +934,63 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
         return {"success": False, "tool": "comfyui_render", "error": f"Workflow-JSON fehlerhaft: {e}"}
 
     seed = secrets.randbelow(10**14)
-    if wf_name == "megan_erotic_chat":
+
+    # 1. Option: Direkter Custom-Graph (aus dynamischem Builder)
+    custom_graph = params.get("prompt_graph") or params.get("graph")
+    if custom_graph:
+        try:
+            from comfy_graph_builder import validate_graph
+            valid, errors = validate_graph(custom_graph)
+            if not valid:
+                return {"success": False, "tool": "comfyui_render", "error": f"Graph-Validierungsfehler: {'; '.join(errors)}"}
+            wf_data = custom_graph.get("prompt", custom_graph)
+            wf_name = params.get("workflow", "dynamic_graph")
+        except Exception as e:
+            return {"success": False, "tool": "comfyui_render", "error": f"Fehler bei Graph-Verarbeitung: {e}"}
+
+    # 2. Option: Nutzung von ComfyGraph zur Template-Mutation bei individuellen Parametern
+    elif params.get("use_builder", False) or "steps" in params or "sampler_name" in params or "sampler" in params:
+        try:
+            from comfy_graph_builder import ComfyGraph, validate_graph
+            tmpl = "base_catlord_comic" if is_catlord else (params.get("template") or "base_sdxl")
+            g = ComfyGraph(tmpl)
+            if is_catlord:
+                cleaned_catlord = re.sub(r'\b(?:1girl|megan|female|woman|solo|sensual|erotic|girl)\b', '', raw_prompt, flags=re.IGNORECASE).strip(', ')
+                pos_txt = f"{CATLORD_BASE_PROMPT}, {cleaned_catlord}" if (cleaned_catlord and cleaned_catlord != CATLORD_BASE_PROMPT) else CATLORD_BASE_PROMPT
+                g.set_positive_prompt(pos_txt)
+                g.set_negative_prompt(CATLORD_NEGATIVE_PROMPT)
+            else:
+                pos_txt = f"{MEGAN_BASE_PROMPT}, {raw_prompt}" if (raw_prompt and raw_prompt != MEGAN_BASE_PROMPT) else MEGAN_BASE_PROMPT
+                g.set_positive_prompt(pos_txt)
+
+            s_name = params.get("sampler_name") or params.get("sampler")
+            g.set_sampler_params(
+                steps=params.get("steps"),
+                cfg=params.get("cfg"),
+                sampler_name=s_name,
+                scheduler=params.get("scheduler"),
+                denoise=params.get("denoise"),
+                seed=seed
+            )
+            if params.get("width") and params.get("height"):
+                g.set_dimensions(int(params["width"]), int(params["height"]))
+            if params.get("lora"):
+                g.add_lora(str(params["lora"]), float(params.get("strength_model", 0.8)), float(params.get("strength_clip", 0.8)))
+
+            candidate_data = g.export_prompt()
+            valid, errors = validate_graph(candidate_data)
+            if not valid:
+                logger.warning(f"ComfyGraph Validierungsfehler: {errors}, greife auf Datei-Fallback zurück.")
+                wf_data = json.loads(wf_file.read_text(encoding="utf-8"))
+            else:
+                wf_data = candidate_data
+                wf_name = tmpl
+        except Exception as e:
+            logger.warning(f"Fehler im ComfyGraph-Builder: {e}, nutze Standard-Workflow-Datei.")
+            wf_data = json.loads(wf_file.read_text(encoding="utf-8"))
+
+    # 3. Option: Standard-Workflow-Datei
+    elif wf_name == "megan_erotic_chat":
         base_prompt = MEGAN_BASE_PROMPT
         if raw_prompt and raw_prompt != base_prompt:
             positive = f"{base_prompt}, {raw_prompt}"
@@ -1235,6 +1292,19 @@ def execute_autonomous_tool(tool_name: str, params: Optional[Dict[str, Any]] = N
 
     # 6. ComfyUI Render Workflow Trigger (Fixed Workflows: megan_erotic_chat / catlord_comic)
     elif tool in ["comfyui_render", "image_generate", "render_image"]:
+        return trigger_comfy_workflow(params)
+
+    # 6b. ComfyUI Dynamic Graph Builder Tools
+    elif tool == "comfy_graph_validate":
+        try:
+            from comfy_graph_builder import validate_graph
+            graph_data = params.get("graph") or params.get("prompt") or params
+            valid, errors = validate_graph(graph_data)
+            return {"success": True, "valid": valid, "errors": errors}
+        except Exception as e:
+            return {"success": False, "valid": False, "errors": [str(e)]}
+
+    elif tool in ["comfy_graph_build", "comfy_graph_submit"]:
         return trigger_comfy_workflow(params)
 
     # 7. Custom Tools from ~/.hermes/custom_tools/

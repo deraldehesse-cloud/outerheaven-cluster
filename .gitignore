@@ -29,7 +29,9 @@ credentials/
 !manifest.json
 !package.json
 !workflows/*.json
+!workflows/templates/*.json
 !workflows/archetypes/*.json
+!services/megan-studio/workflows/templates/*.json
 !mission-control/workflows/archetypes/*.json
 !mission-control/data/canonical_vault.json
 
