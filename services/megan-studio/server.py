@@ -1623,11 +1623,30 @@ async def handle_chat(request: web.Request) -> web.Response:
     # Load recent context from central SQLite
     recent_msgs = load_chat_messages(limit=10)
     messages = [{"role": "system", "content": system_instruction}]
-    for m in recent_msgs:
+
+    # Hänge unmittelbar vor die letzte User-Message eine explizite System-Direktive an
+    last_user_idx = None
+    for idx, m in enumerate(recent_msgs):
+        if m.get("sender") == "USER":
+            last_user_idx = idx
+
+    for idx, m in enumerate(recent_msgs):
+        if idx == last_user_idx:
+            messages.append({
+                "role": "system",
+                "content": "[SPRACHREGEL: Antworte ausnahmslos auf Deutsch! Verwende kein einziges englisches Wort.]"
+            })
         r = "user" if m.get("sender") == "USER" else "assistant"
         c = str(m.get("text", "")).strip()
         if c:
             messages.append({"role": r, "content": c})
+
+    if last_user_idx is None:
+        messages.append({
+            "role": "system",
+            "content": "[SPRACHREGEL: Antworte ausnahmslos auf Deutsch! Verwende kein einziges englisches Wort.]"
+        })
+        messages.append({"role": "user", "content": user_msg})
 
     if intent_context:
         messages.append({
@@ -1761,11 +1780,29 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     logger.warning(f"Konnte Chat-Historie nicht laden: {me}")
 
                 messages = [{"role": "system", "content": system_prompt + '\n\n[WICHTIGE SPRACHREGEL]:\nDu sprichst und antwortest AUSSCHLIESSLICH auf Deutsch! Verwende niemals Englisch, keine englischen Floskeln wie "Sure", "Certainly" oder "Okay". Antworte direkt, authentisch und auf Deutsch als Megan.'}]
-                for m in recent_msgs:
+                # Hänge unmittelbar vor die letzte User-Message eine explizite System-Direktive an
+                last_user_idx = None
+                for idx, m in enumerate(recent_msgs):
+                    if m.get("sender") == "USER":
+                        last_user_idx = idx
+
+                for idx, m in enumerate(recent_msgs):
+                    if idx == last_user_idx:
+                        messages.append({
+                            "role": "system",
+                            "content": "[SPRACHREGEL: Antworte ausnahmslos auf Deutsch! Verwende kein einziges englisches Wort.]"
+                        })
                     r = "user" if m.get("sender") == "USER" else "assistant"
                     c = str(m.get("text", "")).strip()
                     if c:
                         messages.append({"role": r, "content": c})
+
+                if last_user_idx is None:
+                    messages.append({
+                        "role": "system",
+                        "content": "[SPRACHREGEL: Antworte ausnahmslos auf Deutsch! Verwende kein einziges englisches Wort.]"
+                    })
+                    messages.append({"role": "user", "content": user_text})
 
                 if intent_context:
                     messages.append({
