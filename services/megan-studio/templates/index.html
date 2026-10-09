@@ -427,6 +427,108 @@
       }
     }
 
+    let chatWs = null;
+    let currentBotBubble = null;
+    let currentBotTextEl = null;
+
+    function initChatWebSocket() {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${proto}//${window.location.host}/ws/chat`;
+      try {
+        chatWs = new WebSocket(wsUrl);
+        chatWs.onopen = () => {
+          console.log("WebSocket /ws/chat verbunden");
+        };
+        chatWs.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            handleChatWsEvent(data);
+          } catch (e) {
+            console.error("WS parse error", e);
+          }
+        };
+        chatWs.onclose = () => {
+          console.log("WebSocket /ws/chat getrennt, reconnect in 3s...");
+          chatWs = null;
+          setTimeout(initChatWebSocket, 3000);
+        };
+        chatWs.onerror = (err) => {
+          console.warn("WebSocket /ws/chat Fehler", err);
+        };
+      } catch (e) {
+        console.warn("WebSocket Init Fehler", e);
+      }
+    }
+
+    function handleChatWsEvent(data) {
+      const container = document.getElementById('chatMessages');
+      const sendBtn = document.getElementById('sendBtn');
+      const input = document.getElementById('chatInput');
+
+      if (data.type === 'start') {
+        const botBubble = document.createElement('div');
+        botBubble.className = "p-2.5 bg-pink-950/40 border border-pink-900/40 rounded text-pink-200 mr-6 space-y-1.5";
+        const msgId = 'text_' + Math.random().toString(36).substring(2, 9);
+        botBubble.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="font-bold font-mono text-[10px] text-pink-400">💋 MEGAN (STREAM)</span>
+          </div>
+          <div id="${msgId}" class="text-xs text-pink-100 leading-relaxed pt-1 border-t border-pink-900/30 whitespace-pre-wrap"></div>
+        `;
+        container.appendChild(botBubble);
+        currentBotBubble = botBubble;
+        currentBotTextEl = document.getElementById(msgId);
+        container.scrollTop = container.scrollHeight;
+      } else if (data.type === 'token') {
+        const tok = data.content || data.text || data.token || "";
+        if (currentBotTextEl) {
+          currentBotTextEl.textContent += tok;
+          container.scrollTop = container.scrollHeight;
+        }
+      } else if (data.type === 'audio_ready' || data.type === 'voice') {
+        if (currentBotBubble && data.audio_url && !currentBotBubble.querySelector('audio')) {
+          const audioDiv = document.createElement('div');
+          audioDiv.className = "bg-black/60 p-1.5 rounded border border-pink-800/40 flex items-center space-x-2";
+          audioDiv.innerHTML = `
+            <span class="text-xs">🔊</span>
+            <audio controls autoplay src="${data.audio_url}" class="h-7 w-full accent-pink-500"></audio>
+          `;
+          currentBotBubble.insertBefore(audioDiv, currentBotTextEl);
+          container.scrollTop = container.scrollHeight;
+        }
+      } else if (data.type === 'done') {
+        if (currentBotTextEl && data.text && !currentBotTextEl.textContent.trim()) {
+          currentBotTextEl.textContent = data.text;
+        }
+        if (currentBotBubble && data.audio_url && !currentBotBubble.querySelector('audio')) {
+          const audioDiv = document.createElement('div');
+          audioDiv.className = "bg-black/60 p-1.5 rounded border border-pink-800/40 flex items-center space-x-2";
+          audioDiv.innerHTML = `
+            <span class="text-xs">🔊</span>
+            <audio controls autoplay src="${data.audio_url}" class="h-7 w-full accent-pink-500"></audio>
+          `;
+          currentBotBubble.insertBefore(audioDiv, currentBotTextEl);
+        }
+        currentBotBubble = null;
+        currentBotTextEl = null;
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Senden';
+        input.disabled = false;
+        input.focus();
+        container.scrollTop = container.scrollHeight;
+      } else if (data.type === 'error') {
+        appendMessageBubble({
+          sender: 'MEGAN',
+          text: `[Fehler: ${data.message || data.text || 'Unbekannt'}]`
+        });
+        currentBotBubble = null;
+        currentBotTextEl = null;
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Senden';
+        input.disabled = false;
+      }
+    }
+
     async function sendMessage() {
       const input = document.getElementById('chatInput');
       const text = input.value.trim();
@@ -444,24 +546,28 @@
       sendBtn.disabled = true;
       sendBtn.textContent = '...';
 
-      try {
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({message: text})
-        });
-        const data = await res.json();
-        const reply = data.response || "Keine Antwort erhalten.";
-        appendMessageBubble({
-          sender: 'MEGAN',
-          text: reply,
-          audio_url: data.audio_url || null
-        });
-      } catch (e) {
-        console.error("Chat error", e);
-      } finally {
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'Senden';
+      if (chatWs && chatWs.readyState === WebSocket.OPEN) {
+        chatWs.send(JSON.stringify({ type: "message", message: text, text: text }));
+      } else {
+        try {
+          const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: text})
+          });
+          const data = await res.json();
+          const reply = data.response || data.text || "Keine Antwort erhalten.";
+          appendMessageBubble({
+            sender: 'MEGAN',
+            text: reply,
+            audio_url: data.audio_url || null
+          });
+        } catch (e) {
+          console.error("Chat error", e);
+        } finally {
+          sendBtn.disabled = false;
+          sendBtn.textContent = 'Senden';
+        }
       }
     }
 
@@ -1159,6 +1265,7 @@
 
     window.addEventListener('DOMContentLoaded', () => {
       refreshData();
+      initChatWebSocket();
     });
   </script>
 

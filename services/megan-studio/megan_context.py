@@ -404,25 +404,32 @@ megan_context_engine = MeganContextEngine()
 # ==============================================================================
 GDRIVE_CANDIDATE_PATHS = [
     lambda: os.environ.get("GDRIVE_BASE_PATH"),
-    lambda: "/mnt/fox-home/fox/gdrive/Agenten-Drive",
-    lambda: str(Path.home() / "gdrive" / "Agenten-Drive"),
-    lambda: "/home/outerheaven/gdrive/Agenten-Drive",
-    lambda: "/home/fox/gdrive/Agenten-Drive",
     lambda: "/mnt/storage-beta/Agenten-Drive",
     lambda: "/mnt/storage-beta/projekte",
+    lambda: str(Path.home() / "gdrive" / "Agenten-Drive"),
+    lambda: "/mnt/fox-home/fox/gdrive/Agenten-Drive",
 ]
 
 def get_gdrive_base_path() -> Path:
     """Returns the active, accessible Google Drive / Agenten-Drive base path."""
     for getter in GDRIVE_CANDIDATE_PATHS:
-        raw = getter()
-        if not raw:
+        try:
+            raw = getter()
+            if not raw:
+                continue
+            p = Path(raw).expanduser()
+            if os.path.isdir(str(p)):
+                return p
+        except Exception:
             continue
-        p = Path(raw).expanduser().resolve()
-        if p.is_dir():
-            return p
-    # Fallback default
-    return Path("/mnt/fox-home/fox/gdrive/Agenten-Drive")
+    # Safe fallback defaults
+    for fb in ["/mnt/storage-beta/projekte", str(Path.home() / "gdrive"), "/tmp"]:
+        try:
+            if os.path.isdir(fb):
+                return Path(fb)
+        except Exception:
+            pass
+    return Path("/tmp")
 
 def resolve_gdrive_project_path(project_query: str) -> Dict[str, Any]:
     """

@@ -1329,13 +1329,28 @@ async def handle_bot_haptic_test(request: web.Request) -> web.Response:
 # Piper Neural TTS Engine
 # ------------------------------------------------------------------------------
 PIPER_MODELS = [
-    Path("/mnt/storage-beta/models/piper/de_DE-kerstin-low.onnx"),
-    Path("/mnt/storage-beta/models/piper/de_DE-thorsten-medium.onnx"),
     Path("/home/outerheaven/models/piper/de_DE-kerstin-low.onnx"),
     Path("/home/outerheaven/models/piper/de_DE-thorsten-medium.onnx"),
+    Path("/mnt/storage-beta/models/piper/de_DE-kerstin-low.onnx"),
+    Path("/mnt/storage-beta/models/piper/de_DE-thorsten-medium.onnx"),
     Path.home() / "models/piper/de_DE-kerstin-low.onnx",
     Path.home() / ".local/share/piper/de_DE-kerstin-low.onnx"
 ]
+
+PIPER_BIN_CANDIDATES = [
+    shutil.which("piper"),
+    str(Path.home() / ".hermes/.venv/bin/piper"),
+    "/home/outerheaven/.hermes/.venv/bin/piper",
+    str(Path.home() / ".local/bin/piper"),
+    "/usr/local/bin/piper",
+    "/usr/bin/piper"
+]
+
+def get_piper_binary() -> Optional[str]:
+    for cand in PIPER_BIN_CANDIDATES:
+        if cand and os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
 
 def clean_text_for_tts(text: str) -> str:
     if not text:
@@ -1373,15 +1388,18 @@ async def generate_piper_tts(text: str) -> Optional[str]:
 
     model_file = None
     for p in PIPER_MODELS:
-        if p.is_file():
-            model_file = str(p)
-            break
+        try:
+            if p.is_file():
+                model_file = str(p)
+                break
+        except Exception:
+            continue
 
     audio_id = f"megan_voice_{int(time.time()*1000)}_{secrets.token_hex(3)}"
     out_wav = AUDIO_TTS_DIR / f"{audio_id}.wav"
-    piper_bin = shutil.which("piper") or str(Path.home() / ".local/bin/piper")
+    piper_bin = get_piper_binary()
 
-    if model_file and (shutil.which(piper_bin) or Path(piper_bin).is_file()):
+    if model_file and piper_bin:
         try:
             cmd = [piper_bin, "-m", model_file, "-f", str(out_wav)]
             proc = await asyncio.create_subprocess_exec(
@@ -1390,12 +1408,16 @@ async def generate_piper_tts(text: str) -> Optional[str]:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await proc.communicate(input=cleaned.encode("utf-8"))
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=cleaned.encode("utf-8")),
+                timeout=15.0
+            )
             if proc.returncode == 0 and out_wav.is_file() and out_wav.stat().st_size > 0:
                 logger.info(f"[megan-tts] Piper TTS generiert: {out_wav.name} ({out_wav.stat().st_size} bytes)")
                 return audio_id
             else:
-                logger.warning(f"[megan-tts] Piper Warnung ({proc.returncode}): {stderr.decode('utf-8', errors='ignore')}")
+                err_msg = stderr.decode('utf-8', errors='ignore') if stderr else ""
+                logger.warning(f"[megan-tts] Piper Warnung ({proc.returncode}): {err_msg}")
         except Exception as pe:
             logger.error(f"[megan-tts] Piper execution error: {pe}")
 
@@ -1403,12 +1425,12 @@ async def generate_piper_tts(text: str) -> Optional[str]:
     try:
         import edge_tts
         communicate = edge_tts.Communicate(text=cleaned, voice="de-DE-SeraphinaMultilingualNeural")
-        await communicate.save(str(out_wav))
+        await asyncio.wait_for(communicate.save(str(out_wav)), timeout=10.0)
         if out_wav.is_file() and out_wav.stat().st_size > 0:
             logger.info(f"[megan-tts] Edge-TTS Fallback generiert: {out_wav.name}")
             return audio_id
-    except Exception:
-        pass
+    except Exception as ee:
+        logger.warning(f"[megan-tts] Edge-TTS Fallback fehlgeschlagen: {ee}")
 
     return None
 
@@ -1438,8 +1460,10 @@ def get_whisper_model():
         try:
             from faster_whisper import WhisperModel
             try:
-                _WHISPER_MODEL = WhisperModel("medium", device="cpu", compute_type="int8")
-            except Exception:
+                # Use base with int8 on CPU - ultra fast (1-2s) & highly accurate for voice commands
+                _WHISPER_MODEL = WhisperModel("base", device="cpu", compute_type="int8", cpu_threads=4)
+            except Exception as e:
+                logger.warning(f"Failed to load WhisperModel base with 4 threads: {e}")
                 _WHISPER_MODEL = WhisperModel("base", device="cpu", compute_type="int8")
         except Exception as e:
             logger.error(f"Failed to load WhisperModel: {e}")
@@ -1457,6 +1481,8 @@ def transcribe_audio_local(audio_path: str, language: str = "de") -> str:
             condition_on_previous_text=False,
             temperature=0.0,
             vad_filter=True,
+            beam_size=1,
+            best_of=1,
             no_speech_threshold=0.6
         )
         parts = [s.text.strip() for s in segments if s.text and s.text.strip()]
@@ -1475,26 +1501,28 @@ async def handle_audio_transcribe(request: web.Request) -> web.Response:
             return web.json_response({"status": "ok", "text": ""})
 
         # 1. Forward to Mission Control (:8000) if running to save RAM and leverage existing model instance
+        # Short timeout (5s total, 1.5s connect) so we never block if :8000 is slow or unresponsive
         try:
             headers = {}
             if "Content-Type" in request.headers:
                 headers["Content-Type"] = request.headers["Content-Type"]
-            async with aiohttp.ClientSession() as session:
+            client_timeout = aiohttp.ClientTimeout(total=2.0, connect=0.5)
+            async with aiohttp.ClientSession(timeout=client_timeout) as session:
                 async with session.post(
                     "http://127.0.0.1:8000/api/audio/transcribe",
                     data=raw_body,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=30)
+                    headers=headers
                 ) as resp:
                     if resp.status == 200:
                         res_data = await resp.json()
                         transcribed_text = (res_data.get("text") or "").strip()
-                        logger.info(f"[Transcribe Output]: {transcribed_text}")
-                        return web.json_response({"status": "ok", "text": transcribed_text})
+                        if transcribed_text:
+                            logger.info(f"[Transcribe Output via :8000]: {transcribed_text}")
+                            return web.json_response({"status": "ok", "text": transcribed_text})
                     else:
                         logger.warning(f"[megan-stt] Mission Control /api/audio/transcribe HTTP {resp.status}, wechsle auf lokalen Fallback")
         except Exception as fwd_err:
-            logger.info(f"[megan-stt] Weiterleitung an :8000 nicht möglich ({fwd_err}), nutze lokalen Fallback")
+            logger.info(f"[megan-stt] Weiterleitung an :8000 nicht möglich ({fwd_err}), nutze schnellen lokalen Fallback")
 
         # 2. Local Fallback: Extract audio bytes and write to temp file
         ext = ".wav"
@@ -1522,7 +1550,16 @@ async def handle_audio_transcribe(request: web.Request) -> web.Response:
         with open(temp_path, "wb") as f:
             f.write(audio_bytes)
 
-        text = await asyncio.to_thread(transcribe_audio_local, temp_path, "de")
+        # Transcribe with max 15s safety timeout
+        try:
+            text = await asyncio.wait_for(
+                asyncio.to_thread(transcribe_audio_local, temp_path, "de"),
+                timeout=15.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[megan-stt] Lokale Transkription Timeout nach 15s")
+            text = ""
+
         transcribed_text = (text or "").strip()
         logger.info(f"[Transcribe Output]: {transcribed_text}")
         return web.json_response({"status": "ok", "text": transcribed_text})
@@ -1617,6 +1654,8 @@ async def handle_chat(request: web.Request) -> web.Response:
                 data = await resp.json()
                 raw_text = data.get("message", {}).get("content", "")
                 clean_text = sanitize_megan_response(raw_text)
+                if not clean_text:
+                    clean_text = re.sub(r'</?think>', '', raw_text).strip() or "Alles klar, Boss! Ich bin bereit."
 
                 # 2. Piper TTS Audio Generation
                 audio_id = await generate_piper_tts(clean_text)
@@ -1662,10 +1701,21 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     data = json.loads(msg.data)
                 except Exception as e:
                     logger.error(f"WebSocket ungültiges JSON: {e}")
-                    await ws.send_json({"type": "error", "text": "Ungültiges JSON"})
+                    await ws.send_json({"type": "error", "text": "Ungültiges JSON", "message": "Ungültiges JSON"})
                     continue
 
-                user_text = (data.get("message") or data.get("text") or "").strip()
+                # Robuste Extraktion der Nachricht aus verschiedenen Payload-Formaten
+                user_text = ""
+                if isinstance(data.get("message"), str):
+                    user_text = data.get("message")
+                elif isinstance(data.get("text"), str):
+                    user_text = data.get("text")
+                elif isinstance(data.get("content"), str):
+                    user_text = data.get("content")
+                elif isinstance(data.get("message"), dict):
+                    user_text = data.get("message", {}).get("content", "")
+                user_text = str(user_text or "").strip()
+
                 if not user_text:
                     logger.warning("WebSocket Nachricht ohne Textinhalt empfangen.")
                     continue
@@ -1674,24 +1724,42 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
                 user_msg_id = f"user_{int(time.time()*1000)}_{secrets.token_hex(3)}"
                 user_ts = int(time.time() * 1000)
-                save_chat_message(
-                    msg_id=user_msg_id,
-                    sender="USER",
-                    text=user_text,
-                    msg_type="TEXT",
-                    timestamp=user_ts
-                )
+                try:
+                    save_chat_message(
+                        msg_id=user_msg_id,
+                        sender="USER",
+                        text=user_text,
+                        msg_type="TEXT",
+                        timestamp=user_ts
+                    )
+                except Exception as save_err:
+                    logger.warning(f"Konnte User-Nachricht nicht in DB speichern: {save_err}")
 
                 # Send typing and start events to client
                 await ws.send_json({"type": "typing"})
                 await ws.send_json({"type": "start", "node": "outerheaven", "model": MEGAN_MODEL})
 
-                system_prompt = get_active_megan_prompt()
-                intent_context = await asyncio.to_thread(check_autonomous_intent, user_text)
-                if intent_context:
-                    system_prompt += f"\n\n{intent_context}"
+                # Robuster System-Prompt & Intent-Check ohne Absturzrisiko
+                try:
+                    system_prompt = get_active_megan_prompt()
+                except Exception as pe:
+                    logger.error(f"Fehler beim Laden des System-Prompts: {pe}", exc_info=True)
+                    system_prompt = "Du bist Megan, die charmante, freche und loyale persönliche Assistentin von Big Boss im Outer Heaven Cluster."
 
-                recent_msgs = load_chat_messages(limit=10)
+                intent_context = None
+                try:
+                    intent_context = await asyncio.to_thread(check_autonomous_intent, user_text)
+                    if intent_context:
+                        system_prompt += f"\n\n{intent_context}"
+                except Exception as ie:
+                    logger.warning(f"Intent-Prüfung fehlgeschlagen: {ie}")
+
+                recent_msgs = []
+                try:
+                    recent_msgs = load_chat_messages(limit=10)
+                except Exception as me:
+                    logger.warning(f"Konnte Chat-Historie nicht laden: {me}")
+
                 messages = [{"role": "system", "content": system_prompt + '\n\n[WICHTIGE SPRACHREGEL]:\nDu sprichst und antwortest AUSSCHLIESSLICH auf Deutsch! Verwende niemals Englisch, keine englischen Floskeln wie "Sure", "Certainly" oder "Okay". Antworte direkt, authentisch und auf Deutsch als Megan.'}]
                 for m in recent_msgs:
                     r = "user" if m.get("sender") == "USER" else "assistant"
@@ -1724,42 +1792,86 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     r'^(?:(?:Sure|Certainly|Okay|Ok|Alright|Hello|Hi|Of course|Here is|Here\'s|I will|Let me)[,!\.:\s]+)+',
                     re.IGNORECASE
                 )
+                english_prefix_words = ("sure", "certainly", "okay", "ok", "alright", "hello", "hi", "of course", "here is", "here's", "let me", "i will")
+
+                tokens_sent = 0
 
                 try:
                     async with aiohttp.ClientSession() as session:
-                        async with session.post(f"{LOCAL_OLLAMA_URL}/api/chat", json=payload) as resp:
-                            async for chunk in resp.content:
-                                if chunk:
+                        async with session.post(
+                            f"{LOCAL_OLLAMA_URL}/api/chat",
+                            json=payload,
+                            timeout=aiohttp.ClientTimeout(total=180, connect=10)
+                        ) as resp:
+                            if resp.status != 200:
+                                err_body = await resp.text()
+                                logger.error(f"Ollama returned HTTP {resp.status}: {err_body}")
+                                await ws.send_json({"type": "error", "message": f"Ollama HTTP {resp.status}", "text": f"Ollama HTTP {resp.status}"})
+                                await ws.send_json({"type": "idle"})
+                                continue
+
+                            # Zeilenweises Lesen für einwandfreies NDJSON-Streaming
+                            async for line_bytes in resp.content:
+                                line_str = line_bytes.decode("utf-8", errors="ignore").strip()
+                                if not line_str:
+                                    continue
+
+                                # Zeile kann mehrere JSON-Objekte enthalten, falls Chunks zusammengefügt wurden
+                                for json_chunk in line_str.split("\n"):
+                                    json_chunk = json_chunk.strip()
+                                    if not json_chunk:
+                                        continue
                                     try:
-                                        parsed = json.loads(chunk.decode("utf-8"))
-                                        token = parsed.get("message", {}).get("content", "")
-                                        if not token:
+                                        parsed = json.loads(json_chunk)
+                                    except Exception:
+                                        continue
+
+                                    token = parsed.get("message", {}).get("content", "")
+                                    if not token:
+                                        continue
+
+                                    accumulated_text += token
+
+                                    # 1. Thought-Blöcke (<think>...</think>) sauber filtern
+                                    if "<think>" in token or "<think>" in accumulated_text:
+                                        if "</think>" not in accumulated_text:
+                                            in_think = True
                                             continue
-
-                                        accumulated_text += token
-
-                                        # 1. Filter <think>...</think> Blöcke restlos vor WebSocket-Dispatch ab
-                                        if "<think>" in token or "<think>" in accumulated_text:
-                                            if "</think>" not in accumulated_text:
-                                                in_think = True
-                                                continue
-                                            else:
-                                                if in_think:
-                                                    in_think = False
-                                                    # Text nach </think> übernehmen
-                                                    after_think = accumulated_text.split("</think>", 1)[1]
-                                                    intro_buffer = after_think
-                                                    continue
-
-                                        if in_think:
-                                            if "</think>" in token:
+                                        else:
+                                            if in_think:
                                                 in_think = False
-                                            continue
+                                                after_think = accumulated_text.split("</think>", 1)[1]
+                                                intro_buffer = after_think
+                                                continue
 
-                                        # 2. Englische Einleitungs-Tokens vor dem Dispatch abfangen
-                                        if not intro_dispatched:
-                                            intro_buffer += token
-                                            if any(p in intro_buffer for p in [".", ",", "!", "?", ":", "\n"]) or len(intro_buffer) >= 18:
+                                    if in_think:
+                                        if "</think>" in token:
+                                            in_think = False
+                                        continue
+
+                                    # 2. Englische Einleitungs-Tokens abfangen ohne deutsche Wörter zu blockieren
+                                    if not intro_dispatched:
+                                        intro_buffer += token
+                                        buf_lower = intro_buffer.lower().lstrip()
+
+                                        # Prüfen, ob der Puffer überhaupt mit einem englischen Intro-Präfix beginnen könnte
+                                        could_be_english = any(buf_lower.startswith(p[:len(buf_lower)]) for p in english_prefix_words)
+
+                                        if not could_be_english:
+                                            # Es beginnt direkt mit Deutsch (z.B. "Ja", "Hallo Boss", "Klar", "Ich") -> SOFORT senden!
+                                            if intro_buffer:
+                                                await ws.send_json({
+                                                    "type": "token",
+                                                    "content": intro_buffer,
+                                                    "text": intro_buffer,
+                                                    "token": intro_buffer
+                                                })
+                                                tokens_sent += 1
+                                            intro_dispatched = True
+                                            intro_buffer = ""
+                                        else:
+                                            # Könnte Englisch sein -> warten bis Satzzeichen oder Leerzeichen das Wort abschließt
+                                            if any(p in intro_buffer for p in [".", ",", "!", "?", ":", "\n", " "]) or len(intro_buffer) >= 15:
                                                 cleaned_intro = english_intro_re.sub("", intro_buffer).lstrip()
                                                 if cleaned_intro:
                                                     await ws.send_json({
@@ -1768,52 +1880,90 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                                         "text": cleaned_intro,
                                                         "token": cleaned_intro
                                                     })
-                                                intro_dispatched = True
-                                                intro_buffer = ""
-                                        else:
-                                            await ws.send_json({
-                                                "type": "token",
-                                                "content": token,
-                                                "text": token,
-                                                "token": token
-                                            })
-                                    except Exception:
-                                        pass
+                                                    tokens_sent += 1
+                                                    intro_dispatched = True
+                                                    intro_buffer = ""
+                                                elif not any(buf_lower.startswith(p) for p in english_prefix_words):
+                                                    # Intro war bereinigt, Puffer ist jetzt leer
+                                                    intro_dispatched = True
+                                                    intro_buffer = ""
+                                    else:
+                                        await ws.send_json({
+                                            "type": "token",
+                                            "content": token,
+                                            "text": token,
+                                            "token": token
+                                        })
+                                        tokens_sent += 1
+
                 except Exception as e:
-                    logger.error(f"Ollama Stream unterbrochen: {e}")
-                    await ws.send_json({"type": "error", "message": "Ollama Stream unterbrochen", "text": "Ollama Stream unterbrochen"})
+                    logger.error(f"Ollama Stream unterbrochen oder fehlgeschlagen: {e}", exc_info=True)
+                    await ws.send_json({"type": "error", "message": f"Ollama Stream unterbrochen: {e}", "text": "Ollama Stream unterbrochen"})
                     await ws.send_json({"type": "idle"})
                     continue
 
                 # Eventuellen Rest-Buffer nach kurzem Stream senden
-                if not intro_dispatched and intro_buffer:
+                if intro_buffer:
                     cleaned_intro = english_intro_re.sub("", intro_buffer).lstrip()
-                    if cleaned_intro:
+                    send_rest = cleaned_intro if cleaned_intro else intro_buffer
+                    if send_rest:
                         await ws.send_json({
                             "type": "token",
-                            "content": cleaned_intro,
-                            "text": cleaned_intro,
-                            "token": cleaned_intro
+                            "content": send_rest,
+                            "text": send_rest,
+                            "token": send_rest
                         })
+                        tokens_sent += 1
+                    intro_buffer = ""
 
+                # Bereinigung der Gesamtnachricht
                 clean_text = sanitize_megan_response(accumulated_text)
-                audio_id = await generate_piper_tts(clean_text)
+
+                # Fallback, falls Sanitizer den gesamten Text verschluckt hat oder Modell sehr kurz war
+                if not clean_text:
+                    raw_fallback = re.sub(r'</?think>', '', accumulated_text).strip()
+                    clean_text = raw_fallback or "Alles klar, Boss! Ich bin bereit."
+
+                # Falls noch gar keine Tokens gestreamt wurden (z.B. bei sehr kurzer oder bereinigter Antwort):
+                if tokens_sent == 0 and clean_text:
+                    await ws.send_json({
+                        "type": "token",
+                        "content": clean_text,
+                        "text": clean_text,
+                        "token": clean_text
+                    })
+
+                # 3. Piper TTS Audio Generation
+                audio_id = None
+                try:
+                    audio_id = await generate_piper_tts(clean_text)
+                except Exception as tts_err:
+                    logger.error(f"TTS Erzeugung fehlgeschlagen: {tts_err}")
+
                 audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
 
                 megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
                 megan_ts = int(time.time() * 1000)
-                save_chat_message(
-                    msg_id=megan_msg_id,
-                    sender="MEGAN",
-                    text=clean_text,
-                    msg_type="TEXT",
-                    audio_url=audio_url,
-                    timestamp=megan_ts
-                )
+                try:
+                    save_chat_message(
+                        msg_id=megan_msg_id,
+                        sender="MEGAN",
+                        text=clean_text,
+                        msg_type="TEXT",
+                        audio_url=audio_url,
+                        timestamp=megan_ts
+                    )
+                except Exception as save_err:
+                    logger.warning(f"Konnte Megan-Antwort nicht in DB speichern: {save_err}")
 
                 if audio_url:
                     await ws.send_json({
                         "type": "audio_ready",
+                        "audio_url": audio_url,
+                        "text": clean_text
+                    })
+                    await ws.send_json({
+                        "type": "voice",
                         "audio_url": audio_url,
                         "text": clean_text
                     })
