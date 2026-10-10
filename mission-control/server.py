@@ -7437,13 +7437,15 @@ async def handle_chat_rest(request: web.Request) -> web.Response:
         # Build clean prompt and call Ollama
         system_instruction = build_chat_system_instruction(request, user_message)
 
+        requested_model = (data.get("model") or "").strip() if isinstance(data, dict) else ""
+
         if node == "fox":
             target_url = f"{FOX_OLLAMA_URL}/api/chat"
-            model_name = get_active_fox_model()
+            model_name = requested_model or get_active_fox_model()
         else:
             node = "outerheaven"
             target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
-            model_name = get_active_ollama_model()
+            model_name = requested_model or get_active_ollama_model()
 
         sanitized_messages = []
         for h in history[-8:]:

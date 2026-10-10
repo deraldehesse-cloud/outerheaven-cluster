@@ -485,7 +485,7 @@
             <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
             <div class="flex items-center space-x-2">
               <h2 class="text-sm font-bold tracking-wider text-cyan-300">💬 HERMES CHAT // CLUSTER-ASSISTENT</h2>
-              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950/80 border border-cyan-500/50 text-cyan-300">DEEPSEEK-R1:14B • DEUTSCH</span>
+              <span id="hermesChatModelBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950/80 border border-cyan-500/50 text-cyan-300">DEEPSEEK-R1:14B • DEUTSCH</span>
             </div>
           </div>
           <div class="flex items-center space-x-2 text-xs">
@@ -2883,6 +2883,7 @@
     let currentAssistantBubble = null;
     let currentMeganAssistantBubble = null;
     let currentActiveOllamaModel = "{{ local_model }}";
+    let userSelectedModelLock = false;
 
     // --- 3-Zone Cockpit Workspace Navigation ---
     let currentActiveWorkspace = 'catlord';
@@ -2960,15 +2961,7 @@
       setElementVisibility('nodesOverview', true, 'grid');
       setElementVisibility('catlordWorkspaceView', true, 'block');
 
-      // Rechte Seitenleiste im Haupt-Cockpit wieder einblenden
-      const agentConsole = document.getElementById('agentDrawer') || document.getElementById('agentConsole') || document.querySelector('.agent-console');
-      if (agentConsole) {
-        agentConsole.classList.remove('hidden');
-        agentConsole.style.display = '';
-        if (typeof updateDrawerToggleBtn === 'function') {
-          updateDrawerToggleBtn(true);
-        }
-      }
+      // Rechte Seitenleiste im Haupt-Cockpit: Toggle-Button sicherstellen, Leiste bleibt standardmäßig eingeklappt
       const toggleRightDrawer = document.getElementById('btnToggleRightDrawer');
       if (toggleRightDrawer) {
         toggleRightDrawer.classList.remove('hidden');
@@ -3265,6 +3258,12 @@
       const workingTaskModel = document.getElementById('ohWorkingTaskModel');
       if (workingTaskModel) {
         workingTaskModel.textContent = `${modelName} Aktiv`;
+      }
+
+      // 6. Hermes Chat Header Badge
+      const hermesBadge = document.getElementById('hermesChatModelBadge');
+      if (hermesBadge) {
+        hermesBadge.textContent = `${modelName.toUpperCase()} • DEUTSCH`;
       }
     }
 
@@ -3876,10 +3875,12 @@
         // 1. Outer Heaven Update
         const oh = data.outerheaven;
         if (oh) {
-          if (oh.active_model) {
-            updateTacticalAgentModelUI(oh.active_model);
-          } else if (data.active_model) {
-            updateTacticalAgentModelUI(data.active_model);
+          if (!userSelectedModelLock) {
+            if (oh.active_model) {
+              updateTacticalAgentModelUI(oh.active_model);
+            } else if (data.active_model) {
+              updateTacticalAgentModelUI(data.active_model);
+            }
           }
           // Safe Metric & Status Helpers
           function getServiceBadgeStyle(status) {
@@ -6494,6 +6495,7 @@
         });
         const data = await res.json();
         if (res.ok && data.success) {
+          userSelectedModelLock = true;
           if (badge) {
             badge.textContent = `Aktiv: ${newModel.split(':')[0]}`;
             badge.className = "text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-600/60";
@@ -7799,18 +7801,18 @@
         const activeModel = data.active_model || (models[0] ? models[0].name : "");
 
         if (models.length > 0) {
-          const currentVal = select.value || activeModel;
+          const currentVal = (node === 'outerheaven' && userSelectedModelLock && currentActiveOllamaModel) ? currentActiveOllamaModel : (select.value || activeModel);
           select.innerHTML = "";
           models.forEach(m => {
             const opt = document.createElement("option");
             opt.value = m.name;
             opt.textContent = m.name;
-            if (m.name === currentVal || m.name === activeModel || m.is_active) {
+            if (m.name === currentVal || (!currentVal && (m.name === activeModel || m.is_active))) {
               opt.selected = true;
             }
             select.appendChild(opt);
           });
-          select.value = activeModel;
+          select.value = currentVal || activeModel;
         }
 
         if (node === 'fox') {
@@ -7840,6 +7842,7 @@
         if (res.ok && data.success) {
           console.log(`[Cluster] ${node} Modell erfolgreich umgeschaltet auf: ${model}`);
           if (node === 'outerheaven') {
+            userSelectedModelLock = true;
             const companionSelect = document.getElementById("modelSelector") || document.getElementById("botLlmModel");
             if (companionSelect) companionSelect.value = model;
             const badge = document.getElementById("modelStatusBadge");
@@ -9219,7 +9222,8 @@
       // Hermes Response Bubble (streaming placeholder)
       const botBubble = document.createElement("div");
       botBubble.className = "p-3 bg-slate-900/80 border border-slate-700/80 rounded-lg text-slate-200 mr-8 leading-relaxed";
-      botBubble.innerHTML = `<div class="flex items-center space-x-2 mb-1.5 text-cyan-400 font-bold text-[11px]"><span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span><span>HERMES (deepseek-r1:14b)</span></div><div class="chat-content whitespace-pre-wrap"></div>`;
+      const modelLabel = currentActiveOllamaModel || "deepseek-r1:14b";
+      botBubble.innerHTML = `<div class="flex items-center space-x-2 mb-1.5 text-cyan-400 font-bold text-[11px]"><span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span><span>HERMES (${escapeHtml(modelLabel)})</span></div><div class="chat-content whitespace-pre-wrap"></div>`;
       chatContainer.appendChild(botBubble);
       const contentEl = botBubble.querySelector(".chat-content");
 
@@ -9227,6 +9231,7 @@
         const payload = {
           message: text,
           node: "outerheaven",
+          model: currentActiveOllamaModel,
           history: hermesChatHistory.slice(-8)
         };
 

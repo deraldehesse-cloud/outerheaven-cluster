@@ -149,6 +149,16 @@ def load_chat_messages(limit: int = 150) -> List[Dict[str, Any]]:
         rows = cur.fetchall()
         return [dict(r) for r in rows]
 
+def clear_chat_messages() -> int:
+    """Deletes all messages from the central SQLite chat DB."""
+    init_chat_db()
+    with sqlite3.connect(str(CHAT_DB_PATH)) as conn:
+        cur = conn.execute("DELETE FROM messages")
+        deleted = cur.rowcount
+        conn.commit()
+    logger.info(f"Chat-Historie geleert ({deleted} Nachrichten gelöscht).")
+    return deleted
+
 # Context Engine Import
 try:
     from megan_context import (
@@ -634,6 +644,28 @@ async def handle_megan_tools_execute(request: web.Request) -> web.Response:
     res = execute_autonomous_tool(tool, params)
     return web.json_response(res)
 
+def detect_megan_photo_claim(text: str) -> bool:
+    """
+    Erkennt, wenn Megan im Chat ein Bild von sich ankündigt oder verspricht.
+    Beispiele:
+    - 'Hier ist ein Foto von mir...'
+    - 'Hier ist ein Bild für dich...'
+    - 'Ich mache dir kurz ein Foto...'
+    - 'Ich schicke dir mal ein Bild...'
+    - '[PHOTO: ...]' oder '[IMAGE: ...]'
+    """
+    if not text:
+        return False
+    patterns = [
+        r'\[(?:photo|image|foto|bild|selfie):[^\]]+\]',
+        r'(?:hier\s+ist|hier\s+hast\s+du|hier\s+kommt)\s+(?:ein\s+|mal\s+ein\s+|das\s+|mein\s+)?(?:foto|bild|selfie|schnappschuss)\b',
+        r'(?:ich\s+mache\s+dir|ich\s+schicke\s+dir|ich\s+sende\s+dir|ich\s+knipse\s+dir)\s+(?:kurz\s+|mal\s+)?(?:ein\s+|ein\s+neues\s+|mal\s+ein\s+)?(?:foto|bild|selfie)\b',
+        r'foto\s+von\s+mir\b',
+        r'bild\s+von\s+mir\b',
+    ]
+    t = text.lower()
+    return any(bool(re.search(p, t, re.IGNORECASE)) for p in patterns)
+
 def check_autonomous_intent(text: str) -> Optional[str]:
     """Detects if user asks for Google Drive project lookup, troubleshooting, or system status."""
     t_lower = text.lower().strip()
@@ -644,13 +676,14 @@ def check_autonomous_intent(text: str) -> Optional[str]:
     greetings = {
         "hallo", "hi", "hey", "hallo megan", "hi megan", "hey megan",
         "guten morgen", "guten tag", "guten abend", "gute nacht",
-        "servus", "moin", "tschüss", "tschau", "ciao",
+        "servus", "servas", "moin", "gude", "gude megan", "tach", "grüß gott", "grüss gott",
+        "tschüss", "tschau", "ciao",
         "wie gehts", "wie geht's", "wie geht es dir",
         "danke", "danke schön", "danke dir", "vielen dank",
         "ok", "okay", "alles klar", "ja", "nein", "gut", "super"
     }
     cleaned_simple = re.sub(r'[^\w\s]', '', t_lower).strip()
-    if cleaned_simple in greetings or any(cleaned_simple.startswith(g + " ") for g in ["hallo megan", "hi megan", "hey megan", "guten morgen", "guten tag", "wie geht es dir", "wie gehts"]):
+    if cleaned_simple in greetings or any(cleaned_simple.startswith(g + " ") for g in ["hallo megan", "hi megan", "hey megan", "gude megan", "guten morgen", "guten tag", "wie geht es dir", "wie gehts"]):
         return None
 
     # 1. Google Drive / Project Resolution
@@ -799,7 +832,8 @@ def check_autonomous_intent(text: str) -> Optional[str]:
         t_lower.startswith(("/render", "/generate", "/draw"))
         or bool(re.search(r'\b(erstelle|generiere|zeichne|render|male)\b.*?\b(bild|foto|zeichnung|comic|selfie|portrait|szene)\b', t_lower, re.IGNORECASE))
         or bool(re.search(r'\b(bild|foto|zeichnung|comic|selfie|portrait|szene)\b.*?\b(erstellen|generieren|zeichnen|rendern|malen)\b', t_lower, re.IGNORECASE))
-        or bool(re.search(r'^(?:schick|zeig)\s+(?:mir\s+)?(?:ein\s+|mal\s+ein\s+)?(?:neues\s+)?(?:foto|selfie|bild\s+von\s+dir)\b', t_lower, re.IGNORECASE))
+        or bool(re.search(r'^(?:schick|zeig|hast du|mach)\s+(?:mir\s+)?(?:ein\s+|mal\s+ein\s+)?(?:neues\s+)?(?:foto|selfie|bild\s+von\s+dir)\b', t_lower, re.IGNORECASE))
+        or bool(re.search(r'\b(foto|selfie|bild)\s+von\s+(?:dir|euch)\b', t_lower, re.IGNORECASE))
     )
     if explicit_render_match:
         is_catlord = "catlord" in t_lower or "elliot" in t_lower or "comic" in t_lower
@@ -1587,6 +1621,16 @@ async def handle_chat_history(request: web.Request) -> web.Response:
         "count": len(msgs)
     })
 
+async def handle_chat_clear(request: web.Request) -> web.Response:
+    """POST /api/chat/clear or DELETE /api/chat/history - Clears chat history."""
+    deleted = clear_chat_messages()
+    broadcast_ws_sync({"type": "history_cleared", "deleted": deleted})
+    return web.json_response({
+        "success": True,
+        "deleted": deleted,
+        "message": "Chat-Historie erfolgreich geleert."
+    })
+
 async def handle_chat(request: web.Request) -> web.Response:
     """
     POST /api/chat - REST Chat with Megan using local Ollama (megan:latest).
@@ -1679,6 +1723,17 @@ async def handle_chat(request: web.Request) -> web.Response:
                 # 2. Piper TTS Audio Generation
                 audio_id = await generate_piper_tts(clean_text)
                 audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
+
+                # 2b. ComfyUI Autonomous Photo Trigger: Wenn Megan ein Bild ankündigt oder danach gefragt wurde
+                if detect_megan_photo_claim(clean_text) or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
+                    logger.info("[Auto-Render] Megan hat ein Foto im Chat angekündigt -> triggere ComfyUI Render an Port 8188")
+                    asyncio.create_task(
+                        asyncio.to_thread(
+                            execute_autonomous_tool,
+                            "comfyui_render",
+                            {"prompt": user_msg or clean_text, "workflow": "megan_erotic_chat"}
+                        )
+                    )
 
                 # 3. Save Megan's response to central SQLite DB
                 megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
@@ -1978,6 +2033,17 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     logger.error(f"TTS Erzeugung fehlgeschlagen: {tts_err}")
 
                 audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
+
+                # 3b. ComfyUI Autonomous Photo Trigger: Wenn Megan ein Bild ankündigt oder danach gefragt wurde
+                if detect_megan_photo_claim(clean_text) or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
+                    logger.info("[Auto-Render] Megan hat ein Foto im Chat angekündigt (WS) -> triggere ComfyUI Render an Port 8188")
+                    asyncio.create_task(
+                        asyncio.to_thread(
+                            execute_autonomous_tool,
+                            "comfyui_render",
+                            {"prompt": user_text or clean_text, "workflow": "megan_erotic_chat"}
+                        )
+                    )
 
                 megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
                 megan_ts = int(time.time() * 1000)
@@ -2392,6 +2458,8 @@ def create_app() -> web.Application:
     app.router.add_get("/api/chat", handle_chat)
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_get("/api/chat/history", handle_chat_history)
+    app.router.add_delete("/api/chat/history", handle_chat_clear)
+    app.router.add_post("/api/chat/clear", handle_chat_clear)
     app.router.add_get("/ws/chat", handle_chat_ws)
     app.router.add_get("/api/audio/{filename}", handle_audio_serve)
     app.router.add_get("/api/audio/tts/{filename}", handle_audio_serve)
