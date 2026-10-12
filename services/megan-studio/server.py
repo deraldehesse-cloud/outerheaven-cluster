@@ -307,7 +307,12 @@ def on_image_finished_broadcast(data: Dict[str, Any]) -> None:
     # 3. render_completed event to reset isRendering
     broadcast_ws_sync({
         "type": "render_completed",
-        "filename": data.get("filename")
+        "render_id": data.get("id"),
+        "id": data.get("id"),
+        "filename": data.get("filename"),
+        "image_url": data.get("url"),
+        "url": data.get("url"),
+        "prompt": data.get("prompt", "")
     })
     broadcast_ws_sync({
         "type": "idle"
@@ -648,16 +653,20 @@ def detect_megan_photo_claim(text: str) -> bool:
     """
     Erkennt, wenn Megan im Chat ein Bild von sich ankündigt oder verspricht.
     Beispiele:
+    - '<image>...</image>' oder '<image> ...'
+    - '[PHOTO: ...]' oder '[IMAGE: ...]'
     - 'Hier ist ein Foto von mir...'
     - 'Hier ist ein Bild für dich...'
     - 'Ich mache dir kurz ein Foto...'
     - 'Ich schicke dir mal ein Bild...'
-    - '[PHOTO: ...]' oder '[IMAGE: ...]'
     """
     if not text:
         return False
     patterns = [
+        r'<image>[^<]+</image>',
+        r'<image>\s*([^\n]+)',
         r'\[(?:photo|image|foto|bild|selfie):[^\]]+\]',
+        r'\[image:[^\]]+\]',
         r'(?:hier\s+ist|hier\s+hast\s+du|hier\s+kommt)\s+(?:ein\s+|mal\s+ein\s+|das\s+|mein\s+)?(?:foto|bild|selfie|schnappschuss)\b',
         r'(?:ich\s+mache\s+dir|ich\s+schicke\s+dir|ich\s+sende\s+dir|ich\s+knipse\s+dir)\s+(?:kurz\s+|mal\s+)?(?:ein\s+|ein\s+neues\s+|mal\s+ein\s+)?(?:foto|bild|selfie)\b',
         r'foto\s+von\s+mir\b',
@@ -665,6 +674,80 @@ def detect_megan_photo_claim(text: str) -> bool:
     ]
     t = text.lower()
     return any(bool(re.search(p, t, re.IGNORECASE)) for p in patterns)
+
+def detect_user_photo_intent(text: str) -> bool:
+    """
+    Erkennt, wenn der Nutzer Megan um ein Foto bittet oder einen Bild-Befehl sendet.
+    Beispiele:
+    - 'schick mir ein bild'
+    - 'foto von dir'
+    - 'erstell ein bild'
+    - 'zieh dich aus'
+    - '<image> ...' oder '[IMAGE: ...]'
+    """
+    if not text:
+        return False
+    t = text.lower()
+    patterns = [
+        r'(?:schick|zeig|sende|gib|knips|mach)\s+(?:mir\s+)?(?:uns\s+)?(?:mal\s+|kurz\s+|bitte\s+)?(?:ein\s+|mal\s+ein\s+|das\s+|dein\s+|ein\s+neues\s+)?(?:foto|bild|selfie|schnappschuss|pic)\b',
+        r'(?:foto|bild|selfie|pic)\s+von\s+(?:dir|euch)\b',
+        r'(?:erstell|generier|zeichne|render|mach)\s+(?:mir\s+|uns\s+)?(?:mal\s+|kurz\s+|bitte\s+)?(?:ein\s+|mal\s+ein\s+|das\s+)?(?:foto|bild|selfie|zeichnung|portrait)\b',
+        r'(?:kannst\s+du\s+|hast\s+du\s+|schickst\s+du\s+)?(?:mir\s+)?(?:ein\s+)?(?:foto|bild|selfie)\s+(?:von\s+dir\s+)?(?:schicken|senden|machen|zeigen)\b',
+        r'\bzieh\s+dich\s+.*aus\b',
+        r'\bzieh\s+dich\s+(?:mal\s+|bitte\s+)?aus\b',
+        r'\b(?:ausziehen|nackt|nackig|strip|oben\s+ohne|untendrunter|mach\s+dich\s+frei)\b',
+        r'\[(?:photo|image|foto|bild|selfie):[^\]]+\]',
+        r'<image>[^<]+</image>',
+        r'<image>\s*([^\n]+)'
+    ]
+    return any(bool(re.search(p, t, re.IGNORECASE)) for p in patterns)
+
+def trigger_async_photo_render(prompt: str, workflow: str = "megan_erotic_chat") -> asyncio.Task:
+    """Startet einen autonomen ComfyUI Bild-Render asynchron im Hintergrund."""
+    logger.info(f"[Auto-Render] Triggere ComfyUI Render mit Prompt: '{prompt[:60]}...' (Workflow: {workflow})")
+    return asyncio.create_task(
+        asyncio.to_thread(
+            execute_autonomous_tool,
+            "comfyui_render",
+            {"prompt": prompt, "workflow": workflow}
+        )
+    )
+
+def extract_megan_image_prompt(text: str) -> Tuple[Optional[str], str]:
+    """
+    Extrahiert einen expliziten Prompt aus Tags wie <image>...</image>,
+    <image> text... oder [IMAGE: ...] und entfernt den Tag sauber aus dem Chat-Text.
+    """
+    if not text:
+        return None, text
+
+    extracted_prompt = None
+    cleaned = text
+
+    # 1. <image>prompt</image>
+    m1 = re.search(r'<image>(.*?)</image>', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    if m1:
+        extracted_prompt = m1.group(1).strip()
+        cleaned = re.sub(r'<image>.*?</image>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    else:
+        # 2. <image> prompt bis zum Zeilenumbruch oder Ende
+        m2 = re.search(r'<image>\s*([^\n<]+)', cleaned, flags=re.IGNORECASE)
+        if m2:
+            extracted_prompt = m2.group(1).strip()
+            cleaned = re.sub(r'<image>\s*[^\n<]+', '', cleaned, flags=re.IGNORECASE)
+        else:
+            # 3. [IMAGE: prompt] oder [PHOTO: prompt]
+            m3 = re.search(r'\[(?:image|photo|foto|bild|selfie):\s*([^\]]+)\]', cleaned, flags=re.IGNORECASE)
+            if m3:
+                extracted_prompt = m3.group(1).strip()
+                cleaned = re.sub(r'\[(?:image|photo|foto|bild|selfie):[^\]]+\]', '', cleaned, flags=re.IGNORECASE)
+
+    # Verbleibende leere Tags entfernen und Whitespace normalisieren
+    cleaned = re.sub(r'</?image>', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'[ \t]+', ' ', cleaned)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+
+    return extracted_prompt, cleaned
 
 def check_autonomous_intent(text: str) -> Optional[str]:
     """Detects if user asks for Google Drive project lookup, troubleshooting, or system status."""
@@ -1720,20 +1803,20 @@ async def handle_chat(request: web.Request) -> web.Response:
                 if not clean_text:
                     clean_text = re.sub(r'</?think>', '', raw_text).strip() or "Alles klar, Boss! Ich bin bereit."
 
-                # 2. Piper TTS Audio Generation
+                # 2. Extract image prompt & strip <image> tags from clean_text
+                extracted_prompt, clean_text = extract_megan_image_prompt(clean_text)
+
+                # Piper TTS Audio Generation
                 audio_id = await generate_piper_tts(clean_text)
                 audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
 
-                # 2b. ComfyUI Autonomous Photo Trigger: Wenn Megan ein Bild ankündigt oder danach gefragt wurde
-                if detect_megan_photo_claim(clean_text) or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
-                    logger.info("[Auto-Render] Megan hat ein Foto im Chat angekündigt -> triggere ComfyUI Render an Port 8188")
-                    asyncio.create_task(
-                        asyncio.to_thread(
-                            execute_autonomous_tool,
-                            "comfyui_render",
-                            {"prompt": user_msg or clean_text, "workflow": "megan_erotic_chat"}
-                        )
-                    )
+                # 2b. ComfyUI Autonomous Photo Trigger: Wenn Megan ein Bild ankündigt ODER Nutzer nach Bild fragt
+                user_wants_photo = detect_user_photo_intent(user_msg)
+                megan_claims_photo = detect_megan_photo_claim(clean_text)
+                if extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
+                    render_prompt = extracted_prompt or (f"{user_msg}, {clean_text}" if (user_wants_photo and megan_claims_photo) else (clean_text if megan_claims_photo and not user_wants_photo else user_msg))
+                    logger.info(f"[Auto-Render] Photo-Trigger (POST): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
+                    trigger_async_photo_render(render_prompt, "megan_erotic_chat")
 
                 # 3. Save Megan's response to central SQLite DB
                 megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
@@ -2025,7 +2108,10 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                         "token": clean_text
                     })
 
-                # 3. Piper TTS Audio Generation
+                # 3. Extract image prompt & strip <image> tags from clean_text
+                extracted_prompt, clean_text = extract_megan_image_prompt(clean_text)
+
+                # Piper TTS Audio Generation
                 audio_id = None
                 try:
                     audio_id = await generate_piper_tts(clean_text)
@@ -2034,16 +2120,13 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
                 audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
 
-                # 3b. ComfyUI Autonomous Photo Trigger: Wenn Megan ein Bild ankündigt oder danach gefragt wurde
-                if detect_megan_photo_claim(clean_text) or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
-                    logger.info("[Auto-Render] Megan hat ein Foto im Chat angekündigt (WS) -> triggere ComfyUI Render an Port 8188")
-                    asyncio.create_task(
-                        asyncio.to_thread(
-                            execute_autonomous_tool,
-                            "comfyui_render",
-                            {"prompt": user_text or clean_text, "workflow": "megan_erotic_chat"}
-                        )
-                    )
+                # 3b. ComfyUI Autonomous Photo Trigger: Wenn Megan ein Bild ankündigt ODER Nutzer nach Bild fragt
+                user_wants_photo = detect_user_photo_intent(user_text)
+                megan_claims_photo = detect_megan_photo_claim(clean_text)
+                if extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
+                    render_prompt = extracted_prompt or (f"{user_text}, {clean_text}" if (user_wants_photo and megan_claims_photo) else (clean_text if megan_claims_photo and not user_wants_photo else user_text))
+                    logger.info(f"[Auto-Render] Photo-Trigger (WS): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
+                    trigger_async_photo_render(render_prompt, "megan_erotic_chat")
 
                 megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
                 megan_ts = int(time.time() * 1000)
@@ -2481,6 +2564,11 @@ def create_app() -> web.Application:
     app.router.add_get("/api/gallery", handle_gallery_list)
     app.router.add_get("/api/gallery/{filename:.+}", handle_gallery_file)
     app.router.add_get("/api/images/{filename:.+}", handle_gallery_file)
+    app.router.add_get("/output/{filename:.+}", handle_gallery_file)
+    app.router.add_get("/outputs/{filename:.+}", handle_gallery_file)
+    if COMFYUI_OUTPUT_DIR.is_dir():
+        app.router.add_static("/output/", path=str(COMFYUI_OUTPUT_DIR), name="output", follow_symlinks=True)
+        app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)
 
     # ComfyUI Custom Nodes Management & Code Inspection
     app.router.add_get("/api/nodes/custom", handle_custom_nodes_list)
