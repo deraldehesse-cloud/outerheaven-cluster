@@ -1781,6 +1781,12 @@ async def handle_chat(request: web.Request) -> web.Response:
             "content": "[AKTUELLE TASK-PFLICHT]: Antworte direkt auf Deutsch und bestätige dem Boss verbindlich und charmant die soeben angelegte Aufgabe (inkl. Titel, Aufgabentyp und Zuweisung an Hermes)!"
         })
 
+    # Vor dem Absenden an Ollama MUSS am Ende des messages-Arrays ausnahmslos die System-Anweisung stehen
+    messages.append({
+        "role": "system",
+        "content": "[SPRACHREGEL: Antworte in jedem Fall ausnahmslos auf direktem, lebendigem Deutsch. Kein englisches Wort!]"
+    })
+
     payload = {
         "model": MEGAN_MODEL,
         "messages": messages,
@@ -1856,10 +1862,9 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 logger.info(f"WebSocket empfing Rohdaten: {msg.data[:200]}")
                 try:
                     data = json.loads(msg.data)
-                except Exception as e:
-                    logger.error(f"WebSocket ungültiges JSON: {e}")
-                    await ws.send_json({"type": "error", "text": "Ungültiges JSON", "message": "Ungültiges JSON"})
-                    continue
+                except Exception:
+                    # Fallback für Clients, die Plaintext senden
+                    data = {"text": msg.data}
 
                 # Robuste Extraktion der Nachricht aus verschiedenen Payload-Formaten
                 user_text = ""
@@ -1947,6 +1952,12 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                         "role": "system",
                         "content": "[AKTUELLE TASK-PFLICHT]: Antworte direkt auf Deutsch und bestätige dem Boss verbindlich und charmant die soeben angelegte Aufgabe (inkl. Titel, Aufgabentyp und Zuweisung an Hermes)!"
                     })
+
+                # Vor dem Absenden an Ollama MUSS am Ende des messages-Arrays ausnahmslos die System-Anweisung stehen
+                messages.append({
+                    "role": "system",
+                    "content": "[SPRACHREGEL: Antworte in jedem Fall ausnahmslos auf direktem, lebendigem Deutsch. Kein englisches Wort!]"
+                })
 
                 payload = {
                     "model": MEGAN_MODEL,
@@ -2143,24 +2154,29 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     logger.warning(f"Konnte Megan-Antwort nicht in DB speichern: {save_err}")
 
                 if audio_url:
-                    await ws.send_json({
+                    audio_payload = {
                         "type": "audio_ready",
                         "audio_url": audio_url,
                         "text": clean_text
-                    })
-                    await ws.send_json({
+                    }
+                    voice_payload = {
                         "type": "voice",
                         "audio_url": audio_url,
                         "text": clean_text
-                    })
+                    }
+                    await ws.send_json(audio_payload)
+                    await ws.send_json(voice_payload)
+                    await broadcast_ws(voice_payload)
 
-                await ws.send_json({
+                done_payload = {
                     "type": "done",
                     "id": megan_msg_id,
                     "text": clean_text,
                     "content": clean_text,
                     "audio_url": audio_url
-                })
+                }
+                await ws.send_json(done_payload)
+                await broadcast_ws(done_payload)
                 await ws.send_json({"type": "idle"})
     finally:
         ACTIVE_WS_CLIENTS.discard(ws)
