@@ -28,8 +28,8 @@ CYAN="\033[96m"
 BOLD="\033[1m"
 RESET="\033[0m"
 
-# Pfade und Ziel-Hosts
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Pfade und Ziel-Hosts (mit realpath für Symlink-Unterstützung z. B. ~/bin/cluster-deploy)
+SCRIPT_DIR="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 OH_HOST="outerheaven"
