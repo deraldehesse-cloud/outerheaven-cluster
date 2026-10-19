@@ -2,15 +2,15 @@
   "1": {
     "class_type": "CheckpointLoaderSimple",
     "inputs": {
-      "ckpt_name": "sd_xl_base_1.0.safetensors"
+      "ckpt_name": "DreamShaper8_LCM.safetensors"
     }
   },
   "2": {
     "class_type": "EmptyLatentImage",
     "inputs": {
       "batch_size": 1,
-      "width": 832,
-      "height": 1216
+      "height": 768,
+      "width": 512
     }
   },
   "3": {
@@ -36,7 +36,7 @@
   "5": {
     "class_type": "KSampler",
     "inputs": {
-      "cfg": 7.0,
+      "cfg": 2.0,
       "denoise": 1.0,
       "latent_image": [
         "2",
@@ -55,9 +55,9 @@
         0
       ],
       "sampler_name": "euler",
-      "scheduler": "karras",
+      "scheduler": "normal",
       "seed": 0,
-      "steps": 18
+      "steps": 8
     }
   },
   "6": {
@@ -76,7 +76,7 @@
   "7": {
     "class_type": "SaveImage",
     "inputs": {
-      "filename_prefix": "Megan_SDXL",
+      "filename_prefix": "Megan_Direct",
       "images": [
         "6",
         0

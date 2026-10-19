@@ -1957,74 +1957,6 @@ async def handle_comfy_pipeline_run(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
-async def handle_comfy_graph_validate(request: web.Request) -> web.Response:
-    """POST /api/comfy/graph/validate - Validates a raw ComfyUI API Prompt Graph."""
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"success": False, "valid": False, "errors": ["Ungültiges JSON"]}, status=400)
-
-    graph_data = body.get("graph") or body.get("prompt") or body
-    try:
-        from comfy_graph_builder import validate_graph
-        valid, errors = validate_graph(graph_data)
-        node_dict = graph_data.get("prompt", graph_data) if isinstance(graph_data, dict) else {}
-        return web.json_response({
-            "success": True,
-            "valid": valid,
-            "errors": errors,
-            "node_count": len(node_dict) if isinstance(node_dict, dict) else 0
-        })
-    except Exception as e:
-        logger.error(f"Graph-Validierung fehlgeschlagen: {e}", exc_info=True)
-        return web.json_response({"success": False, "valid": False, "errors": [str(e)]}, status=500)
-
-async def handle_comfy_graph_submit(request: web.Request) -> web.Response:
-    """POST /api/comfy/graph/submit - Validates and submits a raw ComfyUI API Prompt Graph to /prompt."""
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"success": False, "error": "Ungültiges JSON"}, status=400)
-
-    graph_data = body.get("graph") or body.get("prompt") or body
-    if not isinstance(graph_data, dict):
-        return web.json_response({"success": False, "error": "Graph muss ein Dictionary sein"}, status=400)
-
-    try:
-        from comfy_graph_builder import validate_graph
-        valid, errors = validate_graph(graph_data)
-        if not valid:
-            return web.json_response({
-                "success": False,
-                "error": "Graph-Validierung fehlgeschlagen",
-                "validation_errors": errors
-            }, status=400)
-
-        prompt_payload = graph_data.get("prompt", graph_data)
-        client_id = body.get("client_id", secrets.token_hex(8))
-        payload = {
-            "prompt": prompt_payload,
-            "client_id": client_id
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"{COMFYUI_URL}/prompt", json=payload, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                if resp.status != 200:
-                    err_txt = await resp.text()
-                    return web.json_response({"error": f"ComfyUI /prompt error: {err_txt}"}, status=502)
-                res_data = await resp.json()
-                prompt_id = res_data.get("prompt_id")
-                return web.json_response({
-                    "success": True,
-                    "prompt_id": prompt_id,
-                    "status": "queued",
-                    "client_id": client_id
-                })
-    except Exception as e:
-        logger.error(f"Fehler bei Graph-Submit: {e}", exc_info=True)
-        return web.json_response({"success": False, "error": str(e)}, status=500)
-
-
 # --- Pipeline Workflow Storage & Management ---
 
 async def handle_workflows_save(request: web.Request) -> web.Response:
@@ -7437,15 +7369,13 @@ async def handle_chat_rest(request: web.Request) -> web.Response:
         # Build clean prompt and call Ollama
         system_instruction = build_chat_system_instruction(request, user_message)
 
-        requested_model = (data.get("model") or "").strip() if isinstance(data, dict) else ""
-
         if node == "fox":
             target_url = f"{FOX_OLLAMA_URL}/api/chat"
-            model_name = requested_model or get_active_fox_model()
+            model_name = get_active_fox_model()
         else:
             node = "outerheaven"
             target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
-            model_name = requested_model or get_active_ollama_model()
+            model_name = get_active_ollama_model()
 
         sanitized_messages = []
         for h in history[-8:]:
@@ -7720,8 +7650,6 @@ def create_app() -> web.Application:
     app.router.add_post("/api/comfy/pipeline/validate", handle_comfy_pipeline_validate)
     app.router.add_post("/api/comfy/pipeline/export", handle_comfy_pipeline_export)
     app.router.add_post("/api/comfy/pipeline/run", handle_comfy_pipeline_run)
-    app.router.add_post("/api/comfy/graph/validate", handle_comfy_graph_validate)
-    app.router.add_post("/api/comfy/graph/submit", handle_comfy_graph_submit)
 
     # ComfyUI Custom Nodes Management & Code Inspection
     app.router.add_get("/api/nodes/custom", handle_custom_nodes_list)
