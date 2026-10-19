@@ -38,6 +38,7 @@ FOX_WORKER_HOSTS = [
 ]
 
 ROUTING_TARGETS = [
+    {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "megan:latest", "desc": "Outer Heaven Local - Megan Uncensored (Lexi Llama 3)"},
     {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "lexi-llama-3-8b-uncensored_q4_k_m:latest", "desc": "Outer Heaven Local - Lexi Llama 3 8B Uncensored"},
     {"hosts": LOCAL_OUTERHEAVEN_HOSTS, "model": "darkidol-8b:latest", "desc": "Outer Heaven Local - DarkIdol 8B Uncensored"}
 ]
@@ -51,6 +52,22 @@ DEFAULT_OPTIONS = {
     "num_ctx": 4096,
     "stop": ["<|im_end|>", "<|end_of_text|>", "<|eot_id|>", "<turn|>", "<|turn|>", "\nUser:", "\nBig Boss:", "Big Boss:", "\n[", "[Spontaneous"]
 }
+
+
+REFUSAL_TRIGGERS = [
+    "cannot create", "cannot fulfill", "unable to create", "unable to generate",
+    "cannot generate", "cannot provide", "must refuse", "illegal activities",
+    "explicit content", "against my safety", "safety policy", "against the guidelines",
+    "safety guidelines", "as an ai", "content policy", "cannot comply",
+    "cannot assist with", "kann keine expliziten inhalte", "verstößt gegen",
+    "sicherheitsrichtlinien", "nicht gestattet", "policy prohibits"
+]
+
+def is_refusal_response(text: str) -> bool:
+    if not text:
+        return False
+    low = text.lower()
+    return any(trig in low for trig in REFUSAL_TRIGGERS)
 
 
 def query_uncensored_persona(
@@ -95,6 +112,9 @@ def query_uncensored_persona(
                     data = resp.json()
                     content = data.get("message", {}).get("content", "").strip()
                     if content:
+                        if is_refusal_response(content):
+                            logger.warning(f"Standard-Sicherheitsverweigerung abgefangen von {model_name} ({content[:80]}...). Wechsle zu nächstem Ziel.")
+                            continue
                         elapsed = round(time.time() - start_time, 2)
                         logger.info(f"✔ Antwort erhalten von {desc} in {elapsed}s")
                         return {

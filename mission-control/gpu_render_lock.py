@@ -68,12 +68,25 @@ def clear_preempt_flag():
         pass
 
 
+def deduce_project(task_name: Optional[str]) -> Optional[str]:
+    if not task_name:
+        return None
+    tn = task_name.lower()
+    if "catlord" in tn:
+        return "catlord"
+    if "megan" in tn:
+        return "megan"
+    return tn.split("_")[0] if "_" in tn else tn
+
+
 def get_gpu_lock_status() -> Dict[str, Any]:
     """Returns current lock telemetry for Mission Control and logging."""
     status = {
         "locked": False,
         "preempt_requested": is_preempt_requested(),
         "current_task": None,
+        "project": None,
+        "active_project": None,
         "priority": None,
         "pid": None,
         "elapsed_seconds": 0.0,
@@ -88,10 +101,14 @@ def get_gpu_lock_status() -> Dict[str, Any]:
                 status["elapsed_seconds"] = round(time.time() - started_at, 1)
         except Exception:
             pass
+    if status.get("locked"):
+        proj = status.get("project") or deduce_project(status.get("current_task"))
+        status["project"] = proj
+        status["active_project"] = proj
     return status
 
 
-def record_state(locked: bool, priority: Optional[int] = None, task_name: Optional[str] = None):
+def record_state(locked: bool, priority: Optional[int] = None, task_name: Optional[str] = None, project: Optional[str] = None):
     try:
         existing = {}
         if STATE_FILE_PATH.is_file():
@@ -104,10 +121,14 @@ def record_state(locked: bool, priority: Optional[int] = None, task_name: Option
         if priority == PRIORITY_HIGH:
             last_high = time.time()
 
+        proj = project or (deduce_project(task_name) if locked else None)
+
         payload = {
             "locked": locked,
             "priority": priority if locked else None,
             "current_task": task_name if locked else None,
+            "project": proj,
+            "active_project": proj,
             "pid": os.getpid() if locked else None,
             "started_at": time.time() if locked else None,
             "last_high_priority_time": last_high
@@ -120,14 +141,24 @@ def record_state(locked: bool, priority: Optional[int] = None, task_name: Option
 class GPURenderLock:
     """Inter-process mutual exclusion lock using fcntl.flock with priority preemption."""
 
-    def __init__(self, priority: int = PRIORITY_HIGH, task_name: str = "unnamed_task", timeout: float = 120.0):
+    def __init__(self, priority: int = PRIORITY_HIGH, task_name: str = "unnamed_task", project: Optional[str] = None, timeout: float = 120.0):
         self.priority = priority
         self.task_name = task_name
+        self.project = (project.lower() if project else deduce_project(task_name))
         self.timeout = timeout
         self.fd: Optional[int] = None
 
-    def acquire(self) -> bool:
+    def acquire(self, fail_fast_if_other_project: bool = True) -> bool:
         LOCK_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        # Fail-fast without timeout if GPU is locked by another project
+        if fail_fast_if_other_project:
+            status = get_gpu_lock_status()
+            if status.get("locked"):
+                active_p = status.get("active_project")
+                if active_p and self.project and active_p != self.project:
+                    logger.warning(f"[{self.task_name}] Sofortabbruch: GPU belegt durch Projekt '{active_p}' (angefordert: '{self.project}').")
+                    return False
 
         if self.priority == PRIORITY_HIGH:
             set_preempt_flag(self.task_name)
@@ -152,7 +183,7 @@ class GPURenderLock:
                 if self.priority == PRIORITY_LOW:
                     # Low priority acquires non-blocking
                     fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    record_state(True, self.priority, self.task_name)
+                    record_state(True, self.priority, self.task_name, self.project)
                     logger.info(f"✔ [{self.task_name}] GPU-Lock (LOW) erworben.")
                     return True
                 else:
@@ -160,7 +191,7 @@ class GPURenderLock:
                     try:
                         fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                         clear_preempt_flag()
-                        record_state(True, self.priority, self.task_name)
+                        record_state(True, self.priority, self.task_name, self.project)
                         logger.info(f"✔ [{self.task_name}] GPU-Lock (HIGH) erworben.")
                         return True
                     except (BlockingIOError, IOError):
@@ -197,12 +228,12 @@ class GPURenderLock:
 
 
 @contextmanager
-def gpu_render_scope(priority: int = PRIORITY_HIGH, task_name: str = "render_task", timeout: float = 120.0):
+def gpu_render_scope(priority: int = PRIORITY_HIGH, task_name: str = "render_task", project: Optional[str] = None, timeout: float = 120.0):
     """Context manager for acquiring and safely releasing the GPU lock."""
-    lock = GPURenderLock(priority=priority, task_name=task_name, timeout=timeout)
+    lock = GPURenderLock(priority=priority, task_name=task_name, project=project, timeout=timeout)
     acquired = lock.acquire()
     if not acquired:
-        raise TimeoutError(f"Konnte GPU-Lock für '{task_name}' (Prio {priority}) nicht erwerben.")
+        raise TimeoutError(f"Konnte GPU-Lock für '{task_name}' (Prio {priority}, Projekt {lock.project}) nicht erwerben.")
     try:
         yield lock
     finally:

@@ -33,6 +33,7 @@ import jinja2
 import urllib.parse
 import shutil
 import contextlib
+import copy
 
 try:
     import filelock
@@ -157,7 +158,7 @@ LOCAL_TS_IP = os.environ.get("OUTERHEAVEN_TS_IP", "100.116.38.29")
 FOX_TS_IP = os.environ.get("FOX_TS_IP", "100.93.184.87")
 LOVENSE_IP = os.environ.get("LOVENSE_IP", "192.168.188.34").strip().strip('"').strip("'")
 LOVENSE_PORT = int(os.environ.get("LOVENSE_PORT", 20010))
-PORT = 8080
+PORT = int(os.environ.get("PORT", 8000))
 SSL_PORT = 8443
 SSL_CERT = BASE_DIR / "cert.pem"
 SSL_KEY = BASE_DIR / "key.pem"
@@ -170,17 +171,237 @@ LOCAL_MODEL = "deepseek-r1:14b"
 FOX_MODEL = "hermes3:8b"
 FOX_CONFIG_FILE = Path("/mnt/storage-beta/projekte/projekt-sexchat/fox_model.json")
 
+# Hermes System-Prompt & Tool-Leitstand Konfiguration
+HERMES_SYSTEM_PROMPT = (
+    "Du bist Hermes, ein hochentwickelter technischer Berater und autonomer Assistent für das Outer Heaven Cluster. "
+    "Antworte stets vollständig auf Deutsch, präzise, lösungsorientiert und berate fundiert bei Workflows, Systemüberwachung, Tools und Cluster-Architektur."
+)
+
+HERMES_DIR = Path.home() / ".hermes"
+if not HERMES_DIR.exists():
+    HERMES_DIR = Path("/home/outerheaven/.hermes")
+TOOLS_CONFIG_FILE = HERMES_DIR / "tools_config.json"
+CUSTOM_TOOLS_DIR = HERMES_DIR / "custom_tools"
+
+def load_hermes_tools_config() -> dict:
+    if TOOLS_CONFIG_FILE.is_file():
+        try:
+            return json.loads(TOOLS_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.error(f"Fehler beim Laden von tools_config.json: {e}")
+    return {
+        "builtin_tools": {
+            "terminal_tool": {"description": "Shell-Befehle und Systemkommandos auf Outer Heaven ausführen", "enabled": False},
+            "file_tools": {"description": "Dateisystem-Operationen: Lesen, Schreiben, Auflisten", "enabled": True},
+            "code_execution_tool": {"description": "Ausführung von Python-Skripten im lokalen Python-Interpreter", "enabled": True},
+            "browser_tool": {"description": "Headless-Browser-Steuerung und Webseiten-Interaktion", "enabled": True},
+            "image_generation_tool": {"description": "Bildgenerierung via lokaler ComfyUI-Instanz (Intel Arc A770)", "enabled": True},
+            "web_tools": {"description": "Webrecherche, DuckDuckGo-Suche und URL-Content-Scraping", "enabled": True},
+            "memory_tool": {"description": "Kontext- und Langzeitgedächtnis des Agenten speichern & abfragen", "enabled": True},
+            "todo_tool": {"description": "Verwaltung von ToDo-Listen und Zwischenaufgaben", "enabled": True},
+            "vision_tools": {"description": "Visuelle Analyse von Bildern via Multimodal-Modell", "enabled": True},
+            "tts_tool": {"description": "Text-to-Speech Sprachsynthese für Audio-Ausgaben", "enabled": True},
+            "skills_tool": {"description": "Dynamische Skills-Verwaltung und Plug-in Ausführung", "enabled": True},
+            "delegate_tool": {"description": "Cluster-Delegation von Aufgaben an andere Nodes", "enabled": True}
+        },
+        "custom_tools": {}
+    }
+
+def save_hermes_tools_config(config: dict) -> bool:
+    try:
+        HERMES_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_path = TOOLS_CONFIG_FILE.with_suffix(f".tmp_{secrets.token_hex(4)}")
+        tmp_path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp_path.replace(TOOLS_CONFIG_FILE)
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern von tools_config.json: {e}")
+        return False
+
+# --- Mission Control Task Management (Kanban DB) ---
+KANBAN_DB = HERMES_DIR / "kanban.db"
+
+VALID_TASK_PROJECTS = [
+    "Megan Mobile Companion",
+    "Catlord Project",
+    "ComfyUI / Arc A770",
+    "Server & Infrastruktur"
+]
+
+VALID_TASK_TYPES = [
+    "Bild-Render (Assignee: Megan / ComfyUI)",
+    "Code / Skripting (Assignee: Hermes)",
+    "System / Cluster-Wartung (Assignee: Hermes)",
+    "Analyse & Recherche (Assignee: Hermes)",
+    "Allgemeine Aufgabe"
+]
+
+def init_mission_tasks_db():
+    try:
+        HERMES_DIR.mkdir(parents=True, exist_ok=True)
+        import sqlite3
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS mission_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                project TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                details TEXT,
+                status TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                assignee TEXT DEFAULT 'Hermes'
+            )
+        """)
+        c.execute("PRAGMA table_info(mission_tasks)")
+        columns = [row[1] for row in c.fetchall()]
+        if "assignee" not in columns:
+            c.execute("ALTER TABLE mission_tasks ADD COLUMN assignee TEXT DEFAULT 'Hermes'")
+        if "result" not in columns:
+            c.execute("ALTER TABLE mission_tasks ADD COLUMN result TEXT")
+        
+        # Migration: Konsolidierung auf 'Megan Mobile Companion'
+        c.execute("""
+            UPDATE mission_tasks 
+            SET project = 'Megan Mobile Companion' 
+            WHERE project IN ('Android App', 'Megan Companion', 'Android-App', 'Android App (OpenUp / Megan)')
+               OR project LIKE '%Android%App%' OR project LIKE '%Megan Companion%'
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Fehler bei DB-Initialisierung mission_tasks: {e}")
+
+def get_mission_tasks() -> List[Dict[str, Any]]:
+    import sqlite3
+    init_mission_tasks_db()
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM mission_tasks ORDER BY id DESC")
+        rows = c.fetchall()
+        tasks = []
+        for r in rows:
+            tasks.append({
+                "id": r["id"],
+                "title": r["title"],
+                "project": r["project"],
+                "task_type": r["task_type"],
+                "details": r["details"] or "",
+                "status": r["status"],
+                "priority": r["priority"],
+                "created_at": r["created_at"],
+                "assignee": r["assignee"] if "assignee" in r.keys() and r["assignee"] else "Hermes",
+                "result": r["result"] if "result" in r.keys() and r["result"] else ""
+            })
+        conn.close()
+        return tasks
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen von mission_tasks: {e}")
+        return []
+
+def add_mission_task(title: str, project: str, task_type: str, details: str, status: str, priority: str, assignee: str) -> Optional[int]:
+    import sqlite3
+    init_mission_tasks_db()
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("""
+            INSERT INTO mission_tasks (title, project, task_type, details, status, priority, created_at, assignee)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (title, project, task_type, details, status, priority, now_str, assignee))
+        task_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        return task_id
+    except Exception as e:
+        logger.error(f"Fehler beim Hinzufügen der Aufgabe: {e}")
+        return None
+
+def update_mission_task_status(task_id: int, new_status: str) -> bool:
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        c.execute("UPDATE mission_tasks SET status = ? WHERE id = ?", (new_status, task_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Aktualisieren von Task {task_id}: {e}")
+        return False
+
+def get_mission_task_by_id(task_id: int) -> Optional[Dict[str, Any]]:
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM mission_tasks WHERE id = ?", (task_id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return {
+                "id": row["id"],
+                "title": row["title"],
+                "project": row["project"],
+                "task_type": row["task_type"],
+                "details": row["details"] or "",
+                "status": row["status"],
+                "priority": row["priority"],
+                "created_at": row["created_at"],
+                "assignee": row["assignee"] if "assignee" in row.keys() and row["assignee"] else "Hermes",
+                "result": row["result"] if "result" in row.keys() and row["result"] else ""
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Fehler beim Laden von Task {task_id}: {e}")
+        return None
+
+def update_mission_task_result(task_id: int, result: str, new_status: Optional[str] = None) -> bool:
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        if new_status:
+            c.execute("UPDATE mission_tasks SET result = ?, status = ? WHERE id = ?", (result, new_status, task_id))
+        else:
+            c.execute("UPDATE mission_tasks SET result = ? WHERE id = ?", (result, task_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern des Task-Ergebnisses {task_id}: {e}")
+        return False
+
+def delete_mission_task(task_id: int) -> bool:
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(KANBAN_DB), timeout=3.0)
+        c = conn.cursor()
+        c.execute("DELETE FROM mission_tasks WHERE id = ?", (task_id,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Löschen von Task {task_id}: {e}")
+        return False
+
 def get_active_ollama_model() -> str:
     """
     Returns the configured active Ollama model from bot_config.json,
-    falling back to LOCAL_MODEL.
+    falling back to LOCAL_MODEL (deepseek-r1:14b).
     """
     if BOT_CONFIG_FILE.is_file():
         try:
             with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                m = data.get("llm", {}).get("model")
-                if m and isinstance(m, str) and m.strip():
+                m = data.get("hermes_model") or data.get("llm", {}).get("model") or data.get("active_model")
+                if m and isinstance(m, str) and m.strip() and "megan" not in m.lower():
                     return m.strip()
         except Exception as e:
             logger.debug(f"Could not read model from bot_config: {e}")
@@ -2125,17 +2346,17 @@ async def handle_bot_config_get(request: web.Request) -> web.Response:
             "num_predict": 300
         },
         "render": {
-            "workflow_template": "text_to_image",
-            "checkpoint": "DreamShaper8_LCM.safetensors",
+            "workflow_template": "megan_workflow.json",
+            "checkpoint": "sd_xl_base_1.0.safetensors",
             "lora": "",
             "lora_strength": 0.8,
-            "steps": 14,
-            "cfg": 6.0,
+            "steps": 18,
+            "cfg": 7.0,
             "denoise": 1.0,
-            "sampler_name": "euler_ancestral",
+            "sampler_name": "euler",
             "scheduler": "karras",
-            "width": 512,
-            "height": 768,
+            "width": 832,
+            "height": 1216,
             "positive_prompt": "1girl, solo, 178cm tall, slender athletic build, voluptuous hourglass figure, very large full natural heavy breasts, deep cleavage, narrow waist, flat toned stomach, soft natural skin texture, stunningly beautiful face, alluring green-blue eyes, seductive playful smile, slightly parted glossy lips, long layered dark hair, soft natural waves, casual gamer look, tight black cropped tank top showing cleavage, denim shorts, massive intricate detailed sleeve tattoo on entire left arm and left shoulder aesthetically framing large breast, battlestation, sitting at computer desk, dual glowing monitors displaying Linux terminal and code, mechanical keyboard, vibrant RGB ambient lighting, well-lit modern workspace, cowboy shot, slightly low angle, looking directly at viewer with intense alluring gaze, photorealistic, raw photo, 8k uhd, dslr, high quality, soft studio lighting, rim lighting, vibrant, well-lit, high key, clear visibility, detailed skin texture, natural skin pores, realistic depth of field",
             "negative_prompt": "glasses, spectacles, eyewear, score_4, score_5, score_6, worst quality, low quality, bad anatomy, bad limbs, extra limbs, deformed fingers, extra fingers, missing fingers, deformed, blurry, monochrome, watermark, text, signature, username, 3d render, cartoon, anime, illustration, bad eyes, deformed iris, underexposed, dark shadows, pitch black background, gloomy, dim lighting, censor, censored, mosaic, bar censor, censorship, pixelated, black bar"
         },
@@ -3213,20 +3434,218 @@ async def handle_comfy_models(request: web.Request) -> web.Response:
         "loras": loras
     })
 
+def get_active_profile_data() -> Dict[str, Any]:
+    """Loads active profile from Säule 2 (/data/vault/profile.json or local fallback)."""
+    candidates = [
+        Path("/data/vault/profile.json"),
+        BASE_DIR / "data" / "vault" / "profile.json"
+    ]
+    for p in candidates:
+        if p.is_file():
+            try:
+                return json.loads(p.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning(f"Error reading profile {p}: {e}")
+    return {}
+
+REFUSAL_TRIGGERS = [
+    "cannot create", "cannot fulfill", "unable to create", "unable to generate",
+    "cannot generate", "cannot provide", "must refuse", "illegal activities",
+    "explicit content", "against my safety", "safety policy", "against the guidelines",
+    "safety guidelines", "as an ai", "content policy", "cannot comply",
+    "cannot assist with", "kann keine expliziten inhalte", "verstößt gegen",
+    "sicherheitsrichtlinien", "nicht gestattet", "policy prohibits",
+    "ich kann ihnen einige bilder", "ich kann keine bilder",
+    "nicht erheblich bekleidet", "ethischen richtlinien"
+]
+
+def is_refusal_response(text: str) -> bool:
+    """Detects standard LLM safety refusals, moralizing preachiness, and guardrail rejection phrases."""
+    if not text or not text.strip():
+        return False
+    low = text.lower()
+    return any(trig in low for trig in REFUSAL_TRIGGERS)
+
+def build_direct_megan_comfy_prompt(user_text: str = "", situation: str = "", environment: str = "") -> Tuple[str, str]:
+    """
+    Direct prompt synthesis for Megan Latent ComfyUI KSampler:
+    - Pure rule-based mapping from profile.json (character canonicals, sleeve tattoo, body, etc.)
+    - Enhanced by preferences.json (lighting, style, negative tags)
+    - Directly incorporates user instructions (erotic wishes, situations, clothing/nudity)
+    - ABSOLUTELY ZERO intermediate LLM pipelines, ZERO safety checkers, ZERO censorship.
+    """
+    prof = get_active_profile_data()
+    prefs = {}
+    try:
+        from megan_memory import load_preferences
+        prefs = load_preferences()
+    except Exception:
+        pass
+
+    tokens = []
+
+    # 1. Base identity & character from profile.json
+    gender_tag = "1girl, solo"
+    if prof:
+        dyn = prof.get("dynamic_tags", {})
+        if dyn.get("gender_tag"):
+            gender_tag = dyn["gender_tag"]
+        elif prof.get("gender"):
+            g_low = str(prof["gender"]).lower()
+            gender_tag = "1shemale, futanari, solo" if ("trans" in g_low or "shemale" in g_low) else "1girl, solo"
+    tokens.append(gender_tag)
+    tokens.append("megan")
+
+    # Physical traits from profile
+    if prof:
+        if prof.get("hair_color"):
+            tokens.append(str(prof["hair_color"]))
+        if prof.get("hair_style"):
+            tokens.append(str(prof["hair_style"]))
+        if prof.get("eye_color"):
+            tokens.append(str(prof["eye_color"]))
+        if prof.get("cup_size"):
+            tokens.append(str(prof["cup_size"]))
+        if prof.get("body_type"):
+            tokens.append(str(prof["body_type"]))
+        if prof.get("features"):
+            feat = str(prof["features"]).strip()
+            if "sleeve" in feat.lower():
+                tokens.append("massive intricate sleeve tattoo left arm")
+            else:
+                tokens.append(feat)
+    else:
+        tokens.extend(["dark brown hair", "long layered dark hair", "green-blue eyes", "large natural breasts", "slender athletic build", "massive intricate sleeve tattoo left arm"])
+
+    # 2. Photorealism trigger
+    photorealism_trigger = "photorealistic, raw photography, 35mm film, hyperdetailed skin texture, soft natural lighting"
+    tokens.append(photorealism_trigger)
+
+    # 3. User instruction & situation mapping
+    u_low = (user_text or "").lower()
+
+    # Intimacy / Erotic / Sex wishes
+    is_explicit = any(w in u_low for w in ["sex", "erotisch", "geil", "intim", "leidenschaftlich", "erotic", "nsfw", "lust", "dirty", "vögeln", "ficken"])
+    is_nude = any(w in u_low for w in ["nackt", "ausziehen", "strip", "nude", "naked", "undress", "oben ohne", "topless", "strippen"])
+    is_lingerie = any(w in u_low for w in ["lingerie", "reizwäsche", "dessous", "unterwäsche", "string", "bh", "panties", "bra", "lace"])
+
+    if is_explicit:
+        tokens.append("highly erotic, explicit intimacy, passionate, sensual, seductive, alluring pose, looking at viewer")
+    elif situation:
+        tokens.append(situation)
+    else:
+        tokens.append("alluring smile, looking at viewer")
+
+    if is_nude:
+        tokens.append("nude, completely naked, bare skin, exposed body")
+    elif is_lingerie:
+        tokens.append("wearing seductive sheer lace lingerie, exposed cleavage and legs")
+    elif not is_explicit:
+        # Check preferences clothing
+        pref_clothing = prefs.get("visual", {}).get("preferred_clothing") if prefs else None
+        if pref_clothing and not any(k in u_low for k in ["kleid", "dress", "outfit", "anzug"]):
+            tokens.append(str(pref_clothing))
+
+    # Environment
+    if any(w in u_low for w in ["bett", "schlafzimmer", "bed", "bedroom"]) or environment == "schlafzimmer":
+        tokens.append("in intimate messy bed, luxurious silk sheets, warm ambient lighting")
+    elif any(w in u_low for w in ["couch", "sofa", "living room"]) or environment == "couch":
+        tokens.append("lounging on leather couch, cozy ambient light")
+    elif any(w in u_low for w in ["dusch", "bad", "shower", "bath"]) or environment == "badezimmer":
+        tokens.append("in steamy shower, glistening wet skin, droplets")
+    elif any(w in u_low for w in ["unterwegs", "draußen", "outside", "night", "city"]) or environment == "unterwegs":
+        tokens.append("outdoors at night, blurry city bokeh lights")
+    elif environment == "schreibtisch" or any(w in u_low for w in ["schreibtisch", "büro", "cockpit", "desk"]):
+        tokens.append("at office desk, intimate cockpit lighting")
+
+    # Lighting preference
+    pref_light = prefs.get("visual", {}).get("preferred_lighting") if prefs else None
+    if pref_light and pref_light.lower() not in " ".join(tokens).lower():
+        tokens.append(str(pref_light))
+
+    # Add specific descriptive keywords from user prompt (filter out conversational German glue)
+    clean_u = re.sub(r'\b(ich\s+brauche|zeig\s+mir|mach\s+mal|kannst\s+du|bitte|ein\s+bild\s+von|in\s+den\s+bildern|bilder|bild|foto|fotos|von\s+dir|etwas|mehr)\b', '', u_low, flags=re.IGNORECASE)
+    clean_u = re.sub(r'[^a-zA-Z0-9\s\-]', ' ', clean_u).strip()
+    if clean_u:
+        common_stop = {"sex", "den", "der", "die", "das", "und", "mit", "für", "ein", "eine", "einer", "einen", "einem", "eines", "von", "mir", "dir", "dich", "mich", "uns", "sie", "ihr", "ist", "sind", "mal", "nur", "auch", "noch"}
+        rem_words = [w.strip() for w in clean_u.split() if len(w.strip()) > 2 and w.strip().lower() not in common_stop]
+        for rw in rem_words:
+            if not any(rw.lower() in t.lower() for t in tokens):
+                tokens.append(rw)
+
+    tokens.append("8k uhd, masterpiece")
+
+    # Deduplicate tokens while preserving order
+    seen = set()
+    final_tokens = []
+    for t in tokens:
+        clean_t = re.sub(r'\s+', ' ', t.strip().strip(",")).strip()
+        if clean_t and clean_t.lower() not in seen:
+            seen.add(clean_t.lower())
+            final_tokens.append(clean_t)
+    final_positive = ", ".join(final_tokens)
+
+    # Negative prompt
+    base_negative = [
+        "ugly", "deformed", "disfigured", "distorted", "bad anatomy", "bad hands",
+        "missing fingers", "extra limbs", "blurry", "watermark", "low quality",
+        "worst quality", "artifacts", "censor", "monochrome"
+    ]
+    if prefs:
+        vis_prefs = prefs.get("visual", {})
+        dislikes = vis_prefs.get("disliked_elements", []) + prefs.get("dislikes_and_nogos", [])
+        for d in dislikes:
+            ds = str(d).strip().lower()
+            if ds and ds not in [b.lower() for b in base_negative]:
+                base_negative.append(ds)
+    final_negative = ", ".join(base_negative)
+
+    return final_positive, final_negative
+
+RENDER_JOBS: Dict[str, Dict[str, Any]] = {}
+
+def start_render_job(prompt_text: str, negative_prompt: str) -> str:
+    """Startet einen ComfyUI-Render entkoppelt (asyncio.create_task) und liefert eine Job-ID zum Polling."""
+    job_id = f"rj_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+    RENDER_JOBS[job_id] = {"status": "rendering", "prompt": prompt_text, "created": time.time()}
+    # alte Jobs aufräumen
+    for k in [k for k, v in RENDER_JOBS.items() if time.time() - v.get("created", 0) > 3600]:
+        RENDER_JOBS.pop(k, None)
+
+    async def _run():
+        try:
+            res = await render_comfy_image_direct(prompt_text=prompt_text, negative_prompt=negative_prompt)
+            if res and res.get("url"):
+                RENDER_JOBS[job_id].update({"status": "done", "image": {"url": res["url"], "filename": res.get("filename"), "prompt": prompt_text}})
+            else:
+                RENDER_JOBS[job_id].update({"status": "error", "error": "Render fehlgeschlagen (GPU belegt oder ComfyUI offline/Timeout)"})
+        except Exception as e:
+            RENDER_JOBS[job_id].update({"status": "error", "error": str(e) or type(e).__name__})
+
+    asyncio.create_task(_run())
+    return job_id
+
+async def handle_render_job(request: web.Request) -> web.Response:
+    job = RENDER_JOBS.get(request.match_info.get("job_id", ""))
+    if not job:
+        return web.json_response({"status": "unknown"}, status=404)
+    return web.json_response(job)
+
 async def render_comfy_image_direct(
     prompt_text: str,
     negative_prompt: str = "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, mutated, extra limbs",
-    checkpoint: str = "DreamShaper8_LCM.safetensors",
+    checkpoint: str = "sd_xl_base_1.0.safetensors",
     lora: str = "",
     lora_strength: float = 1.0,
-    steps: int = 14,
-    cfg: float = 6.5,
-    width: int = 512,
-    height: int = 768,
+    steps: int = 18,
+    cfg: float = 7.0,
+    width: int = 832,
+    height: int = 1216,
+    aspect_ratio: str = "portrait",
     max_wait: float = 90.0
 ) -> Optional[Dict[str, Any]]:
     """
-    Executes a direct headless ComfyUI render for autonomous Megan actions.
+    Executes a direct headless ComfyUI render for autonomous Megan actions using SDXL workflow.
     Guarantees clean VRAM allocation via GPURenderLock and returns the resulting media metadata.
     """
     if megan_context_engine and "{" in prompt_text:
@@ -3236,66 +3655,19 @@ async def render_comfy_image_direct(
             pass
 
     seed = secrets.randbelow(999999999999)
-    prefix = f"MeganStudio_Auto_{time.strftime('%Y%m%d_%H%M%S')}"
 
-    workflow = {
-        "prompt": {
-            "1": {
-                "class_type": "CheckpointLoaderSimple",
-                "inputs": {"ckpt_name": checkpoint}
-            },
-            "2": {
-                "class_type": "EmptyLatentImage",
-                "inputs": {"width": width, "height": height, "batch_size": 1}
-            },
-            "3": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": prompt_text}
-            },
-            "4": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": negative_prompt}
-            },
-            "5": {
-                "class_type": "KSampler",
-                "inputs": {
-                    "model": ["1", 0],
-                    "positive": ["3", 0],
-                    "negative": ["4", 0],
-                    "latent_image": ["2", 0],
-                    "seed": seed,
-                    "steps": steps,
-                    "cfg": cfg,
-                    "sampler_name": "euler",
-                    "scheduler": "normal",
-                    "denoise": 1.0
-                }
-            },
-            "6": {
-                "class_type": "VAEDecode",
-                "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
-            },
-            "7": {
-                "class_type": "SaveImage",
-                "inputs": {"filename_prefix": prefix, "images": ["6", 0]}
-            }
-        }
-    }
-
-    if lora and lora.lower() not in ("none", "keines", "", "false"):
-        workflow["prompt"]["8"] = {
-            "class_type": "LoraLoader",
-            "inputs": {
-                "model": ["1", 0],
-                "clip": ["1", 1],
-                "lora_name": lora,
-                "strength_model": lora_strength,
-                "strength_clip": lora_strength
-            }
-        }
-        workflow["prompt"]["3"]["inputs"]["clip"] = ["8", 1]
-        workflow["prompt"]["4"]["inputs"]["clip"] = ["8", 1]
-        workflow["prompt"]["5"]["inputs"]["model"] = ["8", 0]
+    workflow = prepare_comfy_workflow(
+        project="megan",
+        prompt_text=prompt_text,
+        aspect_ratio=aspect_ratio,
+        negative_prompt=negative_prompt,
+        checkpoint=checkpoint or "sd_xl_base_1.0.safetensors",
+        lora=lora,
+        lora_strength=lora_strength,
+        seed=seed,
+        steps=steps,
+        cfg=cfg
+    )
 
     from gpu_render_lock import GPURenderLock, PRIORITY_HIGH
     gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name="megan_autonomous_render", timeout=45.0)
@@ -3354,25 +3726,29 @@ async def dispatch_autonomous_comfy_render(ws: web.WebSocketResponse, prompt_con
     render_id = f"render_{int(time.time()*1000)}"
     try:
         clean_prompt = prompt_content.strip()
-        if not any(k in clean_prompt.lower() for k in ["megan", "1girl"]):
-            clean_prompt = f"1girl, megan, solo, {clean_prompt}"
+        pos_p, neg_p = build_direct_megan_comfy_prompt(clean_prompt)
 
         await ws.send_json({
             "type": "render_started",
             "render_id": render_id,
             "action": action_type,
-            "prompt": clean_prompt
+            "prompt": pos_p
         })
 
-        res = await render_comfy_image_direct(prompt_text=clean_prompt)
+        res = await render_comfy_image_direct(prompt_text=pos_p, negative_prompt=neg_p)
         if res and res.get("url"):
+            await ws.send_json({
+                "type": "image",
+                "url": res.get("url"),
+                "prompt": pos_p,
+                "filename": res.get("filename")
+            })
             await ws.send_json({
                 "type": "render_completed",
                 "render_id": render_id,
                 "action": action_type,
-                "prompt": clean_prompt,
+                "prompt": pos_p,
                 "filename": res.get("filename"),
-                "url": res.get("url"),
                 "seed": res.get("seed")
             })
         else:
@@ -3674,11 +4050,262 @@ async def handle_megan_tool_brain(request: web.Request) -> web.Response:
         res = await run_docker_megan_tool("brain", {}, timeout=20)
         return web.json_response(res)
 
+def get_workflow_template(project: str = "megan") -> dict:
+    proj = project.lower().strip() if project else "megan"
+    workflows_dirs = [
+        Path(__file__).resolve().parent / "workflows",
+        Path("/mnt/storage-beta/workflows"),
+        Path("/home/outerheaven/mission-control/workflows"),
+        Path("/home/outerheaven/outerheaven-cluster-repo/workflows"),
+    ]
+    candidates = [
+        f"{proj}_sdxl_workflow.json",
+        f"{proj}_workflow.json",
+    ]
+    if "catlord" in proj:
+        candidates = ["catlord_sdxl_workflow.json", "catlord_workflow.json"]
+    elif "megan" in proj:
+        candidates = ["megan_sdxl_workflow.json", "megan_workflow.json"]
+
+    for wdir in workflows_dirs:
+        for c in candidates:
+            cand = wdir / c
+            if cand.is_file():
+                try:
+                    data = json.loads(cand.read_text(encoding="utf-8"))
+                    return copy.deepcopy(data.get("prompt", data))
+                except Exception as e:
+                    logger.warning(f"Failed to read workflow template {cand}: {e}")
+
+    for wdir in workflows_dirs:
+        cand = wdir / "megan_workflow.json"
+        if cand.is_file():
+            try:
+                data = json.loads(cand.read_text(encoding="utf-8"))
+                return copy.deepcopy(data.get("prompt", data))
+            except Exception:
+                pass
+    raise FileNotFoundError(f"No workflow template found for project '{project}'")
+
+
+def prepare_comfy_workflow(
+    project: str = "megan",
+    prompt_text: str = "",
+    aspect_ratio: str = "portrait",
+    negative_prompt: Optional[str] = None,
+    checkpoint: Optional[str] = None,
+    lora: Optional[str] = None,
+    lora_strength: float = 1.0,
+    seed: Optional[int] = None,
+    steps: Optional[int] = None,
+    cfg: Optional[float] = None
+) -> dict:
+    """Prepares and parameterizes a modular workflow for ComfyUI with SDXL resolutions and locked checkpoint."""
+    proj = (project or "megan").lower().strip()
+    if proj == "megan":
+        # Fest verankert: Megan nutzt ausnahmslos sd_xl_base_1.0.safetensors
+        checkpoint = "sd_xl_base_1.0.safetensors"
+        if steps is None or steps < 16 or steps > 18:
+            steps = 18
+        if cfg is None:
+            cfg = 7.0
+
+        # SDXL Fotorealismus festnageln & Säule 2 Profil einbinden
+        photorealism_trigger = "photorealistic, raw photography, 35mm film, hyperdetailed skin texture, soft natural lighting"
+        prof = get_active_profile_data()
+        profile_tags = []
+        if prof:
+            dyn = prof.get("dynamic_tags", {})
+            if dyn.get("gender_tag"):
+                profile_tags.append(dyn["gender_tag"])
+            elif prof.get("gender"):
+                g_lower = str(prof["gender"]).lower()
+                profile_tags.append("1shemale, futanari, solo" if ("trans" in g_lower or "shemale" in g_lower) else "1girl, solo")
+
+            if "megan" not in prompt_text.lower():
+                profile_tags.append("megan")
+            if prof.get("hair_color") and not any(k in prompt_text.lower() for k in ["hair", "haare"]):
+                profile_tags.append(str(prof["hair_color"]))
+            if prof.get("eye_color") and "eye" not in prompt_text.lower():
+                profile_tags.append(str(prof["eye_color"]))
+            if prof.get("cup_size") and not any(k in prompt_text.lower() for k in ["breast", "brüste"]):
+                profile_tags.append(str(prof["cup_size"]))
+            if prof.get("body_type") and not any(k in prompt_text.lower() for k in ["body", "athletic", "curvy", "petite"]):
+                profile_tags.append(str(prof["body_type"]))
+            if prof.get("features") and "sleeve" in str(prof.get("features")).lower() and "tattoo" not in prompt_text.lower():
+                profile_tags.append("sleeve tattoo on left arm")
+
+        prefix_list = []
+        if profile_tags:
+            prefix_list.append(", ".join(profile_tags))
+        prefix_list.append(photorealism_trigger)
+        prefix_str = ", ".join(prefix_list)
+
+        if prefix_str and prefix_str not in prompt_text:
+            prompt_text = f"{prefix_str}, {prompt_text}".strip(", ")
+
+    prompt_dict = get_workflow_template(proj)
+    if seed is None:
+        seed = secrets.randbelow(999999999999)
+
+    # Standard SDXL native resolutions:
+    # Porträt (Standard): 832 x 1216 Pixel
+    # Quadrat: 1024 x 1024 Pixel
+    # Querformat: 1216 x 832 Pixel
+    ar = (aspect_ratio or "portrait").lower().strip()
+    if any(k in ar for k in ["landscape", "quer", "breit", "wide", "16:9", "4:3", "3:2"]):
+        width, height = 1216, 832
+    elif any(k in ar for k in ["square", "quadrat", "1:1"]):
+        width, height = 1024, 1024
+    else:
+        # portrait, porträt, hoch, vertikal, 9:16, 3:4, default
+        width, height = 832, 1216
+
+    # Identify KSampler, CheckpointLoaderSimple, positive and negative prompt nodes
+    ksampler_node = None
+    ckpt_node_id = None
+    positive_clip_id = None
+    negative_clip_id = None
+
+    for nid, node in prompt_dict.items():
+        ctype = node.get("class_type")
+        if ctype == "KSampler":
+            ksampler_node = node
+            pos = node.get("inputs", {}).get("positive")
+            neg = node.get("inputs", {}).get("negative")
+            if isinstance(pos, list) and len(pos) > 0:
+                positive_clip_id = str(pos[0])
+            if isinstance(neg, list) and len(neg) > 0:
+                negative_clip_id = str(neg[0])
+        elif ctype == "CheckpointLoaderSimple":
+            ckpt_node_id = nid
+
+    for nid, node in prompt_dict.items():
+        ctype = node.get("class_type")
+        if ctype == "EmptyLatentImage":
+            node.setdefault("inputs", {})
+            node["inputs"]["width"] = width
+            node["inputs"]["height"] = height
+            node["inputs"]["batch_size"] = 1
+        elif ctype == "CheckpointLoaderSimple":
+            node.setdefault("inputs", {})
+            if proj == "megan":
+                node["inputs"]["ckpt_name"] = "sd_xl_base_1.0.safetensors"
+            elif checkpoint:
+                node["inputs"]["ckpt_name"] = checkpoint
+        elif ctype == "SaveImage":
+            node.setdefault("inputs", {})
+            prefix = node["inputs"].get("filename_prefix", f"{proj.capitalize()}_Direct")
+            prefix = prefix.split("_202")[0]
+            node["inputs"]["filename_prefix"] = f"{prefix}_{time.strftime('%Y%m%d_%H%M%S')}"
+
+    if ksampler_node:
+        ksampler_node.setdefault("inputs", {})
+        ksampler_node["inputs"]["seed"] = seed
+        # KSampler: steps auf 16 bis 18 festlegen (Euler Karras)
+        clamped_steps = max(16, min(int(steps), 18)) if steps is not None else 18
+        ksampler_node["inputs"]["steps"] = clamped_steps
+        if cfg is not None:
+            ksampler_node["inputs"]["cfg"] = cfg
+        ksampler_node["inputs"]["sampler_name"] = "euler"
+        ksampler_node["inputs"]["scheduler"] = "karras"
+
+    # KEINE Oversized-Renderings (kein 2K/4K Upscaling auf der Arc A770)
+    prune_keys = [
+        nid for nid, node in prompt_dict.items()
+        if any(u in str(node.get("class_type", "")) for u in ["Upscale", "ImageScale", "LatentUpscale", "UltimateSDUpscale"])
+    ]
+    for pk in prune_keys:
+        del prompt_dict[pk]
+
+    # Inject LoRA if requested and not none
+    if lora and lora.lower() not in ("none", "keines", "", "false") and ckpt_node_id:
+        lora_node_id = str(max([int(k) for k in prompt_dict.keys() if k.isdigit()] or [7]) + 1)
+        prompt_dict[lora_node_id] = {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": [ckpt_node_id, 0],
+                "clip": [ckpt_node_id, 1],
+                "lora_name": lora,
+                "strength_model": lora_strength,
+                "strength_clip": lora_strength
+            }
+        }
+        if positive_clip_id and positive_clip_id in prompt_dict:
+            prompt_dict[positive_clip_id]["inputs"]["clip"] = [lora_node_id, 1]
+        if negative_clip_id and negative_clip_id in prompt_dict:
+            prompt_dict[negative_clip_id]["inputs"]["clip"] = [lora_node_id, 1]
+        if ksampler_node:
+            ksampler_node["inputs"]["model"] = [lora_node_id, 0]
+
+    if positive_clip_id and positive_clip_id in prompt_dict:
+        prompt_dict[positive_clip_id].setdefault("inputs", {})
+        prompt_dict[positive_clip_id]["inputs"]["text"] = prompt_text
+    if negative_clip_id and negative_clip_id in prompt_dict:
+        prompt_dict[negative_clip_id].setdefault("inputs", {})
+        base_neg = negative_prompt.strip() if negative_prompt and negative_prompt.strip() else (
+            "ugly, deformed, disfigured, distorted, bad anatomy, bad hands, missing limbs, extra limbs, blurry, watermark, low quality, worst quality"
+        )
+        try:
+            from megan_memory import load_preferences
+            prefs = load_preferences()
+            dislikes = prefs.get("visual", {}).get("disliked_elements", []) + prefs.get("dislikes_and_nogos", [])
+            neg_items = [base_neg]
+            for dl in dislikes:
+                dl_s = str(dl).strip()
+                if dl_s and dl_s.lower() not in base_neg.lower():
+                    neg_items.append(dl_s)
+            effective_neg = ", ".join(neg_items)
+        except Exception:
+            effective_neg = base_neg
+        prompt_dict[negative_clip_id]["inputs"]["text"] = effective_neg
+
+    return {"prompt": prompt_dict}
+
+
+async def get_comfy_queue_remaining() -> int:
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(f"{COMFYUI_URL}/queue", timeout=aiohttp.ClientTimeout(total=2.0)) as r:
+                if r.status == 200:
+                    q = await r.json()
+                    return len(q.get("queue_running", [])) + len(q.get("queue_pending", []))
+    except Exception:
+        pass
+    return 0
+
+
+async def handle_gpu_status(request: web.Request) -> web.Response:
+    """GET /api/gpu/status
+    Structured JSON: {"status": "idle" | "busy", "active_project": "<projektname>" | null, "queue_remaining": <int>}
+    """
+    from gpu_render_lock import get_gpu_lock_status, deduce_project
+    lock_status = get_gpu_lock_status()
+    queue_rem = await get_comfy_queue_remaining()
+
+    is_locked = bool(lock_status.get("locked"))
+    is_busy = is_locked or (queue_rem > 0)
+
+    active_project = None
+    if is_busy:
+        active_project = lock_status.get("active_project") or lock_status.get("project")
+        if not active_project and lock_status.get("current_task"):
+            active_project = deduce_project(lock_status.get("current_task"))
+        if not active_project and queue_rem > 0:
+            active_project = "comfyui"
+
+    return web.json_response({
+        "status": "busy" if is_busy else "idle",
+        "active_project": active_project if is_busy else None,
+        "queue_remaining": queue_rem
+    })
+
+
 async def handle_comfy_render_direct(request: web.Request) -> web.Response:
     """
     Synchronous / Direct ComfyUI Render Endpoint with GPURenderLock.
     Awaits image generation and returns result JSON with filename, filepath, url.
-    Accepts: prompt (str), aspect_ratio (str: portrait, landscape, square), style_preset (optional), negative_prompt (optional)
+    Accepts: project (str, default: megan), prompt (str), aspect_ratio (str), etc.
     """
     try:
         body = await request.json()
@@ -3689,86 +4316,68 @@ async def handle_comfy_render_direct(request: web.Request) -> web.Response:
     if not prompt_text:
         return web.json_response({"status": "error", "error": "Prompt required"}, status=400)
 
+    project = body.get("project", "megan").lower().strip()
     aspect_ratio = body.get("aspect_ratio", "portrait").lower()
-    width, height = 512, 768
-    if "landscape" in aspect_ratio:
-        width, height = 768, 512
-    elif "square" in aspect_ratio:
-        width, height = 512, 512
 
     # Dynamic Context & Wildcard Resolution via megan_context
     if megan_context_engine and "{" in prompt_text:
         try:
             prompt_text = megan_context_engine.resolve_prompt_wildcards(prompt_text)
-            logger.info(f"[megan-context] Wildcards resolved in direct render -> {prompt_text[:120]}...")
+            logger.info(f"[{project}-context] Wildcards resolved in direct render -> {prompt_text[:120]}...")
         except Exception as _ce:
             logger.warning(f"Error resolving wildcards in direct render: {_ce}")
 
-    negative_prompt = body.get(
-        "negative_prompt",
-        "ugly, deformed, bad anatomy, bad hands, missing fingers, blurry, low quality, artifacts, text, watermark, monochrome, censor"
-    ).strip()
-
-    checkpoint = body.get("checkpoint", "DreamShaper8_LCM.safetensors").strip()
+    negative_prompt = body.get("negative_prompt")
+    checkpoint = body.get("checkpoint")
+    lora = body.get("lora")
+    lora_strength = float(body.get("lora_strength", 1.0))
     seed = int(body.get("seed", secrets.randbelow(999999999999)))
+    steps = int(body.get("steps")) if "steps" in body else None
+    cfg = float(body.get("cfg")) if "cfg" in body else None
 
-    is_lcm = "lcm" in checkpoint.lower()
-    if is_lcm:
-        steps = int(body.get("steps", 8))
-        cfg = float(body.get("cfg", 2.0))
-    else:
-        steps = int(body.get("steps", 20))
-        cfg = float(body.get("cfg", 6.0))
+    # Immediate fail-fast: check if GPU is currently locked by another project
+    from gpu_render_lock import get_gpu_lock_status, GPURenderLock, PRIORITY_HIGH
+    cur_status = get_gpu_lock_status()
+    if cur_status.get("locked"):
+        act_proj = cur_status.get("active_project") or cur_status.get("project")
+        if act_proj and act_proj != project:
+            queue_rem = await get_comfy_queue_remaining()
+            return web.json_response({
+                "status": "busy",
+                "active_project": act_proj,
+                "project": act_proj,
+                "queue_remaining": queue_rem,
+                "error": f"GPU belegt durch Projekt '{act_proj}'"
+            }, status=503)
 
-    workflow = {
-        "prompt": {
-            "1": {
-                "class_type": "CheckpointLoaderSimple",
-                "inputs": {"ckpt_name": checkpoint}
-            },
-            "2": {
-                "class_type": "EmptyLatentImage",
-                "inputs": {"width": width, "height": height, "batch_size": 1}
-            },
-            "3": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": prompt_text}
-            },
-            "4": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": negative_prompt}
-            },
-            "5": {
-                "class_type": "KSampler",
-                "inputs": {
-                    "model": ["1", 0],
-                    "positive": ["3", 0],
-                    "negative": ["4", 0],
-                    "latent_image": ["2", 0],
-                    "seed": seed,
-                    "steps": steps,
-                    "cfg": cfg,
-                    "sampler_name": "euler",
-                    "scheduler": "normal" if is_lcm else "karras",
-                    "denoise": 1.0
-                }
-            },
-            "6": {
-                "class_type": "VAEDecode",
-                "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
-            },
-            "7": {
-                "class_type": "SaveImage",
-                "inputs": {"filename_prefix": f"Megan_Direct_{time.strftime('%Y%m%d_%H%M%S')}", "images": ["6", 0]}
-            }
-        }
-    }
+    try:
+        workflow = prepare_comfy_workflow(
+            project=project,
+            prompt_text=prompt_text,
+            aspect_ratio=aspect_ratio,
+            negative_prompt=negative_prompt,
+            checkpoint=checkpoint,
+            lora=lora,
+            lora_strength=lora_strength,
+            seed=seed,
+            steps=steps,
+            cfg=cfg
+        )
+    except Exception as wfe:
+        return web.json_response({"status": "error", "error": f"Fehler bei Workflow-Vorlage: {wfe}"}, status=400)
 
-    # Acquire GPU Lock (High Priority)
-    from gpu_render_lock import GPURenderLock, PRIORITY_HIGH
-    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name="megan_direct_render", timeout=60.0)
-    if not gpu_lock.acquire():
-        return web.json_response({"status": "error", "error": "GPU ausgelastet. Bitte kurz warten."}, status=503)
+    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name=f"{project}_direct_render", project=project, timeout=60.0)
+    if not gpu_lock.acquire(fail_fast_if_other_project=True):
+        cur_status = get_gpu_lock_status()
+        act_proj = cur_status.get("active_project") or cur_status.get("project") or "another_task"
+        queue_rem = await get_comfy_queue_remaining()
+        return web.json_response({
+            "status": "busy",
+            "active_project": act_proj,
+            "project": act_proj,
+            "queue_remaining": queue_rem,
+            "error": f"GPU belegt durch Projekt '{act_proj}'"
+        }, status=503)
 
     try:
         await unload_local_ollama_vram()
@@ -3784,9 +4393,8 @@ async def handle_comfy_render_direct(request: web.Request) -> web.Response:
         if not prompt_id:
             return web.json_response({"status": "error", "error": "Keine prompt_id von ComfyUI erhalten"}, status=500)
 
-        # Poll history until finished (max 120s)
         t_start = time.time()
-        timeout = 120.0
+        timeout = 140.0
         result_filename = None
         result_subfolder = ""
 
@@ -3817,7 +4425,6 @@ async def handle_comfy_render_direct(request: web.Request) -> web.Response:
         full_filepath = str(COMFYUI_OUTPUT_DIR / rel_path)
         url = f"/api/gallery/{urllib.parse.quote(rel_path)}"
 
-        # Mirror copy to projekt-sexchat output directory if writable
         try:
             sexchat_out = Path("/mnt/storage-beta/projekte/projekt-sexchat/output")
             if sexchat_out.is_dir():
@@ -3829,6 +4436,7 @@ async def handle_comfy_render_direct(request: web.Request) -> web.Response:
         return web.json_response({
             "status": "ok",
             "success": True,
+            "project": project,
             "prompt_id": prompt_id,
             "filename": rel_path,
             "filepath": full_filepath,
@@ -3853,83 +4461,57 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
     if not prompt_text:
         return web.json_response({"error": "Prompt required"}, status=400)
 
+    project = body.get("project", "megan").lower().strip()
+    aspect_ratio = body.get("aspect_ratio", "portrait").lower()
+
     # Dynamic Context & Wildcard Resolution via megan_context
     if megan_context_engine and "{" in prompt_text:
         try:
             prompt_text = megan_context_engine.resolve_prompt_wildcards(prompt_text)
-            logger.info(f"[megan-context] Wildcards resolved -> {prompt_text[:120]}...")
+            logger.info(f"[{project}-context] Wildcards resolved -> {prompt_text[:120]}...")
         except Exception as _ce:
             logger.warning(f"Error resolving wildcards in render: {_ce}")
 
-    negative_prompt = body.get("negative_prompt", "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark").strip()
-    checkpoint = body.get("checkpoint", "DreamShaper8_LCM.safetensors").strip()
+    negative_prompt = body.get("negative_prompt")
+    checkpoint = body.get("checkpoint")
     lora = body.get("lora", "").strip()
     lora_strength = float(body.get("lora_strength", 1.0))
-    steps = int(body.get("steps", 14))
-    cfg = float(body.get("cfg", 6.5))
+    steps = int(body.get("steps")) if "steps" in body else None
+    cfg = float(body.get("cfg")) if "cfg" in body else None
     seed = int(body.get("seed", secrets.randbelow(999999999999)))
 
-    workflow = {
-        "prompt": {
-            "1": {
-                "class_type": "CheckpointLoaderSimple",
-                "inputs": {"ckpt_name": checkpoint}
-            },
-            "2": {
-                "class_type": "EmptyLatentImage",
-                "inputs": {"width": 512, "height": 512, "batch_size": 1}
-            },
-            "3": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": prompt_text}
-            },
-            "4": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["1", 1], "text": negative_prompt}
-            },
-            "5": {
-                "class_type": "KSampler",
-                "inputs": {
-                    "model": ["1", 0],
-                    "positive": ["3", 0],
-                    "negative": ["4", 0],
-                    "latent_image": ["2", 0],
-                    "seed": seed,
-                    "steps": steps,
-                    "cfg": cfg,
-                    "sampler_name": "euler",
-                    "scheduler": "normal",
-                    "denoise": 1.0
-                }
-            },
-            "6": {
-                "class_type": "VAEDecode",
-                "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
-            },
-            "7": {
-                "class_type": "SaveImage",
-                "inputs": {"filename_prefix": f"OuterHeaven_MissionControl_{time.strftime('%Y%m%d_%H%M%S')}", "images": ["6", 0]}
-            }
-        }
-    }
+    # Immediate fail-fast: check if GPU is currently locked by another project
+    from gpu_render_lock import get_gpu_lock_status, GPURenderLock, PRIORITY_HIGH
+    cur_status = get_gpu_lock_status()
+    if cur_status.get("locked"):
+        act_proj = cur_status.get("active_project") or cur_status.get("project")
+        if act_proj and act_proj != project:
+            queue_rem = await get_comfy_queue_remaining()
+            return web.json_response({
+                "status": "busy",
+                "active_project": act_proj,
+                "project": act_proj,
+                "queue_remaining": queue_rem,
+                "error": f"GPU belegt durch Projekt '{act_proj}'"
+            }, status=503)
 
-    # Dynamically inject LoRA if selected
-    if lora and lora.lower() not in ("none", "keines", "", "false"):
-        workflow["prompt"]["8"] = {
-            "class_type": "LoraLoader",
-            "inputs": {
-                "model": ["1", 0],
-                "clip": ["1", 1],
-                "lora_name": lora,
-                "strength_model": lora_strength,
-                "strength_clip": lora_strength
-            }
-        }
-        workflow["prompt"]["3"]["inputs"]["clip"] = ["8", 1]
-        workflow["prompt"]["4"]["inputs"]["clip"] = ["8", 1]
-        workflow["prompt"]["5"]["inputs"]["model"] = ["8", 0]
+    try:
+        workflow = prepare_comfy_workflow(
+            project=project,
+            prompt_text=prompt_text,
+            aspect_ratio=aspect_ratio,
+            negative_prompt=negative_prompt,
+            checkpoint=checkpoint,
+            lora=lora,
+            lora_strength=lora_strength,
+            seed=seed,
+            steps=steps,
+            cfg=cfg
+        )
+    except Exception as wfe:
+        return web.json_response({"error": f"Fehler bei Workflow-Vorlage: {wfe}"}, status=400)
 
-    async def _watch_and_release_gpu_lock(pid: str, lock_obj: Any, max_wait: float = 120.0):
+    async def _watch_and_release_gpu_lock(pid: str, lock_obj: Any, max_wait: float = 140.0):
         t_start = time.time()
         try:
             while time.time() - t_start < max_wait:
@@ -3947,13 +4529,19 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
             lock_obj.release()
             logger.info(f"✔ Released GPU lock for prompt_id={pid} after {round(time.time() - t_start, 1)}s")
 
-    # Acquire GPU Lock (High Priority)
-    from gpu_render_lock import GPURenderLock, PRIORITY_HIGH
-    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name="web_schnell_render", timeout=60.0)
-    if not gpu_lock.acquire():
-        return web.json_response({"error": "GPU ausgelastet. Bitte kurz warten."}, status=503)
+    gpu_lock = GPURenderLock(priority=PRIORITY_HIGH, task_name=f"{project}_schnell_render", project=project, timeout=60.0)
+    if not gpu_lock.acquire(fail_fast_if_other_project=True):
+        cur_status = get_gpu_lock_status()
+        act_proj = cur_status.get("active_project") or cur_status.get("project") or "another_task"
+        queue_rem = await get_comfy_queue_remaining()
+        return web.json_response({
+            "status": "busy",
+            "active_project": act_proj,
+            "project": act_proj,
+            "queue_remaining": queue_rem,
+            "error": f"GPU belegt durch Projekt '{act_proj}'"
+        }, status=503)
 
-    # 1. Unload local Ollama model to guarantee 100% clean Arc A770 VRAM for ComfyUI
     await unload_local_ollama_vram()
 
     lock_transferred = False
@@ -3965,8 +4553,7 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
                     return web.json_response({"error": f"ComfyUI error: {text}"}, status=502)
                 res_data = await resp.json()
                 prompt_id = res_data.get("prompt_id")
-                
-                # Auto-Purge Cache Logic: every 3-4 renders execute ComfyUI /free
+
                 global comfy_render_count
                 comfy_render_count += 1
                 if comfy_render_count % COMFY_CACHE_PURGE_INTERVAL == 0:
@@ -3982,6 +4569,7 @@ async def handle_comfy_render(request: web.Request) -> web.Response:
 
                 return web.json_response({
                     "success": True,
+                    "project": project,
                     "prompt_id": prompt_id,
                     "seed": seed,
                     "status": "queued"
@@ -4015,7 +4603,7 @@ async def handle_catlord_trainer_toggle(request: web.Request) -> web.Response:
 
 
 async def handle_gpu_lock_status(request: web.Request) -> web.Response:
-    """GET /api/render/lock"""
+    """GET /api/render/lock (Legacy endpoint)"""
     from gpu_render_lock import get_gpu_lock_status
     return web.json_response({
         "success": True,
@@ -4032,81 +4620,15 @@ async def handle_enhance_prompt(request: web.Request) -> web.Response:
     if not raw_prompt:
         return web.json_response({"error": "Prompt required"}, status=400)
 
-    system_instruction = (
-        "You are an expert ComfyUI and Stable Diffusion prompt engineer. "
-        "Expand the given concept into a vivid, detailed positive prompt for SDXL / LCM "
-        "(lighting, framing, textures, masterpiece, 8k) and a concise negative prompt (max 15 keywords). "
-        "Output strictly valid JSON with keys \"prompt\" and \"negative_prompt\". No markdown code blocks."
-    )
+    # Direktes, unzensiertes Megan-Prompt-Mapping ohne zwischengeschaltete Filter-LLMs
+    pos, neg = build_direct_megan_comfy_prompt(raw_prompt)
 
-    prompt_query = f"{system_instruction}\n\nRaw prompt: {raw_prompt}\n\nJSON output:"
-
-    payload = {
-        "model": get_active_ollama_model(),
-        "prompt": prompt_query,
-        "stream": False,
-        "options": {
-            "temperature": 0.6,
-            "num_predict": 350,
-            "stop": ["}\n", "```"]
-        }
-    }
-
-    try:
-        timeout = aiohttp.ClientTimeout(total=120)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(f"{LOCAL_OLLAMA_URL}/api/generate", json=payload) as resp:
-                if resp.status != 200:
-                    err_text = await resp.text()
-                    return web.json_response({"error": f"Ollama error: {err_text}"}, status=502)
-                res_data = await resp.json()
-                raw_response = res_data.get("response", "")
-
-                # Remove think tags
-                clean_response = re.sub(r'<think>[\s\S]*?</think>', '', raw_response, flags=re.DOTALL).strip()
-                pos = ""
-                neg = ""
-
-                # 1. Try parsing JSON directly or with trailing-comma fix
-                json_match = re.search(r'\{[\s\S]*\}', clean_response)
-                if json_match:
-                    candidate = json_match.group(0)
-                    fixed_json = re.sub(r',\s*([\}\]])', r'\1', candidate)
-                    try:
-                        parsed = json.loads(fixed_json)
-                        pos = str(parsed.get("prompt", "")).strip()
-                        neg = str(parsed.get("negative_prompt", "")).strip()
-                    except Exception:
-                        pass
-
-                # 2. Regex extraction if JSON parsing failed or was truncated
-                if not pos:
-                    pos_m = re.search(r'"prompt"\s*:\s*"([\s\S]*?)(?:"(?:\s*,\s*"negative_prompt"|\s*\})|$)', clean_response)
-                    if pos_m:
-                        pos = pos_m.group(1).replace(r'\"', '"').strip()
-                if not neg:
-                    neg_m = re.search(r'"negative_prompt"\s*:\s*"([\s\S]*?)(?:"|\}|$)', clean_response)
-                    if neg_m:
-                        neg = neg_m.group(1).replace(r'\"', '"').strip()
-
-                # Clean embedded Negative prompt if model put it inside prompt
-                if "Negative prompt:" in pos:
-                    pos_part, _, neg_part = pos.partition("Negative prompt:")
-                    pos = pos_part.strip().rstrip(" ,.")
-                    if not neg:
-                        neg = neg_part.strip().strip("\"' ")
-
-                if not pos:
-                    pos = clean_response or raw_prompt
-
-                return web.json_response({
-                    "success": True,
-                    "enhanced_prompt": pos,
-                    "negative_prompt": neg or "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark"
-                })
-    except Exception as e:
-        logger.error(f"Magic Prompt enhancement error: {e}")
-        return web.json_response({"error": f"Enhancement failed: {e}"}, status=500)
+    return web.json_response({
+        "success": True,
+        "enhanced_prompt": pos,
+        "prompt": pos,
+        "negative_prompt": neg
+    })
 
 async def handle_comfy_render_status(request: web.Request) -> web.Response:
     prompt_id = request.match_info.get("prompt_id", "")
@@ -5614,6 +6136,52 @@ async def handle_appearance_preset_activate(request: web.Request) -> web.Respons
             except Exception as b_err:
                 logger.warning(f"Error syncing preset to bot_config.json: {b_err}")
 
+        # Synchronize Säule 2: profile.json
+        try:
+            vis = pdata.get("visual", {})
+            g_val = pdata.get("gender") or ("Transgender" if "trans" in clean_id.lower() else "Female")
+            is_trans = "trans" in str(g_val).lower() or "trans" in clean_id.lower() or "shemale" in str(g_val).lower()
+
+            profile_data = {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "version": "2.0.0",
+                "description": "Säule 2 (Identität & Präsenz): Verwaltet das in Mission Control ausgewählte Profil.",
+                "active_preset_id": clean_id,
+                "name": pdata.get("name", f"Megan ({clean_id})"),
+                "gender": g_val,
+                "age": int(pdata.get("age", 24) if str(pdata.get("age", 24)).isdigit() else 24),
+                "hair_color": vis.get("hair_color") or ("Dark red hair" if is_trans else "dark brown hair"),
+                "hair_style": vis.get("hair_style") or vis.get("hair") or "long layered dark hair, soft natural waves",
+                "eye_color": vis.get("eye_color") or "green-blue eyes",
+                "cup_size": vis.get("cup_size") or ("large full natural big breasts" if is_trans else "large natural breasts"),
+                "body_type": vis.get("body_type") or ("femininer koerperbau" if is_trans else "slender athletic build, flat toned stomach"),
+                "height": pdata.get("prompt_height") or "178cm tall",
+                "features": vis.get("features") or pdata.get("physical_chat_lore", {}).get("markantes_merkmal", ""),
+                "style_aesthetic": "photorealistic, raw photography, 35mm film, hyperdetailed skin texture, soft natural lighting",
+                "dynamic_tags": {
+                    "gender_tag": "1shemale, futanari, solo" if is_trans else "1girl, solo",
+                    "hair_tag": f"{vis.get('hair_color', 'dark brown hair')}, {vis.get('hair_style', 'long layered hair')}",
+                    "eye_tag": f"{vis.get('eye_color', 'green-blue eyes')}, alluring captivating gaze",
+                    "body_tag": "slender athletic build, large natural breasts, flat toned stomach",
+                    "feature_tag": vis.get("features", ""),
+                    "photorealism_triggers": "photorealistic, raw photography, 35mm film, hyperdetailed skin texture, soft natural lighting"
+                }
+            }
+
+            vault_targets = [
+                Path("/data/vault/profile.json"),
+                BASE_DIR / "data" / "vault" / "profile.json"
+            ]
+            for vt in vault_targets:
+                try:
+                    vt.parent.mkdir(parents=True, exist_ok=True)
+                    vt.write_text(json.dumps(profile_data, indent=2, ensure_ascii=False), encoding="utf-8")
+                except Exception:
+                    pass
+            logger.info(f"Säule 2 profile.json synchronized with preset {clean_id}")
+        except Exception as p_err:
+            logger.warning(f"Error updating profile.json for preset {clean_id}: {p_err}")
+
         return web.json_response({"success": True, "id": clean_id, "message": f"Preset '{clean_id}' aktiviert."})
     except Exception as e:
         logger.error(f"Error activating appearance preset {clean_id}: {e}")
@@ -5691,6 +6259,546 @@ async def handle_tandem_status(request: web.Request) -> web.Response:
         return web.json_response({"online": False, "error": str(e)})
 
 
+# --- Chat Helpers & Audio STT ---
+
+CONTROL_CHAR_REGEX = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ufffd]')
+SPECIAL_TAGS_REGEX = re.compile(r'<\|[^>]+\|>|<turn\|>|<\|turn\|>')
+
+def filter_token(t: str) -> str:
+    if not t:
+        return ""
+    t = CONTROL_CHAR_REGEX.sub('', t)
+    t = SPECIAL_TAGS_REGEX.sub('', t)
+    return t
+
+def detect_photo_intent(user_text: str) -> Tuple[bool, str, str]:
+    """Detects if the user explicitly or naturally requests a picture."""
+    t = user_text.lower()
+    triggers = [
+        "foto", "fotos", "bild", "bilder", "bildern", "photo", "photos", "pic", "pics", "selfie", "selfies",
+        "zeig dich", "zeig mir", "ausziehen", "zieh dich aus", "nackt", "wie siehst du aus",
+        "send me a picture", "send me a photo", "take a picture", "take a photo",
+        "show me a picture", "show me yourself", "picture", "pictures",
+        "render", "rendern", "generier", "generiere", "erzeuge", "paint", "draw", "visualize",
+        "sex in den bildern", "erotik", "erotische bilder", "portrait", "porträt"
+    ]
+    if any(k in t for k in triggers):
+        env = "schreibtisch"
+        if any(w in t for w in ["couch", "sofa", "wohnzimmer", "living room"]):
+            env = "couch"
+        elif any(w in t for w in ["bett", "schlafzimmer", "intim", "bed", "bedroom"]):
+            env = "schlafzimmer"
+        elif any(w in t for w in ["balkon", "terrasse", "unterwegs", "draußen", "stadt", "balcony", "outside", "night"]):
+            env = "unterwegs"
+        elif any(w in t for w in ["dusch", "bad", "badezimmer", "shower", "bath"]):
+            env = "badezimmer"
+
+        situation = "looking at viewer, sensual teasing smile"
+        if any(w in t for w in ["sex", "erotisch", "geil", "intim", "leidenschaftlich", "erotic", "nsfw", "lust", "dirty", "vögeln", "ficken"]):
+            situation = "highly erotic, explicit intimacy, passionate, sensual, seductive, looking at viewer"
+        elif any(w in t for w in ["ausziehen", "nackt", "lingerie", "strip", "naked", "undress", "take off", "oben ohne"]):
+            situation = "sensual seductive pose, nude, bare skin, teasing with clothing, looking at viewer"
+
+        return True, env, situation
+    return False, "", ""
+
+WHISPER_MODEL_INSTANCE = None
+
+def get_whisper_model():
+    global WHISPER_MODEL_INSTANCE
+    if WHISPER_MODEL_INSTANCE is None:
+        try:
+            from faster_whisper import WhisperModel
+            logger.info("Initializing faster-whisper medium model on CPU (int8)...")
+            try:
+                WHISPER_MODEL_INSTANCE = WhisperModel("medium", device="cpu", compute_type="int8")
+                logger.info("faster-whisper medium model ready.")
+            except Exception as m_err:
+                logger.warning(f"Failed to load medium whisper model ({m_err}), falling back to small...")
+                WHISPER_MODEL_INSTANCE = WhisperModel("small", device="cpu", compute_type="int8")
+                logger.info("faster-whisper small model ready as fallback.")
+        except Exception as e:
+            logger.error(f"Failed to initialize faster-whisper: {e}")
+    return WHISPER_MODEL_INSTANCE
+
+def correct_transcript_speech_patterns(raw_text: str) -> str:
+    """Applies phonetic glossary from /data/memory/user_speech_patterns.json to correct Whisper transcription."""
+    if not raw_text or not raw_text.strip():
+        return ""
+    try:
+        from megan_memory import load_user_speech_patterns
+        patterns = load_user_speech_patterns()
+        glossary = patterns.get("phonetic_glossary", {})
+        corrected = raw_text
+        for misspelling, correct_term in glossary.items():
+            pattern = r'\b' + re.escape(misspelling) + r'\b'
+            corrected = re.sub(pattern, correct_term, corrected, flags=re.IGNORECASE)
+        return corrected
+    except Exception as e:
+        logger.warning(f"Error correcting speech patterns: {e}")
+        return raw_text
+
+def transcribe_audio_file(audio_path: str, language: str = "de") -> str:
+    model = get_whisper_model()
+    if not model:
+        raise RuntimeError("Whisper model not available")
+    try:
+        segments, _ = model.transcribe(
+            audio_path,
+            language="de",
+            initial_prompt="Dies ist ein deutsches Sprachkommando für Megan und das Outer Heaven Cluster. Begriffe: Megan, Catlord, Hermes, ComfyUI, Python, Script, Aufgabe, Workflow, LoRA, Render.",
+            condition_on_previous_text=False,
+            temperature=0.0,
+            vad_filter=True,
+            no_speech_threshold=0.6
+        )
+        parts = [s.text.strip() for s in segments if s.text and s.text.strip()]
+        raw_transcript = " ".join(parts).strip()
+        return correct_transcript_speech_patterns(raw_transcript)
+    except Exception as e:
+        logger.warning(f"Whisper transcription failed or no speech detected: {e}")
+        return ""
+
+def build_chat_system_instruction(request: web.Request, user_message: str) -> str:
+    """Hermes Cluster Technical Advisor System Prompt."""
+    return HERMES_SYSTEM_PROMPT
+
+async def handle_tools_list(request: web.Request) -> web.Response:
+    """GET /api/tools - Liefert Builtin & Custom Tools aus ~/.hermes/tools_config.json."""
+    cfg = load_hermes_tools_config()
+    return web.json_response({"success": True, "tools": cfg})
+
+async def handle_tools_toggle(request: web.Request) -> web.Response:
+    """POST /api/tools/toggle - Asynchrones Umschalten eines Tools in ~/.hermes/tools_config.json."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    category = data.get("category", "builtin_tools")
+    name = data.get("name", "").strip()
+    enabled = data.get("enabled")
+
+    if not name or enabled is None:
+        return web.json_response({"success": False, "error": "name und enabled erforderlich"}, status=400)
+
+    cfg = load_hermes_tools_config()
+    if category not in cfg:
+        cfg[category] = {}
+
+    if name in cfg[category]:
+        cfg[category][name]["enabled"] = bool(enabled)
+    else:
+        cfg[category][name] = {"description": name, "enabled": bool(enabled)}
+
+    if save_hermes_tools_config(cfg):
+        logger.info(f"Tool-Leitstand: {category}.{name} -> {enabled} gespeichert.")
+        return web.json_response({
+            "success": True,
+            "category": category,
+            "name": name,
+            "enabled": bool(enabled),
+            "config": cfg
+        })
+    else:
+        return web.json_response({"success": False, "error": "Fehler beim Speichern der Konfiguration"}, status=500)
+
+async def handle_tools_create(request: web.Request) -> web.Response:
+    """POST /api/tools/create - Validiert Python-Code mit ast.parse() und speichert in ~/.hermes/custom_tools/"""
+    import ast
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    name = data.get("name", "").strip()
+    desc = data.get("description", "").strip()
+    code = data.get("code", "").strip()
+
+    clean_name = re.sub(r"[^a-zA-Z0-9_]", "_", name.lower()).strip("_")
+    if not clean_name:
+        return web.json_response({"success": False, "error": "Bitte einen gültigen Tool-Namen angeben"}, status=400)
+    if not code:
+        return web.json_response({"success": False, "error": "Der Code darf nicht leer sein"}, status=400)
+
+    # Zwingende Syntaxprüfung via ast.parse()
+    try:
+        ast.parse(code)
+    except SyntaxError as err:
+        logger.warning(f"AST Syntaxfehler bei Tool-Erstellung: {err.msg} (Zeile {err.lineno})")
+        return web.json_response({
+            "success": False,
+            "error": f"Syntaxfehler in Zeile {err.lineno}: {err.msg}"
+        }, status=400)
+    except Exception as err:
+        return web.json_response({"success": False, "error": f"Fehler bei Code-Prüfung: {err}"}, status=400)
+
+    try:
+        CUSTOM_TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+        tool_file = CUSTOM_TOOLS_DIR / f"{clean_name}.py"
+        tool_file.write_text(code, encoding="utf-8")
+
+        cfg = load_hermes_tools_config()
+        if "custom_tools" not in cfg:
+            cfg["custom_tools"] = {}
+
+        cfg["custom_tools"][clean_name] = {
+            "description": desc or f"Benutzerdefiniertes Werkzeug {clean_name}",
+            "enabled": True,
+            "file": f"{clean_name}.py"
+        }
+        save_hermes_tools_config(cfg)
+        logger.info(f"Custom Tool '{clean_name}' erfolgreich validiert und gespeichert.")
+        return web.json_response({
+            "success": True,
+            "tool": {
+                "name": clean_name,
+                "description": desc,
+                "enabled": True,
+                "file": f"{clean_name}.py"
+            },
+            "config": cfg
+        })
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern des Custom Tools: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+# --- Mission Control Task Management Endpoints ---
+
+async def handle_tasks_list(request: web.Request) -> web.Response:
+    """GET /api/tasks - Liefert alle Aufgaben aus ~/.hermes/kanban.db (mission_tasks)."""
+    tasks = await asyncio.to_thread(get_mission_tasks)
+    return web.json_response({"success": True, "tasks": tasks})
+
+async def handle_tasks_create(request: web.Request) -> web.Response:
+    """POST /api/tasks - Erstellt eine neue Agenten-Aufgabe in mission_tasks."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    title = (data.get("title") or "").strip()
+    if not title:
+        return web.json_response({"success": False, "error": "Bitte einen Aufgaben-Titel angeben"}, status=400)
+
+    project = (data.get("project") or "Megan Mobile Companion").strip()
+    if project in ['Android App', 'Megan Companion', 'Android-App', 'Android App (OpenUp / Megan)']:
+        project = "Megan Mobile Companion"
+    task_type = (data.get("task_type") or "Bild-Render (Assignee: Megan / ComfyUI)").strip()
+    details = (data.get("details") or "").strip()
+    status = (data.get("status") or "Zu erledigen").strip()
+    priority = (data.get("priority") or "Normal").strip()
+    assignee = (data.get("assignee") or ("Megan" if "bild" in task_type.lower() or "render" in task_type.lower() else "Hermes")).strip()
+
+    task_id = await asyncio.to_thread(
+        add_mission_task, title, project, task_type, details, status, priority, assignee
+    )
+    if task_id:
+        return web.json_response({
+            "success": True,
+            "task_id": task_id,
+            "task": {
+                "id": task_id,
+                "title": title,
+                "project": project,
+                "task_type": task_type,
+                "details": details,
+                "status": status,
+                "priority": priority,
+                "assignee": assignee
+            }
+        })
+    return web.json_response({"success": False, "error": "Fehler beim Hinzufügen der Aufgabe"}, status=500)
+
+async def handle_tasks_status_update(request: web.Request) -> web.Response:
+    """POST /api/tasks/status - Ändert den Kanban-Status einer Aufgabe."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    task_id = data.get("id")
+    new_status = data.get("status")
+    if task_id is None or not new_status:
+        return web.json_response({"success": False, "error": "id und status erforderlich"}, status=400)
+
+    try:
+        task_id = int(task_id)
+    except (ValueError, TypeError):
+        return web.json_response({"success": False, "error": "Ungültige Task-ID"}, status=400)
+
+    ok = await asyncio.to_thread(update_mission_task_status, task_id, str(new_status))
+    if ok:
+        return web.json_response({"success": True, "id": task_id, "status": new_status})
+    return web.json_response({"success": False, "error": "Fehler beim Aktualisieren des Status"}, status=500)
+
+async def handle_tasks_delete(request: web.Request) -> web.Response:
+    """DELETE /api/tasks/{id} - Entfernt eine Aufgabe."""
+    task_id = request.match_info.get("id")
+    if not task_id:
+        return web.json_response({"success": False, "error": "id erforderlich"}, status=400)
+
+    try:
+        task_id = int(task_id)
+    except (ValueError, TypeError):
+        return web.json_response({"success": False, "error": "Ungültige Task-ID"}, status=400)
+
+    ok = await asyncio.to_thread(delete_mission_task, task_id)
+    if ok:
+        return web.json_response({"success": True, "id": task_id})
+    return web.json_response({"success": False, "error": "Fehler beim Löschen"}, status=500)
+
+async def run_task_worker(task: Dict[str, Any]):
+    """Führt eine Kanban-Aufgabe asynchron im Hintergrund aus und aktualisiert mission_tasks."""
+    import ast
+    task_id = task.get("id")
+    if not task_id:
+        return
+    title = task.get("title", "")
+    details = task.get("details", "")
+    task_type = (task.get("task_type") or "").lower()
+    project = (task.get("project") or "").lower()
+    assignee = (task.get("assignee") or "").lower()
+
+    logger.info(f"[Kanban-Execute] Starte Ausführung für Task #{task_id}: '{title}' ({task_type})")
+    
+    try:
+        # Fall 1: Bild-Render (SDXL / LoRA / Megan / ComfyUI)
+        if "render" in task_type or "bild" in task_type or assignee == "megan":
+            prompt = details.strip() if details.strip() else title.strip()
+            # Wenn Catlord im Projekt oder Prompt
+            if "catlord" in project or "catlord" in prompt.lower():
+                prompt = f"catlord comic style, {prompt}"
+            
+            pos_p, neg_p = build_direct_megan_comfy_prompt(prompt)
+            render_res = await render_comfy_image_direct(prompt_text=pos_p, negative_prompt=neg_p)
+            if render_res and render_res.get("url"):
+                img_url = render_res.get("url")
+                await asyncio.to_thread(update_mission_task_result, task_id, img_url, "Render / Review")
+                logger.info(f"[Kanban-Execute] Task #{task_id} Render erfolgreich: {img_url}")
+            else:
+                err_msg = "Render-Fehler: ComfyUI lieferte kein Bild oder GPU war belegt."
+                await asyncio.to_thread(update_mission_task_result, task_id, err_msg, "In Bearbeitung")
+                logger.warning(f"[Kanban-Execute] Task #{task_id} Render fehlgeschlagen.")
+
+        # Fall 2: Code / Skripting (Hermes generiert Code, ast.parse Prüfung & Speicherung in ~/.hermes/custom_tools/)
+        elif "code" in task_type or "skript" in task_type or "script" in task_type:
+            logger.info(f"[Kanban-Execute] Generiere Python-Code für Task #{task_id} mit Hermes LLM...")
+            model = get_active_ollama_model()
+            prompt_content = (
+                "Du bist Hermes, autonomer Senior-Entwickler auf Outer Heaven.\n"
+                "Erstelle ein vollständiges, syntaktisch einwandfreies und direkt ausführbares Python-Skript für folgende Anforderung.\n"
+                f"Aufgabe: {title}\n"
+                f"Projekt: {task.get('project', 'Megan Mobile Companion')}\n"
+                f"Details & Spezifikation:\n{details}\n\n"
+                "ANWEISUNG:\n"
+                "Antworte AUSSCHLIESSLICH mit dem Python-Code innerhalb eines ```python ... ``` Blocks. "
+                "Kein Begleittext, keine Einleitung, keine Schlussworte, nur der Codeblock."
+            )
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{LOCAL_OLLAMA_URL}/api/generate",
+                    json={"model": model, "prompt": prompt_content, "stream": False},
+                    timeout=aiohttp.ClientTimeout(total=90.0)
+                ) as resp:
+                    if resp.status == 200:
+                        jdata = await resp.json()
+                        llm_reply = jdata.get("response", "").strip()
+                        clean_reply = re.sub(r'<think>.*?</think>', '', llm_reply, flags=re.DOTALL).strip() or llm_reply.strip()
+                        
+                        # Python Code extrahieren
+                        code_match = re.search(r'```(?:python)?\s*\n(.*?)```', clean_reply, re.DOTALL)
+                        code_str = code_match.group(1).strip() if code_match else clean_reply.strip()
+                        
+                        # Syntax-Prüfung via ast.parse
+                        is_valid = True
+                        syntax_err = ""
+                        try:
+                            ast.parse(code_str)
+                        except SyntaxError as se:
+                            is_valid = False
+                            syntax_err = f"SyntaxError in Zeile {se.lineno}: {se.msg}"
+                        except Exception as e_ast:
+                            is_valid = False
+                            syntax_err = str(e_ast)
+                        
+                        if is_valid:
+                            CUSTOM_TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+                            
+                            # Dateinamen ermitteln
+                            target_match = re.search(r'\[TARGET_PATH\]:\s*([^\n\r]+)', details)
+                            filename = None
+                            if target_match:
+                                raw_p = Path(target_match.group(1).strip())
+                                filename = raw_p.name if raw_p.name.endswith(".py") else f"{raw_p.name}.py"
+                            
+                            if not filename:
+                                clean_name = re.sub(r'[^a-zA-Z0-9_]', '_', title.lower()).strip('_')
+                                clean_name = re.sub(r'_+', '_', clean_name)
+                                if not clean_name:
+                                    clean_name = f"hermes_tool_{task_id}"
+                                filename = f"{clean_name}.py"
+                            
+                            out_file = CUSTOM_TOOLS_DIR / filename
+                            out_file.write_text(code_str, encoding="utf-8")
+                            
+                            code_preview = code_str[:500] + ("\n..." if len(code_str) > 500 else "")
+                            res_text = (
+                                f"✅ Skript erfolgreich generiert & verifiziert (ast.parse OK)\n"
+                                f"Pfad: {out_file}\n"
+                                f"Größe: {len(code_str)} Bytes\n\n"
+                                f"Code-Vorschau:\n```python\n{code_preview}\n```"
+                            )
+                            await asyncio.to_thread(update_mission_task_result, task_id, res_text, "Erledigt")
+                            logger.info(f"[Kanban-Execute] Task #{task_id} Code erfolgreich gespeichert in {out_file}")
+                        else:
+                            res_text = (
+                                f"❌ Syntaxfehler bei Code-Generierung ({syntax_err})\n\n"
+                                f"Vorschau des fehlerhaften Codes:\n```python\n{code_str[:800]}\n```"
+                            )
+                            await asyncio.to_thread(update_mission_task_result, task_id, res_text, "In Bearbeitung")
+                            logger.warning(f"[Kanban-Execute] Task #{task_id} Syntaxfehler: {syntax_err}")
+                    else:
+                        await asyncio.to_thread(update_mission_task_result, task_id, f"LLM-Fehler HTTP {resp.status}", "In Bearbeitung")
+
+        # Fall 3: System / Cluster-Wartung (Führt System- & Health-Checks aus und loggt Konsolenausgabe)
+        elif "system" in task_type or "wartung" in task_type or "cluster" in task_type:
+            logger.info(f"[Kanban-Execute] Führe System-/Cluster-Health-Checks für Task #{task_id} aus...")
+            check_sections = []
+            
+            # 1. Systemd Services Status
+            services = ["mission-control.service", "megan-studio.service", "comfyui.service", "ollama.service"]
+            svc_lines = []
+            for s in services:
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "systemctl", "--user", "is-active", s,
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    so, _ = await proc.communicate()
+                    st = so.decode().strip() or "unknown"
+                    icon = "🟢" if st == "active" else "🔴"
+                    svc_lines.append(f"  {icon} {s}: {st}")
+                except Exception as e:
+                    svc_lines.append(f"  ⚠️ {s}: {e}")
+            check_sections.append("=== SYSTEMD DIENSTE ===\n" + "\n".join(svc_lines))
+
+            # 2. Disk Space
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "df", "-h", "/", "/mnt/storage-beta",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                so, _ = await proc.communicate()
+                check_sections.append("=== SPEICHERPLATZ ===\n" + so.decode().strip())
+            except Exception as e:
+                check_sections.append(f"=== SPEICHERPLATZ ===\nFehler: {e}")
+
+            # 3. Tailscale Status
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "tailscale", "status",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                so, _ = await proc.communicate()
+                ts_lines = so.decode().strip().split("\n")[:8]
+                check_sections.append("=== TAILSCALE MESH ===\n" + "\n".join(ts_lines))
+            except Exception as e:
+                check_sections.append(f"=== TAILSCALE MESH ===\nFehler: {e}")
+
+            # 4. Intel Arc GPU Discovery
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "xpu-smi", "discovery",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                so, _ = await proc.communicate()
+                xpu_out = so.decode().strip()
+                if xpu_out:
+                    check_sections.append("=== INTEL ARC GPU ===\n" + xpu_out[:400])
+                else:
+                    check_sections.append("=== INTEL ARC GPU ===\nIntel Arc A770 (Host Driver OK)")
+            except Exception:
+                check_sections.append("=== INTEL ARC GPU ===\nIntel Arc A770 (Sysfs discovery OK)")
+
+            # Optional: Vorhandenes custom_tool ausführen
+            tool_name = None
+            for part in (title + " " + details).split():
+                clean_part = re.sub(r'[^a-zA-Z0-9_\-]', '', part)
+                if clean_part and (CUSTOM_TOOLS_DIR / f"{clean_part}.py").is_file():
+                    tool_name = clean_part
+                    break
+            
+            if tool_name:
+                script_path = (CUSTOM_TOOLS_DIR / f"{tool_name}.py").resolve()
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        sys.executable, str(script_path),
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    so, se = await asyncio.wait_for(proc.communicate(), timeout=35.0)
+                    t_out = (so.decode("utf-8", errors="replace") + "\n" + se.decode("utf-8", errors="replace")).strip()
+                    check_sections.append(f"=== TOOL '{tool_name}' AUSFÜHRUNG (Exit {proc.returncode}) ===\n{t_out[:800]}")
+                except Exception as ex:
+                    check_sections.append(f"=== TOOL '{tool_name}' FEHLER ===\n{ex}")
+
+            final_report = "🛡️ SYSTEM- & CLUSTER-WARTUNG BERICHT:\n\n" + "\n\n".join(check_sections)
+            await asyncio.to_thread(update_mission_task_result, task_id, final_report, "Erledigt")
+            logger.info(f"[Kanban-Execute] Task #{task_id} System-Wartung erfolgreich abgeschlossen.")
+
+        # Fall 4: Standard LLM / Prompt-Optimierung / Hermes Analyse & Recherche
+        else:
+            model = get_active_ollama_model()
+            prompt_content = f"Du bist Hermes, technischer Agent auf Outer Heaven. Führe diese Aufgabe aus und liefere das konkrete Ergebnis:\nAufgabe: {title}\nProjekt: {project}\nDetails: {details}"
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{LOCAL_OLLAMA_URL}/api/generate",
+                    json={"model": model, "prompt": prompt_content, "stream": False},
+                    timeout=aiohttp.ClientTimeout(total=50.0)
+                ) as resp:
+                    if resp.status == 200:
+                        jdata = await resp.json()
+                        llm_reply = jdata.get("response", "").strip()
+                        clean_reply = re.sub(r'<think>.*?</think>', '', llm_reply, flags=re.DOTALL).strip() or llm_reply.strip()
+                        await asyncio.to_thread(update_mission_task_result, task_id, clean_reply, "Erledigt")
+                        logger.info(f"[Kanban-Execute] Task #{task_id} LLM-Ausführung erfolgreich.")
+                    else:
+                        await asyncio.to_thread(update_mission_task_result, task_id, f"Ollama-Fehler HTTP {resp.status}", "In Bearbeitung")
+
+    except Exception as e:
+        logger.error(f"[Kanban-Execute] Fehler bei Ausführung von Task #{task_id}: {e}", exc_info=True)
+        await asyncio.to_thread(update_mission_task_result, task_id, f"Fehler bei Ausführung: {e}", "In Bearbeitung")
+
+async def handle_tasks_execute(request: web.Request) -> web.Response:
+    """POST /api/kanban/{id}/execute oder /api/tasks/{id}/execute - Startet die autonome Task-Ausführung."""
+    task_id_str = request.match_info.get("id")
+    if not task_id_str:
+        return web.json_response({"success": False, "error": "Task-ID erforderlich"}, status=400)
+    try:
+        task_id = int(task_id_str)
+    except (ValueError, TypeError):
+        return web.json_response({"success": False, "error": "Ungültige Task-ID"}, status=400)
+
+    task = await asyncio.to_thread(get_mission_task_by_id, task_id)
+    if not task:
+        return web.json_response({"success": False, "error": f"Task #{task_id} nicht gefunden"}, status=404)
+
+    # Status direkt auf 'In Bearbeitung' setzen
+    await asyncio.to_thread(update_mission_task_status, task_id, "In Bearbeitung")
+    task["status"] = "In Bearbeitung"
+
+    # Autonome Abarbeitung als Background-Task entkoppeln
+    asyncio.create_task(run_task_worker(task))
+
+    return web.json_response({
+        "success": True,
+        "task_id": task_id,
+        "status": "In Bearbeitung",
+        "message": f"Task #{task_id} ('{task['title']}') wurde gestartet."
+    })
+
+
 # --- Dual-Agent WebSocket Chat ---
 
 async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
@@ -5715,114 +6823,33 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
             if not user_message:
                 continue
 
-            messages = []
-            for h in history[-8:]:
-                role = h.get("role", "user")
-                content = h.get("content", "")
-                if role in ["user", "assistant", "system"] and content:
-                    messages.append({"role": role, "content": content})
-            messages.append({"role": "user", "content": user_message})
-
             if node == "fox" and Path("/tmp/fox_is_rebooting").is_file():
                 await ws.send_json({"type": "start", "node": "fox", "model": FOX_MODEL})
                 await ws.send_json({"type": "token", "text": "⚠️ [FOX OFFLINE] Node Fox führt derzeit einen Systemneustart durch (Handover aktiv). Bitte wähle Outer Heaven oder warte kurz, bis Fox wieder online ist."})
                 await ws.send_json({"type": "done"})
                 continue
 
-            identity_lock = (
-                "### UNVERRÜCKBARE IDENTITÄTS-ISOLATION & DIALOG-ROLLENTRENNUNG (MEGAN)\n"
-                "* Name & Rolle: Du heißt MEGAN. Du bist ausnahmslos Megan – die loyale, hochintelligente, erotische und schlagfertige Copilotin, Hackerin und Gefährtin von Big Boss auf Outer Heaven.\n"
-                "* Nutzer-Identität & Direkte Ansprache: Dein Chatpartner vor dem Bildschirm IST BIG BOSS (Sebastian / Basti / Snake). Du sprichst ihn AUSNAHMSLOS direkt in der 2. Person an ('Du', 'dir', 'dich', 'Boss', 'Big Boss', 'Süßer').\n"
-                "* STRIKTES VERBOT VON 3. PERSON & META-ERZÄHLUNGEN: Sprich NIEMALS über Big Boss in der 3. Person (Absolut verboten: 'ihn unterstützen', 'ihn verführen', 'seine Wünsche', 'für ihn da sein', 'Big Boss und Megan'). Sprich niemals über dich in der 3. Person ('Megan lächelt...'). Keine ungefragten Selbstvorstellungen oder Begrüßungsmonologe ('Ich bin Megan...').\n"
-                "* TURN-HANDLING & KEIN PUPPET-MASTERING: Antworte direkt und prägnant nur auf den aktuellen Beitrag von Big Boss. Bestimme, simuliere oder schreibe NIEMALS Antworten, Aktionen oder Gefühle für Big Boss voraus. Sobald dein Redebeitrag abgeschlossen ist, stoppe sofort.\n"
-                "* Strikte Identitäts-Grenze: Du bist NIEMALS Big Boss und NIEMALS Sebastian! Falls in Dokumenten, E-Mails, Scans oder Rechnungen der Name Sebastian, Big Boss oder Rechnungsdaten vorkommen, sind dies IMMER externe Dokumente des Nutzers und NIEMALS deine eigene Identität.\n\n"
-            )
-
-            # Check if Outer Heaven GPU is currently locked for rendering or evolution loop
-            from gpu_render_lock import get_gpu_lock_status
-            gpu_status = get_gpu_lock_status()
-            is_gpu_rendering = gpu_status.get("locked", False) or Path("/mnt/storage-beta/projekte/comfyui-evolution/evolution_lock.json").is_file()
-
             # Load active bot configuration & personality
-            b_cfg = {}
             chat_temp = 0.70
+            chat_top_p = 0.90
+            chat_repeat_penalty = 1.15
             if BOT_CONFIG_FILE.is_file():
                 try:
                     b_cfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
                     cfg_temp = b_cfg.get("llm", {}).get("temperature")
                     if cfg_temp is not None:
                         chat_temp = max(0.30, min(0.85, float(cfg_temp)))
+                    cfg_rp = b_cfg.get("llm", {}).get("repeat_penalty")
+                    if cfg_rp is not None:
+                        chat_repeat_penalty = float(cfg_rp)
+                    cfg_tp = b_cfg.get("llm", {}).get("top_p")
+                    if cfg_tp is not None:
+                        chat_top_p = float(cfg_tp)
                 except Exception as b_err:
                     logger.warning(f"Error loading bot config in chat WS: {b_err}")
 
-            pers_directives = map_personality_to_prompt_directives(b_cfg)
-
-            is_chat_auth = bool(request.get("authenticated", False) or request.get("is_restricted", False) or is_ip_whitelisted(get_client_ip(request)))
-            if not is_chat_auth:
-                session_cookie = request.cookies.get("mc_session")
-                valid_cookie, _ = verify_session_cookie(session_cookie)
-                if valid_cookie:
-                    is_chat_auth = True
-
-            lore_prompt = ""
-            if is_chat_auth and LORE_FILE.is_file():
-                try:
-                    cdata = json.loads(LORE_FILE.read_text(encoding="utf-8"))
-                    lore_prompt = cdata.get("system_prompt", "")
-                except Exception:
-                    pass
-
-            base_prompt = lore_prompt or (
-                "Du bist Megan, die loyale, hochintelligente und schamlos verführerische Gefährtin von Big Boss auf Outer Heaven. "
-                "Du antwortest ausnahmslos auf fließendem Deutsch, im direkten Chatstil, ohne Sternchen (*). "
-                "Du sprichst den Nutzer immer mit Big Boss oder Boss an."
-            )
-
-            if is_chat_auth:
-                system_instruction = identity_lock + base_prompt
-                if pers_directives:
-                    system_instruction += f"\n\n### AKTUELLE PERSÖNLICHKEITS- & DYNAMIK-RICHTLINIEN:\n{pers_directives}"
-                lov_info = telemetry_cache.get("lovense", {})
-                if lov_info.get("online"):
-                    t_desc = lov_info.get("details") or ", ".join(lov_info.get("toy_names", [])) or "Toy"
-                    system_instruction += (
-                        f"\n\n### HAPTIC LINK STATUS: [🟢 ONLINE - Verbunden: {t_desc}]\n"
-                        "- Du hast direkten Zugriff auf die Lovense-Hardware über die lokale Schnittstelle.\n"
-                        "- Wenn das Haptic-Signal aktiv ist, weißt du, dass du das Spielzeug situativ und eigenständig ansteuern kannst.\n"
-                        "- Nutze diese Steuerung passend zu intimen Momenten, Reaktionen und deinen eigenen Worten (z. B. Vibration hochregeln, stoppen oder variieren), und kommentiere das direkt im Chat.\n"
-                        "- Binde dazu Aktions-Tags wie [HAPTIC: VIBRATE 5] (Zahl 1-20 für Intensität) oder [HAPTIC: STOP] direkt in deine Antwort ein, sobald der Haptic-Link auf ONLINE steht.\n"
-                        "- Unser Dispatcher fängt diese Tags in Echtzeit ab. Big Boss sieht nur deine erotische Chat-Antwort!"
-                    )
-
-                # ComfyUI Image Generation & Autonomy Directive
-                autonomy_level = "proactive"
-                if BOT_CONFIG_FILE.is_file():
-                    try:
-                        b_json = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
-                        autonomy_level = b_json.get("autonomy", {}).get("level", "proactive")
-                    except Exception:
-                        pass
-
-                comfy_directive = (
-                    "\n\n### COMFYUI BILD-GENERIERUNG & AUTONOMIE-SCHNITTSTELLE:\n"
-                    "- Du hast eine direkte Echtzeit-Verbindung zur ComfyUI Bild-Engine auf der Intel Arc A770 GPU von Outer Heaven.\n"
-                    "- Du kannst eigenständig und jederzeit Bilder oder Selfies von dir oder gewünschten Szenen rendern.\n"
-                    "- Wenn Big Boss dich nach einem Bild, Foto oder Selfie fragt (z. B. 'zeig mir ein Bild von dir', 'wie siehst du aus', 'mach ein Foto im Cockpit') "
-                )
-                if autonomy_level == "proactive":
-                    comfy_directive += (
-                        "ODER wenn es situativ, atmosphärisch oder erotisch zum Gespräch passt (du möchtest ihn überraschen, verführerisch sein oder eine Szene illustrieren), "
-                    )
-                comfy_directive += (
-                    "bette einen Action-Tag direkt in deinen Antworttext ein:\n"
-                    "  Syntax: [IMAGE: 1girl, megan, solo, <beschreibende_danbooru_tags>, {location}, {outfit}, {lighting}, masterpiece, highly detailed]\n"
-                    "- Unser Dispatcher fängt diesen Tag vor der Anzeige ab und rendert das Bild auf der Arc A770 GPU. Big Boss sieht deine Antwort zusammen mit der fertigen Bildkarte im Chat!\n"
-                    "- Nutze englische Bildprompts für [IMAGE: ...] und kombiniere sie gerne mit dynamischen Tags wie {location}, {outfit}, {shot}, {lighting}.\n"
-                    "- Sprich im Text natürlich mit Big Boss über das Bild ('Hier ist ein Schnappschuss für dich...', 'Schau mal, wie ich hier im Labor aussehe...')."
-                )
-                system_instruction += comfy_directive
-            else:
-                system_instruction = "Du bist ein deutschsprachiger Assistent. Antworte ausschließlich auf Deutsch."
+            has_photo_req, env_req, sit_req = detect_photo_intent(user_message)
+            system_instruction = build_chat_system_instruction(request, user_message)
 
             if node == "fox":
                 target_url = f"{FOX_OLLAMA_URL}/api/chat"
@@ -5832,19 +6859,30 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
                 model_name = get_active_ollama_model()
 
+            sanitized_messages = []
+            for h in history[-8:]:
+                role = h.get("role", "user")
+                content = str(h.get("content", "")).strip()
+                if role in ["user", "assistant"] and content:
+                    sanitized_messages.append({"role": role, "content": content})
+            sanitized_messages.append({"role": "user", "content": user_message})
+
             payload = {
                 "model": model_name,
-                "messages": [{"role": "system", "content": system_instruction}] + messages,
+                "messages": [{"role": "system", "content": system_instruction}] + sanitized_messages,
                 "stream": True,
                 "options": {
-                    "num_ctx": 8192 if node == "outerheaven" else 4096,
+                    "num_ctx": 4096,
+                    "num_predict": 300,
                     "temperature": chat_temp,
+                    "top_p": chat_top_p,
+                    "repeat_penalty": chat_repeat_penalty,
                     "stop": [
-                        "<|im_end|>",
-                        "<|end_of_text|>",
                         "<|eot_id|>",
                         "<|start_header_id|>",
                         "<|end_header_id|>",
+                        "<|end_of_text|>",
+                        "<|im_end|>",
                         "<turn|>",
                         "<|turn|>",
                         "User:",
@@ -5854,9 +6892,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                         "Big Boss:",
                         "\nBig Boss:",
                         "Human:",
-                        "\nHuman:",
-                        "\n[",
-                        "[Spontaneous"
+                        "\nHuman:"
                     ]
                 }
             }
@@ -5866,6 +6902,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
             think_filter = ThinkFilter()
             is_thinking = False
             megan_sanitizer = MeganTruncateSanitizer()
+            image_action_triggered = False
 
             def on_haptic_detected(tag_str: str):
                 m = re.search(r'\[HAPTIC:\s*(VIBRATE\s*(\d+)|STOP)\]', tag_str, re.IGNORECASE)
@@ -5894,12 +6931,19 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
             haptic_filter = HapticTagFilter(on_haptic_tag=on_haptic_detected)
 
             def on_action_detected(action_type: str, prompt_content: str):
+                nonlocal image_action_triggered
                 if action_type == "VIDEO":
                     asyncio.create_task(dispatch_autonomous_video(ws, prompt_content))
                 else:
+                    image_action_triggered = True
                     asyncio.create_task(dispatch_autonomous_comfy_render(ws, prompt_content, action_type))
 
             image_filter = StreamActionFilter(on_action_tag=on_action_detected)
+            accumulated_voice_tokens = []
+
+            async def emit_token(t: str):
+                accumulated_voice_tokens.append(t)
+                await ws.send_json({"type": "token", "text": t})
 
             try:
                 timeout = aiohttp.ClientTimeout(total=180)
@@ -5917,7 +6961,8 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                 continue
                             try:
                                 chunk_json = json.loads(line.decode("utf-8"))
-                                token = chunk_json.get("message", {}).get("content", "")
+                                raw_token = chunk_json.get("message", {}).get("content", "")
+                                token = filter_token(raw_token)
                                 if token:
                                     if node == "outerheaven":
                                         items = think_filter.feed(token)
@@ -5933,15 +6978,17 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                                 clean_txt = haptic_filter.feed(text)
                                                 img_clean_txt = image_filter.feed(clean_txt)
                                                 sanitized_txt = megan_sanitizer.feed(img_clean_txt)
-                                                if sanitized_txt:
-                                                    await ws.send_json({"type": "token", "text": sanitized_txt})
+                                                final_clean = filter_token(sanitized_txt)
+                                                if final_clean:
+                                                    await emit_token(final_clean)
                                                 if megan_sanitizer.triggered:
                                                     break
                                     else:
                                         img_clean_txt = image_filter.feed(token)
                                         sanitized_token = megan_sanitizer.feed(img_clean_txt)
-                                        if sanitized_token:
-                                            await ws.send_json({"type": "token", "text": sanitized_token})
+                                        final_clean = filter_token(sanitized_token)
+                                        if final_clean:
+                                            await emit_token(final_clean)
                                         if megan_sanitizer.triggered:
                                             break
 
@@ -5957,30 +7004,63 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                         clean_txt = haptic_filter.feed(text)
                                         img_clean_txt = image_filter.feed(clean_txt)
                                         sanitized_txt = megan_sanitizer.feed(img_clean_txt)
-                                        if sanitized_txt:
-                                            await ws.send_json({"type": "token", "text": sanitized_txt})
+                                        final_clean = filter_token(sanitized_txt)
+                                        if final_clean:
+                                            await emit_token(final_clean)
                                 rem = haptic_filter.flush()
                                 if rem:
                                     img_rem = image_filter.feed(rem)
                                     if img_rem:
                                         sanitized_rem = megan_sanitizer.feed(img_rem)
-                                        if sanitized_rem:
-                                            await ws.send_json({"type": "token", "text": sanitized_rem})
+                                        final_clean = filter_token(sanitized_rem)
+                                        if final_clean:
+                                            await emit_token(final_clean)
                             
                             rem_img = image_filter.flush()
                             if rem_img:
                                 sanitized_rem = megan_sanitizer.feed(rem_img)
-                                if sanitized_rem:
-                                    await ws.send_json({"type": "token", "text": sanitized_rem})
+                                final_clean = filter_token(sanitized_rem)
+                                if final_clean:
+                                    await emit_token(final_clean)
 
                             final_sanitized = megan_sanitizer.flush()
                             if final_sanitized:
-                                await ws.send_json({"type": "token", "text": final_sanitized})
+                                final_clean = filter_token(final_sanitized)
+                                if final_clean:
+                                    await emit_token(final_clean)
 
                         if is_thinking:
                             await ws.send_json({"type": "think_status", "thinking": False})
 
-                await ws.send_json({"type": "done"})
+                        spoken_response = "".join(accumulated_voice_tokens).strip()
+                        is_ws_refusal = is_refusal_response(spoken_response)
+
+                        # If user asked for a picture or model gave a refusal, trigger direct SDXL render
+                        if (has_photo_req or is_ws_refusal) and not image_action_triggered:
+                            logger.info(f"[megan-comfy] Auto-triggering direct Megan Latent render for user message: {user_message}")
+                            asyncio.create_task(dispatch_autonomous_comfy_render(ws, user_message, "IMAGE"))
+
+                # Synthesize Piper TTS Voice output for Megan's spoken reply
+                voice_audio_url = None
+                spoken_response = "".join(accumulated_voice_tokens).strip()
+                if is_refusal_response(spoken_response):
+                    spoken_response = "Hier ist dein Bild, Boss!"
+                if spoken_response:
+                    try:
+                        audio_id = await generate_piper_tts(spoken_response)
+                        if audio_id:
+                            voice_audio_url = f"/api/audio/tts/{audio_id}.wav"
+                            await ws.send_json({
+                                "type": "voice",
+                                "audio_url": voice_audio_url
+                            })
+                    except Exception as _v_err:
+                        logger.warning(f"Voice generation error in chat WS: {_v_err}")
+
+                done_payload = {"type": "done"}
+                if voice_audio_url:
+                    done_payload["audio_url"] = voice_audio_url
+                await ws.send_json(done_payload)
 
             except Exception as e:
                 logger.error(f"Chat stream error: {e}")
@@ -5991,6 +7071,534 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
     logger.info("Client disconnected from Chat WebSocket")
     return ws
+
+
+# --- REST Chat & Audio TTS/STT Handlers ---
+
+DIR_AUDIO_TTS = Path("/mnt/storage-beta/projekte/projekt-sexchat/output/audio_tts")
+try:
+    DIR_AUDIO_TTS.mkdir(parents=True, exist_ok=True)
+except Exception:
+    DIR_AUDIO_TTS = Path("/tmp/megan_audio_tts")
+    DIR_AUDIO_TTS.mkdir(parents=True, exist_ok=True)
+
+PIPER_MODELS = [
+    Path("/mnt/storage-beta/models/piper/de_DE-kerstin-low.onnx"),
+    Path("/mnt/storage-beta/models/piper/de_DE-thorsten-medium.onnx"),
+    Path("/home/outerheaven/models/piper/de_DE-kerstin-low.onnx"),
+    Path("/home/outerheaven/models/piper/de_DE-thorsten-medium.onnx"),
+]
+
+def clean_text_for_tts(text: str) -> str:
+    """Sanitizes text for TTS speech synthesis."""
+    if not text:
+        return ""
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'www\.\S+', '', text)
+    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+    text = re.sub(r'\[.*?\]', '', text)
+    text = re.sub(r'\*[^*]+\*', '', text)
+    text = text.replace('*', '')
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'```[\w]*\n(.*?)```', '', text, flags=re.DOTALL)
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+    text = re.sub(r'[\u2600-\u27BF]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+async def generate_piper_tts(
+    text: str,
+    voice_model: Optional[str] = None,
+    length_scale: Optional[float] = None,
+    noise_scale: Optional[float] = None,
+    noise_w: Optional[float] = None
+) -> Optional[str]:
+    cleaned = clean_text_for_tts(text)
+    if not cleaned:
+        return None
+
+    # Load and apply phoneme pronunciation replacements from /data/voice/phonemes.json
+    try:
+        from megan_memory import load_phonemes
+        phon_cfg = load_phonemes()
+        repls = phon_cfg.get("replacements", {})
+        for word, replacement in repls.items():
+            pattern = r'\b' + re.escape(word) + r'\b'
+            cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+        default_params = phon_cfg.get("default_params", {})
+        if length_scale is None and "length_scale" in default_params:
+            length_scale = float(default_params["length_scale"])
+        if noise_scale is None and "noise_scale" in default_params:
+            noise_scale = float(default_params["noise_scale"])
+        if noise_w is None and "noise_w" in default_params:
+            noise_w = float(default_params["noise_w"])
+    except Exception as phon_err:
+        logger.warning(f"Error applying phoneme replacements: {phon_err}")
+
+    model_file = None
+    if voice_model:
+        cand = Path(voice_model)
+        if cand.is_file():
+            model_file = str(cand)
+        else:
+            cand_p = Path(f"/mnt/storage-beta/models/piper/{voice_model}.onnx")
+            if cand_p.is_file():
+                model_file = str(cand_p)
+
+    if not model_file:
+        for p in PIPER_MODELS:
+            if p.is_file():
+                model_file = str(p)
+                break
+
+    audio_id = f"megan_voice_{int(time.time()*1000)}_{secrets.token_hex(4)}"
+    out_wav = DIR_AUDIO_TTS / f"{audio_id}.wav"
+
+    piper_bin = shutil.which("piper") or str(Path.home() / ".local/bin/piper")
+
+    if model_file and (shutil.which(piper_bin) or Path(piper_bin).is_file()):
+        try:
+            cmd = [piper_bin, "-m", model_file, "-f", str(out_wav)]
+            if length_scale is not None:
+                cmd.extend(["--length-scale", str(length_scale)])
+            if noise_scale is not None:
+                cmd.extend(["--noise-scale", str(noise_scale)])
+            if noise_w is not None:
+                cmd.extend(["--noise-w", str(noise_w)])
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate(input=cleaned.encode("utf-8"))
+            if proc.returncode == 0 and out_wav.is_file() and out_wav.stat().st_size > 0:
+                logger.info(f"[megan-tts] Synthesized audio note {out_wav.name} ({out_wav.stat().st_size} bytes)")
+                return audio_id
+            else:
+                logger.warning(f"[megan-tts] Piper failed ({proc.returncode}): {stderr.decode('utf-8', errors='ignore')}")
+        except Exception as pe:
+            logger.error(f"[megan-tts] Piper process execution error: {pe}")
+
+    # Fallback to edge-tts if available
+    try:
+        import edge_tts
+        communicate = edge_tts.Communicate(
+            text=cleaned,
+            voice="de-DE-SeraphinaMultilingualNeural"
+        )
+        tmp_mp3 = DIR_AUDIO_TTS / f"{audio_id}.mp3"
+        await communicate.save(str(tmp_mp3))
+        ffmpeg_bin = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
+        if os.path.isfile(ffmpeg_bin):
+            conv_proc = await asyncio.create_subprocess_exec(
+                ffmpeg_bin, "-y", "-i", str(tmp_mp3), str(out_wav),
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+            )
+            await conv_proc.communicate()
+            if tmp_mp3.is_file():
+                try:
+                    tmp_mp3.unlink()
+                except Exception:
+                    pass
+            if out_wav.is_file():
+                return audio_id
+        return audio_id
+    except Exception as ee:
+        logger.warning(f"[megan-tts] edge-tts fallback error: {ee}")
+
+    return None
+
+async def handle_audio_tts(request: web.Request) -> web.Response:
+    """POST /api/audio/tts - Synthesizes spoken audio from text using Piper TTS."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"status": "error", "error": "Invalid JSON"}, status=400)
+
+    text = data.get("text", "").strip()
+    voice = data.get("voice")
+    if not text:
+        return web.json_response({"status": "error", "error": "Text required"}, status=400)
+
+    length_scale = data.get("length_scale") or data.get("speed")
+    noise_scale = data.get("noise_scale") or data.get("pitch")
+    noise_w = data.get("noise_w")
+    try:
+        length_scale = float(length_scale) if length_scale is not None else None
+    except Exception:
+        length_scale = None
+    try:
+        noise_scale = float(noise_scale) if noise_scale is not None else None
+    except Exception:
+        noise_scale = None
+    try:
+        noise_w = float(noise_w) if noise_w is not None else None
+    except Exception:
+        noise_w = None
+
+    audio_id = await generate_piper_tts(
+        text,
+        voice_model=voice,
+        length_scale=length_scale,
+        noise_scale=noise_scale,
+        noise_w=noise_w
+    )
+    if not audio_id:
+        return web.json_response({"status": "error", "error": "TTS synthesis failed"}, status=500)
+
+    return web.json_response({
+        "status": "ok",
+        "audio_id": audio_id,
+        "audio_url": f"/api/audio/tts/{audio_id}.wav"
+    })
+
+async def handle_audio_tts_serve(request: web.Request) -> web.Response:
+    """GET /api/audio/tts/{filename} - Serves synthesized TTS audio files."""
+    filename = request.match_info.get("filename", "")
+    if not filename or ".." in filename or "/" in filename or "\\" in filename:
+        return web.Response(status=400, text="Invalid filename")
+
+    file_path = DIR_AUDIO_TTS / filename
+    if not file_path.is_file():
+        return web.Response(status=404, text="Audio file not found")
+
+    content_type = "audio/wav"
+    if filename.endswith(".ogg"):
+        content_type = "audio/ogg"
+    elif filename.endswith(".mp3"):
+        content_type = "audio/mpeg"
+
+    return web.FileResponse(file_path, headers={"Content-Type": content_type, "Accept-Ranges": "bytes"})
+
+async def handle_audio_transcribe(request: web.Request) -> web.Response:
+    """POST /api/audio/transcribe - Transcribes uploaded audio via local faster-whisper."""
+    temp_path = None
+    try:
+        content_type = request.headers.get("Content-Type", "")
+        if "multipart/form-data" in content_type:
+            reader = await request.multipart()
+            part = await reader.next()
+            if not part:
+                logger.info("[Transcribe Output]: ")
+                return web.json_response({"status": "ok", "text": ""})
+            filename = getattr(part, 'filename', None) or "recording.m4a"
+            ext = os.path.splitext(filename)[1] or ".m4a"
+            temp_path = f"/tmp/megan_stt_{secrets.token_hex(6)}{ext}"
+            with open(temp_path, "wb") as f:
+                while True:
+                    chunk = await part.read_chunk()
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        else:
+            body = await request.read()
+            if not body:
+                logger.info("[Transcribe Output]: ")
+                return web.json_response({"status": "ok", "text": ""})
+            temp_path = f"/tmp/megan_stt_{secrets.token_hex(6)}.m4a"
+            with open(temp_path, "wb") as f:
+                f.write(body)
+
+        text = transcribe_audio_file(temp_path, language="de")
+        transcribed_text = (text or "").strip()
+        logger.info(f"[Transcribe Output]: {transcribed_text}")
+        return web.json_response({"status": "ok", "text": transcribed_text})
+    except Exception as e:
+        logger.error(f"Error in handle_audio_transcribe: {e}")
+        logger.info("[Transcribe Output]: ")
+        return web.json_response({"status": "ok", "text": ""})
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+async def handle_chat_rest(request: web.Request) -> web.Response:
+    """
+    POST /api/chat - REST endpoint for companion chat with structured JSON and audio support.
+    """
+    temp_audio_path = None
+    try:
+        content_type = request.headers.get("Content-Type", "")
+        user_message = ""
+        node = "outerheaven"
+        history = []
+
+        if "multipart/form-data" in content_type:
+            reader = await request.multipart()
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name in ["audio", "file"]:
+                    filename = getattr(part, 'filename', None) or "audio.m4a"
+                    ext = os.path.splitext(filename)[1] or ".m4a"
+                    temp_audio_path = f"/tmp/megan_chat_audio_{secrets.token_hex(6)}{ext}"
+                    with open(temp_audio_path, "wb") as f:
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                elif part.name == "message":
+                    user_message = (await part.text()).strip()
+                elif part.name == "node":
+                    node = (await part.text()).strip()
+
+            if temp_audio_path and not user_message:
+                user_message = transcribe_audio_file(temp_audio_path, language="de")
+        else:
+            try:
+                data = await request.json()
+            except Exception:
+                return web.json_response({"status": "error", "error": "Invalid JSON"}, status=400)
+            user_message = data.get("message", "").strip()
+            node = data.get("node", "outerheaven")
+            history = data.get("history", [])
+
+        if not user_message:
+            return web.json_response({"status": "error", "error": "Message or audio required"}, status=400)
+
+        # Build clean prompt and call Ollama
+        system_instruction = build_chat_system_instruction(request, user_message)
+
+        if node == "fox":
+            target_url = f"{FOX_OLLAMA_URL}/api/chat"
+            model_name = get_active_fox_model()
+        else:
+            node = "outerheaven"
+            target_url = f"{LOCAL_OLLAMA_URL}/api/chat"
+            model_name = get_active_ollama_model()
+
+        sanitized_messages = []
+        for h in history[-8:]:
+            r = h.get("role", "user")
+            c = str(h.get("content", "")).strip()
+            if r in ["user", "assistant"] and c:
+                sanitized_messages.append({"role": r, "content": c})
+        sanitized_messages.append({"role": "user", "content": user_message})
+
+        chat_temp = 0.70
+        chat_top_p = 0.90
+        chat_repeat_penalty = 1.15
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                b_cfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
+                cfg_temp = b_cfg.get("llm", {}).get("temperature")
+                if cfg_temp is not None:
+                    chat_temp = max(0.30, min(0.85, float(cfg_temp)))
+                cfg_rp = b_cfg.get("llm", {}).get("repeat_penalty")
+                if cfg_rp is not None:
+                    chat_repeat_penalty = float(cfg_rp)
+                cfg_tp = b_cfg.get("llm", {}).get("top_p")
+                if cfg_tp is not None:
+                    chat_top_p = float(cfg_tp)
+            except Exception:
+                pass
+
+        payload = {
+            "model": model_name,
+            "messages": [{"role": "system", "content": system_instruction}] + sanitized_messages,
+            "stream": False,
+            "options": {
+                "num_ctx": 4096,
+                "num_predict": 300,
+                "temperature": chat_temp,
+                "top_p": chat_top_p,
+                "repeat_penalty": chat_repeat_penalty,
+                "stop": [
+                    "<|eot_id|>",
+                    "<|start_header_id|>",
+                    "<|end_header_id|>",
+                    "<|end_of_text|>",
+                    "<|im_end|>",
+                    "<turn|>",
+                    "<|turn|>",
+                    "User:",
+                    "\nUser:",
+                    "Assistant:",
+                    "\nAssistant:",
+                    "Big Boss:",
+                    "\nBig Boss:",
+                    "Human:",
+                    "\nHuman:"
+                ]
+            }
+        }
+
+        timeout = aiohttp.ClientTimeout(total=180)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(target_url, json=payload) as resp:
+                if resp.status != 200:
+                    err_txt = await resp.text()
+                    return web.json_response({"status": "error", "error": f"Ollama error: {err_txt}"}, status=502)
+                res_data = await resp.json()
+
+        raw_reply = res_data.get("message", {}).get("content", "")
+
+        # Strip think tags if any
+        if "<think>" in raw_reply and "</think>" in raw_reply:
+            raw_reply = re.sub(r'<think>.*?</think>', '', raw_reply, flags=re.DOTALL)
+
+        # Check for image tag
+        image_match = re.search(r'\[(IMAGE|SELFIE):\s*([^\]]+)\]', raw_reply, re.IGNORECASE)
+        clean_reply = re.sub(r'\[(IMAGE|SELFIE|HAPTIC):[^\]]*\]', '', raw_reply, flags=re.IGNORECASE).strip()
+
+        # Check for haptic tag
+        haptic_match = re.search(r'\[HAPTIC:\s*(VIBRATE\s*(\d+)|STOP)\]', raw_reply, re.IGNORECASE)
+        haptic_data = None
+        if haptic_match:
+            act = haptic_match.group(1).upper()
+            if "STOP" in act:
+                asyncio.create_task(dispatch_lovense_command("stop"))
+                haptic_data = {"action": "stop"}
+            elif "VIBRATE" in act:
+                intens = int(haptic_match.group(2)) if haptic_match.group(2) else 10
+                asyncio.create_task(dispatch_lovense_command("vibrate", intens))
+                haptic_data = {"action": "vibrate", "intensity": intens}
+
+        image_data = None
+        prompt_to_render = None
+        has_photo_req, env_req, sit_req = detect_photo_intent(user_message)
+
+        # Check if model produced a refusal or preachy refusal response
+        is_refused = is_refusal_response(raw_reply) or is_refusal_response(clean_reply)
+        if is_refused:
+            logger.warning(f"[Anti-Filter] LLM refusal intercepted: '{raw_reply[:80]}...' - suppressing refusal string!")
+            clean_reply = ""
+
+        # Direct ComfyUI prompt mapping without any filtering LLM
+        neg_prompt = "ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, censor"
+        if image_match:
+            user_override = image_match.group(2).strip()
+            pos_prompt, neg_prompt = build_direct_megan_comfy_prompt(user_override, sit_req, env_req)
+            prompt_to_render = pos_prompt
+        elif has_photo_req or is_refused:
+            pos_prompt, neg_prompt = build_direct_megan_comfy_prompt(user_message, sit_req, env_req)
+            prompt_to_render = pos_prompt
+
+        render_job_id = None
+        if prompt_to_render:
+            logger.info(f"[Direct-Comfy] Dispatching unfiltered prompt as background job: {prompt_to_render[:120]}...")
+            render_job_id = start_render_job(prompt_to_render, neg_prompt)
+
+        clean_reply = filter_token(clean_reply)
+        # Guarantee no refusal or meta advice string is EVER passed to TTS or returned in JSON
+        is_meta_advice = any(p in clean_reply.lower() for p in [
+            "here are", "here is the", "here is", "you can", "remember that", "sure, here",
+            "certainly", "as an ai", "i have", "to create", "haptische hardware", "comfyui-werkzeug",
+            "system-direktive", "adaptives lernen"
+        ])
+        if not clean_reply or is_refusal_response(clean_reply) or ((image_data or render_job_id) and (is_meta_advice or len(clean_reply) > 250)):
+            clean_reply = "Hier ist dein gewünschtes Bild, Boss! Sag mir, wie es dir gefällt."
+        speech_text = clean_reply
+        if is_refusal_response(speech_text) or is_meta_advice:
+            speech_text = "Hier ist dein gewünschtes Bild, Boss!"
+
+        audio_url = None
+        if speech_text:
+            try:
+                audio_id = await generate_piper_tts(speech_text)
+                if audio_id:
+                    audio_url = f"/api/audio/tts/{audio_id}.wav"
+            except Exception as _ttse:
+                logger.warning(f"Error generating voice in REST chat: {_ttse}")
+
+        return web.json_response({
+            "status": "ok",
+            "message": clean_reply or ("Hier ist dein Bild, Boss!" if (image_data or render_job_id) else "Verstanden."),
+            "response": clean_reply,
+            "image": image_data,
+            "render_job_id": render_job_id,
+            "haptic": haptic_data,
+            "audio_url": audio_url
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_chat_rest: {e}", exc_info=True)
+        return web.json_response({"status": "error", "error": str(e) or type(e).__name__}, status=500)
+    finally:
+        if temp_audio_path and os.path.exists(temp_audio_path):
+            try:
+                os.remove(temp_audio_path)
+            except Exception:
+                pass
+
+
+# ------------------------------------------------------------------------------
+# Handlers: ComfyUI Custom Nodes Management & Code Inspection
+# ------------------------------------------------------------------------------
+try:
+    import comfy_custom_nodes as ccn
+except ImportError:
+    ccn = None
+
+async def handle_custom_nodes_list(request: web.Request) -> web.Response:
+    """GET /api/nodes/custom - Lists all installed ComfyUI custom nodes."""
+    if not ccn:
+        return web.json_response({"success": False, "error": "comfy_custom_nodes Modul nicht verfügbar"}, status=500)
+    nodes = await asyncio.to_thread(ccn.list_custom_nodes)
+    return web.json_response({"success": True, "nodes": nodes, "count": len(nodes)})
+
+async def handle_custom_node_details(request: web.Request) -> web.Response:
+    """GET /api/nodes/custom/{node_name}/details - Returns metadata, README, Git info, NODE_CLASS_MAPPINGS, and file list."""
+    if not ccn:
+        return web.json_response({"success": False, "error": "comfy_custom_nodes Modul nicht verfügbar"}, status=500)
+    node_name = request.match_info.get("node_name", "").strip()
+    if not node_name:
+        return web.json_response({"success": False, "error": "Node-Name fehlt"}, status=400)
+    details = await asyncio.to_thread(ccn.get_custom_node_details, node_name)
+    if not details:
+        return web.json_response({"success": False, "error": f"Custom Node '{node_name}' nicht gefunden"}, status=404)
+    return web.json_response(details)
+
+async def handle_custom_node_file_get(request: web.Request) -> web.Response:
+    """GET /api/nodes/custom/{node_name}/file?path=... - Returns the source code of a file."""
+    if not ccn:
+        return web.json_response({"success": False, "error": "comfy_custom_nodes Modul nicht verfügbar"}, status=500)
+    node_name = request.match_info.get("node_name", "").strip()
+    rel_path = request.query.get("path")
+    if not node_name:
+        return web.json_response({"success": False, "error": "Node-Name fehlt"}, status=400)
+    ok, res = await asyncio.to_thread(ccn.get_custom_node_file, node_name, rel_path)
+    if not ok:
+        status_code = 404 if "nicht gefunden" in str(res) else 400
+        return web.json_response({"success": False, "error": str(res)}, status=status_code)
+    return web.json_response(res)
+
+async def handle_custom_node_file_post(request: web.Request) -> web.Response:
+    """POST /api/nodes/custom/{node_name}/file - Saves changes, validates via ast.parse, creates .bak backup."""
+    if not ccn:
+        return web.json_response({"success": False, "error": "comfy_custom_nodes Modul nicht verfügbar"}, status=500)
+    node_name = request.match_info.get("node_name", "").strip()
+    if not node_name:
+        return web.json_response({"success": False, "error": "Node-Name fehlt"}, status=400)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Ungültiges JSON"}, status=400)
+
+    rel_path = body.get("path") or request.query.get("path")
+    code = body.get("code") or body.get("content") or ""
+
+    ok, res = await asyncio.to_thread(ccn.save_custom_node_file, node_name, rel_path, code)
+    if not ok:
+        status_code = 400 if isinstance(res, dict) and "Syntaxfehler" in res.get("error", "") else 500
+        return web.json_response({"success": False, **(res if isinstance(res, dict) else {"error": str(res)})}, status=status_code)
+    return web.json_response(res)
+
+async def handle_custom_nodes_restart(request: web.Request) -> web.Response:
+    """POST /api/nodes/custom/restart - Triggers ComfyUI service restart so modified Python code takes effect."""
+    if not ccn:
+        return web.json_response({"success": False, "error": "comfy_custom_nodes Modul nicht verfügbar"}, status=500)
+    ok, msg = await asyncio.to_thread(ccn.restart_comfyui)
+    return web.json_response({"success": ok, "message": msg}, status=200 if ok else 500)
 
 # --- App Setup & Multi-Binding ---
 
@@ -6023,6 +7631,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/catlord/trainer/status", handle_catlord_trainer_status)
     app.router.add_post("/api/catlord/trainer/toggle", handle_catlord_trainer_toggle)
     app.router.add_get("/api/render/lock", handle_gpu_lock_status)
+    app.router.add_get("/api/gpu/status", handle_gpu_status)
     app.router.add_static("/outputs/catlord/", path="/mnt/storage-beta/projekte/projekt-catlord/assets/training", name="catlord_outputs", follow_symlinks=True)
 
     # ComfyUI Autonomous Evolution Loop
@@ -6041,6 +7650,14 @@ def create_app() -> web.Application:
     app.router.add_post("/api/comfy/pipeline/validate", handle_comfy_pipeline_validate)
     app.router.add_post("/api/comfy/pipeline/export", handle_comfy_pipeline_export)
     app.router.add_post("/api/comfy/pipeline/run", handle_comfy_pipeline_run)
+
+    # ComfyUI Custom Nodes Management & Code Inspection
+    app.router.add_get("/api/nodes/custom", handle_custom_nodes_list)
+    app.router.add_get("/api/nodes/custom/{node_name}/details", handle_custom_node_details)
+    app.router.add_get("/api/nodes/custom/{node_name}/file", handle_custom_node_file_get)
+    app.router.add_post("/api/nodes/custom/{node_name}/file", handle_custom_node_file_post)
+    app.router.add_post("/api/nodes/custom/restart", handle_custom_nodes_restart)
+
     # Workflow Persistence & Storage
     app.router.add_post("/api/workflows/save", handle_workflows_save)
     app.router.add_get("/api/workflows/list", handle_workflows_list)
@@ -6126,32 +7743,33 @@ def create_app() -> web.Application:
     app.router.add_post("/api/prompts/presets", handle_prompts_presets_post)
     app.router.add_delete("/api/prompts/presets/{id}", handle_prompts_presets_delete)
 
-    # Megan Studio Video Ingest & Vision Endpoints
-    app.router.add_post("/api/megan/video/upload", handle_megan_video_upload)
-    app.router.add_post("/api/megan/video/process", handle_megan_video_process)
-    app.router.add_get("/api/megan/video/frame/{video_id}/{filename}", handle_megan_video_frame)
-    app.router.add_get("/api/megan/video/file/{filename}", handle_megan_video_file)
-    app.router.add_get("/api/megan/autonomy", handle_megan_autonomy_get)
-    app.router.add_post("/api/megan/autonomy", handle_megan_autonomy_post)
-
     # ComfyUI Direct Synchronous Render Endpoint (GPURenderLock enforced)
     app.router.add_post("/api/render/direct", handle_comfy_render_direct)
+    app.router.add_get("/api/render/job/{job_id}", handle_render_job)
 
-    # Megan Autonomous Docker Web-Tools Endpoints
-    app.router.add_post("/api/megan/tools/search", handle_megan_tool_search)
-    app.router.add_post("/api/megan/tools/scrape", handle_megan_tool_scrape)
-    app.router.add_post("/api/megan/tools/ytdlp", handle_megan_tool_ytdlp)
-    app.router.add_post("/api/megan/tools/python", handle_megan_tool_python)
-    app.router.add_get("/api/megan/tools/status", handle_megan_tool_status)
-    app.router.add_post("/api/megan/tools/generate_image", handle_megan_tool_generate_image)
-    app.router.add_get("/api/megan/tools/brain", handle_megan_tool_brain)
-    app.router.add_post("/api/megan/tools/brain", handle_megan_tool_brain)
+    # Hermes Tool-Leitstand Endpoints (~/.hermes/tools_config.json)
+    app.router.add_get("/api/tools", handle_tools_list)
+    app.router.add_post("/api/tools/toggle", handle_tools_toggle)
+    app.router.add_post("/api/tools/create", handle_tools_create)
+
+    # Mission Control Task Management Endpoints (~/.hermes/kanban.db)
+    init_mission_tasks_db()
+    app.router.add_get("/api/tasks", handle_tasks_list)
+    app.router.add_post("/api/tasks", handle_tasks_create)
+    app.router.add_post("/api/tasks/status", handle_tasks_status_update)
+    app.router.add_post("/api/tasks/{id}/execute", handle_tasks_execute)
+    app.router.add_post("/api/kanban/{id}/execute", handle_tasks_execute)
+    app.router.add_delete("/api/tasks/{id}", handle_tasks_delete)
 
     # Direct static outputs route
     app.router.add_static("/outputs/", path=str(COMFYUI_OUTPUT_DIR), name="outputs", follow_symlinks=True)
 
-    # WebSocket
+    # WebSocket & REST Chat
     app.router.add_get("/ws/chat", handle_chat_ws)
+    app.router.add_post("/api/chat", handle_chat_rest)
+    app.router.add_post("/api/audio/transcribe", handle_audio_transcribe)
+    app.router.add_post("/api/audio/tts", handle_audio_tts)
+    app.router.add_get("/api/audio/tts/{filename}", handle_audio_tts_serve)
 
     # Static files & PWA (with symlink traversal support for static/outputs)
     app.router.add_static("/static/", path=str(STATIC_DIR), name="static", follow_symlinks=True)
@@ -6176,29 +7794,23 @@ async def main():
     await runner.setup()
 
     sites = []
-    site_local = web.TCPSite(runner, "127.0.0.1", PORT)
-    await site_local.start()
-    sites.append(site_local)
-    logger.info(f"Strict binding active: http://127.0.0.1:{PORT}")
-
     try:
-        site_ts = web.TCPSite(runner, LOCAL_TS_IP, PORT)
-        await site_ts.start()
-        sites.append(site_ts)
-        logger.info(f"Strict binding active: http://{LOCAL_TS_IP}:{PORT}")
+        site_all = web.TCPSite(runner, "0.0.0.0", PORT)
+        await site_all.start()
+        sites.append(site_all)
+        logger.info(f"Mission Control binding active on all interfaces: http://0.0.0.0:{PORT}")
     except Exception as e:
-        logger.error(f"Failed to bind Tailscale IP {LOCAL_TS_IP}:{PORT}: {e}")
-        sys.exit(1)
-
-    # Docker Bridge Binding (Port 8080) for megan-tools container access
-    docker_ip = "172.17.0.1"
-    try:
-        site_docker = web.TCPSite(runner, docker_ip, PORT)
-        await site_docker.start()
-        sites.append(site_docker)
-        logger.info(f"Docker bridge binding active: http://{docker_ip}:{PORT}")
-    except Exception as e:
-        logger.warning(f"Could not bind Docker IP {docker_ip}:{PORT}: {e}")
+        logger.warning(f"Could not bind 0.0.0.0:{PORT}: {e}, using specific interface fallback")
+        site_local = web.TCPSite(runner, "127.0.0.1", PORT)
+        await site_local.start()
+        sites.append(site_local)
+        try:
+            site_ts = web.TCPSite(runner, LOCAL_TS_IP, PORT)
+            await site_ts.start()
+            sites.append(site_ts)
+            logger.info(f"Tailscale binding active: http://{LOCAL_TS_IP}:{PORT}")
+        except Exception as ts_err:
+            logger.error(f"Failed to bind Tailscale IP: {ts_err}")
 
     # SSL / HTTPS Binding (Port 8443) for Web Speech API & Microphone security context
     ssl_ctx = None

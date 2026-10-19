@@ -27,7 +27,7 @@ echo ""
 # ------------------------------------------------------------------------------
 # 1. PRÜFUNG: WORKER NODE 'FOX' (Always-On Standby)
 # ------------------------------------------------------------------------------
-echo -e "${BOLD}${BLUE}1. Prüfung Node 'fox' (<FOX_IP>)...${RESET}"
+echo -e "${BOLD}${BLUE}1. Prüfung Node 'fox' (100.93.184.87)...${RESET}"
 
 if ssh -o ConnectTimeout=3 -o BatchMode=yes fox "true" 2>/dev/null; then
     echo -e "  [${GREEN}ONLINE${RESET}] SSH-Verbindung zu 'fox' erfolgreich."
@@ -91,6 +91,16 @@ if ssh -o ConnectTimeout=3 -o BatchMode=yes fox "true" 2>/dev/null; then
         echo -e "[${YELLOW}OFFLINE / SCHLÄFT${RESET}] (Outer Heaven ist aktuell nicht verbunden)"
     fi
 
+    # Power Management (On-Demand via cluster-power.sh / WOL-Ready)
+    WOL_ETH=$(ssh fox "sudo ethtool eno1 2>/dev/null | awk '/^[[:space:]]*Wake-on:[[:space:]]/ {print \$2}' || echo 'n/a'")
+    RTC_WAKE=$(ssh fox "cat /sys/class/rtc/rtc0/device/power/wakeup 2>/dev/null || echo 'n/a'")
+    OLD_CRON=$(ssh fox "sudo crontab -l 2>/dev/null | grep -c 'fox-power-schedule.sh' || echo '0'")
+    if [ "$OLD_CRON" -eq "0" ]; then
+        echo -e "  Power-Modus:            [${GREEN}ON-DEMAND (Entkoppelt)${RESET}] (WOL eno1: $WOL_ETH | RTC: $RTC_WAKE | Alter 00:00-Cron: Deaktiviert)"
+    else
+        echo -e "  Power-Modus:            [${YELLOW}ALTER CRON NOCH AKTIV${RESET}] (fox-power-schedule.sh sollte aus Root-Crontab entfernt werden)"
+    fi
+
 else
     echo -e "  [${RED}OFFLINE${RESET}] 'fox' ist über SSH/Tailscale nicht erreichbar!"
 fi
@@ -100,7 +110,7 @@ echo ""
 # ------------------------------------------------------------------------------
 # 2. PRÜFUNG: COMPUTE NODE 'OUTER HEAVEN' (On-Demand)
 # ------------------------------------------------------------------------------
-echo -e "${BOLD}${BLUE}2. Prüfung Node 'outerheaven' (<OUTERHEAVEN_IP>)...${RESET}"
+echo -e "${BOLD}${BLUE}2. Prüfung Node 'outerheaven' (100.116.38.29)...${RESET}"
 
 if ssh -o ConnectTimeout=3 -o BatchMode=yes outerheaven "true" 2>/dev/null; then
     echo -e "  [${GREEN}ONLINE${RESET}] SSH-Verbindung zu 'outerheaven' erfolgreich."
@@ -119,7 +129,7 @@ if ssh -o ConnectTimeout=3 -o BatchMode=yes outerheaven "true" 2>/dev/null; then
     OLLAMA_OH=$(ssh outerheaven "systemctl is-active ollama 2>/dev/null || echo 'inactive'")
     if [ "$OLLAMA_OH" = "active" ]; then
         echo -e "  Ollama Daemon:          [${GREEN}AKTIV${RESET}]"
-        MODELS_OH=$(ssh outerheaven "ollama list 2>/dev/null | grep -E 'deepseek-r1' || echo 'Kein deepseek-r1 gefunden'")
+        MODELS_OH=$(ssh outerheaven "ollama list 2>/dev/null | grep -E 'megan|deepseek-r1' || echo 'Keine Modelle gefunden'")
         echo -e "  Installierte Modelle:\n${CYAN}$MODELS_OH${RESET}"
     else
         echo -e "  Ollama Daemon:          [${RED}$OLLAMA_OH${RESET}]"
@@ -133,13 +143,22 @@ if ssh -o ConnectTimeout=3 -o BatchMode=yes outerheaven "true" 2>/dev/null; then
         echo -e "  ComfyUI Server (:8188): [${YELLOW}BEENDET / STANDBY${RESET}]"
     fi
 
-    # Mission Control Dashboard Check
+    # Mission Control Dashboard Check (:8000)
     MC_STATUS=$(ssh outerheaven "systemctl --user is-active mission-control.service 2>/dev/null || echo 'inactive'")
     if [ "$MC_STATUS" = "active" ]; then
-        MC_BIND=$(ssh outerheaven "ss -tuln | grep ':8080 ' | awk '{print \$5}' | tr '\n' ' '")
-        echo -e "  Mission Control (:8080):[${GREEN}AKTIV / RUNNING${RESET}] (Binding: $MC_BIND)"
+        MC_BIND=$(ssh outerheaven "ss -tuln | grep ':8000 ' | awk '{print \$5}' | tr '\n' ' '")
+        echo -e "  Mission Control (:8000):[${GREEN}AKTIV / RUNNING${RESET}] (Binding: $MC_BIND)"
     else
-        echo -e "  Mission Control (:8080):[${YELLOW}$MC_STATUS${RESET}]"
+        echo -e "  Mission Control (:8000):[${YELLOW}$MC_STATUS${RESET}]"
+    fi
+
+    # Megan Studio Autonomous Service Check (:8080)
+    MEGAN_STATUS=$(ssh outerheaven "systemctl --user is-active megan-studio.service 2>/dev/null || echo 'inactive'")
+    if [ "$MEGAN_STATUS" = "active" ]; then
+        MEGAN_BIND=$(ssh outerheaven "ss -tuln | grep ':8080 ' | awk '{print \$5}' | tr '\n' ' '")
+        echo -e "  Megan Studio (:8080):   [${GREEN}AKTIV / RUNNING${RESET}] (Binding: $MEGAN_BIND)"
+    else
+        echo -e "  Megan Studio (:8080):   [${YELLOW}$MEGAN_STATUS${RESET}]"
     fi
 
     # NFS Server
@@ -154,6 +173,15 @@ if ssh -o ConnectTimeout=3 -o BatchMode=yes outerheaven "true" 2>/dev/null; then
         echo -e "  Cluster Secrets (Alpha):[${GREEN}GESICHERT (alle chmod 600)${RESET}]"
     else
         echo -e "  Cluster Secrets (Alpha):[${YELLOW}Token: $SEC_CHECK, PW: $MC_PW_CHECK, Key: $MC_KEY_CHECK${RESET}]"
+    fi
+
+    # Wake-on-LAN für Fox (10:00 Uhr Cronjob)
+    OH_WOL_CRON=$(ssh outerheaven "crontab -l 2>/dev/null | grep -q 'wakeonlan' && echo 'AKTIV' || echo 'FEHLT'")
+    OH_WOL_BIN=$(ssh outerheaven "command -v wakeonlan >/dev/null 2>&1 && echo 'INSTALLIERT' || echo 'NICHT GEFUNDEN'")
+    if [ "$OH_WOL_CRON" = "AKTIV" ] && [ "$OH_WOL_BIN" = "INSTALLIERT" ]; then
+        echo -e "  WOL-Sender für Fox:     [${GREEN}AKTIV / BEREIT${RESET}] (Täglich um 10:00 Uhr -> ec:b1:d7:52:35:56)"
+    else
+        echo -e "  WOL-Sender für Fox:     [${YELLOW}WARNUNG${RESET}] (Binary: $OH_WOL_BIN, Cron: $OH_WOL_CRON)"
     fi
 else
     echo -e "  [${YELLOW}STANDBY / AUSGESCHALTET${RESET}] 'outerheaven' schläft plangemäß (On-Demand Compute)."

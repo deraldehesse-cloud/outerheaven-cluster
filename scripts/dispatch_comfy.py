@@ -184,33 +184,26 @@ def build_workflow(
     if seed is None:
         seed = secrets.randbelow(999999999999)
 
-    checkpoint = render_params.get("checkpoint", "DreamShaper8_LCM.safetensors")
-    steps = int(render_params.get("steps", 14))
-    cfg = float(render_params.get("cfg", 6.5))
-    sampler = render_params.get("sampler_name", "euler")
-    scheduler = render_params.get("scheduler", "normal")
+    checkpoint = render_params.get("checkpoint", "sd_xl_base_1.0.safetensors")
+    steps = int(render_params.get("steps", 18))
+    cfg = float(render_params.get("cfg", 7.0))
+    sampler = "euler"
+    scheduler = "karras"
     denoise = float(render_params.get("denoise", 1.0))
-    width = int(render_params.get("width", 512))
-    height = int(render_params.get("height", 768))
-    prefix = render_params.get("filename_prefix", "Megan_Companion")
+    prefix = render_params.get("filename_prefix", "Megan_SDXL")
 
-    # Anti-Darkness & Optimal CFG / Step Normalization
-    is_lcm = "lcm" in checkpoint.lower()
-    if is_lcm:
-        # LCM requires low CFG (1.5 - 2.5) to avoid extreme burned blacks & contrast artifacts
-        if cfg > 3.0:
-            cfg = 2.0
-        if steps > 12:
-            steps = 8
+    # Native SDXL Standard-Dimensionen
+    ar = str(render_params.get("aspect_ratio", "portrait")).lower()
+    if any(k in ar for k in ["landscape", "quer", "breit", "wide", "16:9", "4:3", "3:2"]):
+        width, height = 1216, 832
+    elif any(k in ar for k in ["square", "quadrat", "1:1"]):
+        width, height = 1024, 1024
     else:
-        # Standard SD1.5 / SDXL checkpoints need balanced CFG (5.5 - 6.5) and adequate steps
-        if steps < 20:
-            steps = 25
-        if cfg > 7.0:
-            cfg = 6.0
-        if sampler == "euler" and scheduler == "normal":
-            sampler = "euler_ancestral"
-            scheduler = "karras"
+        # portrait (default): 832 x 1216
+        width, height = 832, 1216
+
+    # KSampler steps fest auf 16 bis 18 festlegen (Euler Karras)
+    steps = max(16, min(steps, 18))
 
     workflow = {
         "1": {
