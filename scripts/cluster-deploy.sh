@@ -30,7 +30,11 @@ RESET="\033[0m"
 
 # Pfade und Ziel-Hosts (mit realpath für Symlink-Unterstützung z. B. ~/bin/cluster-deploy)
 SCRIPT_DIR="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd)"
-REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+if [ -d "/home/bigboss/outerheaven-cluster-repo/.git" ]; then
+    REPO_DIR="/home/bigboss/outerheaven-cluster-repo"
+else
+    REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
 
 OH_HOST="outerheaven"
 OH_IP="100.116.38.29"
@@ -48,9 +52,11 @@ OH_ONLINE=0
 FOX_ONLINE=0
 OH_SYNC_MC_OK=0
 OH_SYNC_MEGAN_OK=0
+OH_SYNC_HERMES_OK=0
 FOX_SYNC_OK=0
 OH_RESTART_MC_OK=0
 OH_RESTART_MEGAN_OK=0
+OH_RESTART_HERMES_OK=0
 OH_STREAMLIT_DISABLED=0
 FOX_RESTART_OK=0
 
@@ -188,6 +194,26 @@ if [ "${OH_ONLINE}" -eq 1 ]; then
         rsync -avz "${REPO_DIR}/systemd/megan-studio.service" "${OH_HOST}:${OH_TARGET_SYSTEMD}" >/dev/null 2>&1 || true
         log_ok "Systemd Service-Definitionen aktualisiert."
     fi
+
+    # 3d. Hermes Agent Web UI, Skills & Cluster Nodes synchronisieren
+    log_info "Übertrage Hermes Agent (hermes_web_ui.py, skills_registry.json, cluster_nodes.json) nach ${OH_HOST}:~/Documents/OuterHeaven-Projekt-doc/..."
+    ssh -o BatchMode=yes -o ConnectTimeout=5 "${OH_HOST}" "mkdir -p ~/Documents/OuterHeaven-Projekt-doc" 2>/dev/null || true
+    
+    HERMES_SRC_DIR="/home/bigboss/Documents/OuterHeaven-Projekt-doc"
+    if [ ! -f "${HERMES_SRC_DIR}/hermes_web_ui.py" ] && [ -f "${REPO_DIR}/hermes_web_ui.py" ]; then
+        HERMES_SRC_DIR="${REPO_DIR}"
+    fi
+
+    if rsync -avz \
+        "${HERMES_SRC_DIR}/hermes_web_ui.py" \
+        "${HERMES_SRC_DIR}/skills_registry.json" \
+        "${HERMES_SRC_DIR}/cluster_nodes.json" \
+        "${OH_HOST}:~/Documents/OuterHeaven-Projekt-doc/"; then
+        log_ok "Hermes Agent Web UI, Skills & Cluster Nodes erfolgreich nach outerheaven synchronisiert."
+        OH_SYNC_HERMES_OK=1
+    else
+        log_fail "Rsync von Hermes Agent zu outerheaven fehlgeschlagen!"
+    fi
 else
     log_warn "Überspringe Outer Heaven Sync, da Knoten offline ist."
 fi
@@ -276,9 +302,21 @@ if [ "${OH_ONLINE}" -eq 1 ]; then
     else
         log_fail "Fehler beim Starten von megan-studio.service auf outerheaven!"
     fi
+
+    # 5d. Hermes Agent Web UI (:8081) auf outerheaven via tmux neu starten
+    log_info "Starte Hermes Agent Web UI (:8081) auf outerheaven neu..."
+    ssh -q outerheaven "pkill --older 1 -f hermes_web_ui.py 2>/dev/null || true; tmux kill-session -t hermes_ui 2>/dev/null; tmux new-session -d -s hermes_ui 'cd ~/Documents/OuterHeaven-Projekt-doc && python3 hermes_web_ui.py'"
+    sleep 1
+    OH_HERMES_RUNNING=$(ssh -o BatchMode=yes -o ConnectTimeout=3 "${OH_HOST}" "tmux has-session -t hermes_ui 2>/dev/null && echo 'running' || echo 'stopped'")
+    if [ "${OH_HERMES_RUNNING}" = "running" ]; then
+        log_ok "Hermes Agent Web UI läuft auf outerheaven (Port 8081 via tmux session 'hermes_ui')."
+        OH_RESTART_HERMES_OK=1
+    else
+        log_warn "Hermes Agent Web UI Session-Status auf outerheaven: ${OH_HERMES_RUNNING}"
+    fi
 fi
 
-# 5d. Fox: hermes-gateway.service neu starten (falls aktiv)
+# 5e. Fox: hermes-gateway.service neu starten (falls aktiv)
 if [ "${FOX_SYNC_OK}" -eq 1 ]; then
     log_info "Triggere Daemon-Reload & Gateway-Restart auf fox..."
     if ssh -o BatchMode=yes -o ConnectTimeout=5 "${FOX_HOST}" 'systemctl --user daemon-reload && (systemctl --user restart hermes-gateway.service 2>/dev/null || true)'; then
@@ -303,13 +341,16 @@ if [ "${OH_ONLINE}" -eq 1 ] && [ "${OH_RESTART_MC_OK}" -eq 1 ] && [ "${OH_RESTAR
     echo -e " Node Outer Heaven (HP Z620): [ ${GREEN}${BOLD}ERFOLGREICH KONSOLIDIERT & GESTARTET${RESET} ]"
     echo -e "   ├── Mission Control (:8000):   [ ${GREEN}ACTIVE / ONLINE${RESET} ]"
     echo -e "   ├── Megan Studio    (:8080):   [ ${GREEN}ACTIVE / ONLINE${RESET} ]"
+    echo -e "   ├── Hermes Agent UI (:8081):   [ $([ "${OH_RESTART_HERMES_OK}" -eq 1 ] && echo "${GREEN}ACTIVE / TMUX${RESET}" || echo "${YELLOW}STANDBY${RESET}") ]"
     echo -e "   └── Streamlit (8501):          [ ${GREEN}DISABLED / STILLGELEGT${RESET} ]"
 elif [ "${OH_ONLINE}" -eq 0 ]; then
     echo -e " Node Outer Heaven (HP Z620): [ ${RED}${BOLD}OFFLINE / NICHT ERREICHBAR${RESET} ]"
 else
     echo -e " Node Outer Heaven (HP Z620): [ ${YELLOW}${BOLD}TEILWEISE FEHLGESCHLAGEN${RESET} ]"
     echo -e "   ├── Mission Control (:8000):   [ $([ "${OH_RESTART_MC_OK}" -eq 1 ] && echo "${GREEN}ACTIVE${RESET}" || echo "${RED}CHECK NEEDED${RESET}") ]"
-    echo -e "   └── Megan Studio    (:8080):   [ $([ "${OH_RESTART_MEGAN_OK}" -eq 1 ] && echo "${GREEN}ACTIVE${RESET}" || echo "${RED}CHECK NEEDED${RESET}") ]"
+    echo -e "   ├── Megan Studio    (:8080):   [ $([ "${OH_RESTART_MEGAN_OK}" -eq 1 ] && echo "${GREEN}ACTIVE${RESET}" || echo "${RED}CHECK NEEDED${RESET}") ]"
+    echo -e "   ├── Hermes Agent UI (:8081):   [ $([ "${OH_RESTART_HERMES_OK}" -eq 1 ] && echo "${GREEN}ACTIVE / TMUX${RESET}" || echo "${YELLOW}STANDBY${RESET}") ]"
+    echo -e "   └── Streamlit (8501):          [ ${GREEN}DISABLED / STILLGELEGT${RESET} ]"
 fi
 
 # Fox Status
