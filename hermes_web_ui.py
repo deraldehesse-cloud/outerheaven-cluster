@@ -137,6 +137,7 @@ HTML_TEMPLATE = """
 <html lang="de">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>// HERMES AGENT [Outer Heaven Cluster]</title>
     <style>
         :root {
@@ -353,9 +354,99 @@ HTML_TEMPLATE = """
         
         pre { background: #000; padding: 10px; overflow-x: auto; margin-top: 10px; border: 1px solid #333; }
         code { color: var(--accent-green); }
+
+        #mobile-menu-btn { display: none; }
+        #sidebar-backdrop { display: none; }
+
+        @media (max-width: 900px) {
+            html, body {
+                width: 100%;
+                height: 100dvh;
+                overflow: hidden;
+                font-size: 16px;
+            }
+            input, textarea, select {
+                font-size: 16px !important;
+            }
+            #sidebar {
+                position: fixed;
+                top: 0; left: 0; bottom: 0;
+                width: 82vw;
+                max-width: 300px;
+                z-index: 95;
+                transform: translateX(-100%);
+                transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: 6px 0 24px rgba(0, 0, 0, 0.85);
+            }
+            #sidebar.mobile-open, #sidebar.open { transform: translateX(0); }
+            #sidebar-backdrop {
+                position: fixed;
+                inset: 0;
+                background: rgba(5, 6, 10, 0.72);
+                backdrop-filter: blur(2px);
+                z-index: 90;
+            }
+            #sidebar-backdrop.mobile-open, #sidebar-backdrop.active { display: block; }
+            #main { width: 100%; height: 100dvh; flex: 1 1 100%; }
+            #header { padding: 10px 12px; gap: 8px; flex-wrap: wrap; }
+            #header h1 { font-size: 1.02rem; display: flex; align-items: center; gap: 8px; }
+            #mobile-menu-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 44px;
+                height: 44px;
+                min-width: 44px;
+                min-height: 44px;
+                background: rgba(122, 162, 247, 0.12);
+                color: var(--accent-blue);
+                border: 1px solid var(--accent-blue);
+                border-radius: 4px;
+                padding: 0;
+                font-family: inherit;
+                font-size: 24px;
+                line-height: 1;
+                font-weight: bold;
+                cursor: pointer;
+            }
+            #modfile-view-panel { padding: 8px 12px; max-height: 150px; }
+            #modfile-view-header { flex-wrap: wrap; gap: 6px; }
+            #chat-container { padding: 12px; gap: 10px; }
+            .msg {
+                max-width: 92%;
+                font-size: 16px;
+                line-height: 1.45;
+                padding: 10px 13px;
+                word-break: break-word;
+                overflow-wrap: anywhere;
+            }
+            #input-area { padding: 10px 12px; gap: 8px; align-items: stretch; }
+            #chat-input { font-size: 16px; height: 48px; padding: 10px; border-radius: 4px; }
+            #send-btn {
+                width: auto;
+                min-width: 82px;
+                padding: 0 14px;
+                margin-bottom: 0;
+                font-weight: bold;
+                font-size: 16px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            #modfile-editor, #skills-modal, #skill-creator-modal {
+                position: fixed !important;
+                inset: 0 !important;
+                padding: 12px !important;
+                z-index: 120 !important;
+                overflow-y: auto !important;
+            }
+            #skills-modal-container { padding: 14px; max-height: 92dvh; }
+            .skill-item { flex-direction: column; }
+        }
     </style>
 </head>
 <body>
+    <div id="sidebar-backdrop" onclick="if(window.toggleHermesSidebar) window.toggleHermesSidebar(false);"></div>
 
     <!-- SIDEBAR -->
     <div id="sidebar">
@@ -394,7 +485,7 @@ HTML_TEMPLATE = """
     <!-- MAIN AREA -->
     <div id="main">
         <div id="header">
-            <h1>// HERMES AGENT _</h1>
+            <h1><button id="mobile-menu-btn" type="button" title="Menü öffnen" onclick="if(window.toggleHermesSidebar) window.toggleHermesSidebar();">☰</button>// HERMES AGENT _</h1>
             <div style="display: flex; align-items: center; gap: 15px;">
                 <span style="font-size: 0.85em; color: var(--text-main);">
                     Aktives Modell: <strong id="current-model-display" style="color: var(--accent-blue);">Lade...</strong>
@@ -480,54 +571,67 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- SKILL-CREATOR MODAL -->
-        <div id="skill-creator-modal" style="display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(9, 10, 15, 0.94); backdrop-filter: blur(5px); z-index: 25; padding: 25px; justify-content: center; align-items: center;">
-            <div style="width: 100%; max-width: 780px; background: var(--bg-panel); border: 1px solid var(--accent-green); border-radius: 4px; padding: 25px; display: flex; flex-direction: column; max-height: 90vh; box-shadow: 0 10px 30px rgba(0,0,0,0.85); overflow-y: auto;">
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 15px;">
+        <!-- SKILL-CREATOR MODAL (Vereinfachter, intuitiver Skill-Builder) -->
+        <div id="skill-creator-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(9, 10, 15, 0.94); backdrop-filter: blur(5px); z-index: 110; padding: 14px; justify-content: center; align-items: center;">
+            <div class="modal-content" style="width: 100%; max-width: 640px; background: var(--bg-panel); border: 1px solid var(--accent-green); border-radius: 6px; padding: 20px; display: flex; flex-direction: column; max-height: 92vh; box-shadow: 0 10px 30px rgba(0,0,0,0.85); overflow-y: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 14px; gap: 10px;">
                     <div>
-                        <h2 style="color: var(--accent-green); font-size: 1.15em;">// SKILL-CREATOR: NEUEN AGENTEN-SKILL ERSTELLEN</h2>
-                        <span style="font-size: 0.8em; color: #888;">Definiere Auslöser, Function-Calling-Parameter und Handler-Aktion.</span>
+                        <h2 style="color: var(--accent-green); font-size: 1.1em; margin: 0;">// SKILL-BUILDER</h2>
+                        <span style="font-size: 0.82em; color: #9aa5ce;">Erstelle in 3 einfachen Schritten eine neue Fähigkeit für Hermes.</span>
                     </div>
-                    <button class="btn" style="width: auto; padding: 4px 10px; border-color: var(--accent-red);" onclick="closeSkillCreatorModal()">[✕ Schließen]</button>
+                    <button class="btn" style="width: auto; padding: 6px 12px; margin: 0; border-color: var(--accent-red); color: var(--accent-red); flex-shrink: 0;" onclick="closeSkillCreatorModal()">✕</button>
+                </div>
+
+                <!-- Schnellstart-Vorlagen (1-Click Presets) -->
+                <div style="margin-bottom: 14px;">
+                    <span style="font-size: 0.78em; color: #888; display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Schnellstart-Vorlage wählen (Optional):</span>
+                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                        <button type="button" class="btn" style="width: auto; margin: 0; padding: 6px 10px; font-size: 0.82em; border-color: var(--accent-blue); color: var(--accent-blue);" onclick="applySkillPreset('mahnung')">📄 Dokument-/Mahnungs-Alarm</button>
+                        <button type="button" class="btn" style="width: auto; margin: 0; padding: 6px 10px; font-size: 0.82em; border-color: var(--accent-green); color: var(--accent-green);" onclick="applySkillPreset('telegram')">📲 Telegram-Benachrichtigung</button>
+                        <button type="button" class="btn" style="width: auto; margin: 0; padding: 6px 10px; font-size: 0.82em; border-color: #bb9af7; color: #bb9af7;" onclick="applySkillPreset('system')">🖥 System-/Server-Check</button>
+                    </div>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 14px;">
                     <div>
-                        <label style="font-size: 0.8em; color: var(--accent-blue); display: block; margin-bottom: 5px; font-weight: bold;">Skill-Name:</label>
-                        <input type="text" id="creator-skill-name" class="btn" style="background: var(--bg-dark); width: 100%; cursor: text; padding: 9px 12px;" placeholder="z. B. mahnungs_alarm oder backup_check">
+                        <label style="font-size: 0.88em; color: var(--accent-blue); display: block; margin-bottom: 5px; font-weight: bold;">1. Wie soll der Skill heißen?</label>
+                        <input type="text" id="creator-skill-name" class="btn" style="background: var(--bg-dark); width: 100%; cursor: text; padding: 11px 12px; margin: 0; font-size: 16px;" placeholder="z. B. Mahnungs-Alarm oder Server-Check">
                     </div>
 
                     <div>
-                        <label style="font-size: 0.8em; color: var(--accent-blue); display: block; margin-bottom: 5px; font-weight: bold;">Beschreibung / Wann auslösen? (Modell-Instruktion):</label>
-                        <textarea id="creator-skill-desc" class="btn" style="background: var(--bg-dark); width: 100%; height: 85px; cursor: text; padding: 9px 12px; resize: vertical; line-height: 1.4;" placeholder="z. B. Löse diesen Skill aus, wenn im Text eine Mahnung, Inkassoforderung oder Zahlungsfrist vorkommt."></textarea>
+                        <label style="font-size: 0.88em; color: var(--accent-blue); display: block; margin-bottom: 5px; font-weight: bold;">2. Wann soll Hermes aktiv werden?</label>
+                        <textarea id="creator-skill-desc" class="btn" style="background: var(--bg-dark); width: 100%; height: 84px; cursor: text; padding: 11px 12px; margin: 0; resize: vertical; line-height: 1.45; font-size: 16px;" placeholder="Beschreibe in normalen Worten: z. B. Wenn eine Rechnung, Mahnung oder dringende Frist erkannt wird."></textarea>
                     </div>
 
                     <div>
-                        <label style="font-size: 0.8em; color: var(--accent-blue); display: block; margin-bottom: 5px; font-weight: bold;">Parameter / Datenfelder (Extraktions-Werte):</label>
-                        <input type="text" id="creator-skill-params" class="btn" style="background: var(--bg-dark); width: 100%; cursor: text; padding: 9px 12px;" placeholder="z. B. aktenzeichen, betrag, dringlichkeit (kommagetrennt)">
-                        <span style="font-size: 0.75em; color: #777; display: block; margin-top: 3px;">Werte, die das Modell strukturiert extrahieren und an den Handler übergeben soll.</span>
-                    </div>
-
-                    <div>
-                        <label style="font-size: 0.8em; color: var(--accent-blue); display: block; margin-bottom: 5px; font-weight: bold;">Aktion / Handler (Ausführungs-Typ):</label>
-                        <select id="creator-skill-handler" class="btn" style="background: var(--bg-dark); width: 100%;">
-                            <option value="Desktop-Notification">Desktop-Notification (Benachrichtigung)</option>
-                            <option value="Webhook / Telegram">Webhook / Telegram (Dispatcher)</option>
-                            <option value="Kommandozeilen-Befehl">Kommandozeilen-Befehl (Terminal / Shell)</option>
+                        <label style="font-size: 0.88em; color: var(--accent-blue); display: block; margin-bottom: 5px; font-weight: bold;">3. Was soll ausgeführt werden?</label>
+                        <select id="creator-skill-handler" class="btn" style="background: var(--bg-dark); width: 100%; padding: 11px 12px; margin: 0; font-size: 16px;">
+                            <option value="Desktop-Notification">🔔 Hinweis / Push-Benachrichtigung senden</option>
+                            <option value="Webhook / Telegram">📲 Nachricht an Telegram / Webhook senden</option>
+                            <option value="Kommandozeilen-Befehl">⚡ Terminal-Befehl / Skript ausführen</option>
                         </select>
                     </div>
 
-                    <div>
-                        <label style="font-size: 0.8em; color: #888; display: block; margin-bottom: 5px;">Handler-Ziel / Detail (Optional):</label>
-                        <input type="text" id="creator-skill-target" class="btn" style="background: var(--bg-dark); width: 100%; cursor: text; padding: 8px 12px; font-size: 0.85em;" placeholder="z. B. Telegram Chat-ID, Webhook-URL oder CLI-Befehlstemplate">
-                    </div>
+                    <details style="background: rgba(0, 0, 0, 0.28); border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px;">
+                        <summary style="cursor: pointer; font-size: 0.84em; color: #888; font-weight: bold; user-select: none;">⚙ Erweiterte Optionen (Datenfelder & Ziel-Adresse)</summary>
+                        <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
+                            <div>
+                                <label style="font-size: 0.8em; color: var(--accent-blue); display: block; margin-bottom: 4px;">Automatisch auszulesende Infos (kommagetrennt):</label>
+                                <input type="text" id="creator-skill-params" class="btn" style="background: var(--bg-dark); width: 100%; cursor: text; padding: 9px 12px; margin: 0; font-size: 16px;" placeholder="z. B. betrag, frist, absender (Standard: kontext, zusammenfassung)">
+                            </div>
+                            <div>
+                                <label style="font-size: 0.8em; color: #888; display: block; margin-bottom: 4px;">Ziel-Adresse / Skript-Pfad (Optional):</label>
+                                <input type="text" id="creator-skill-target" class="btn" style="background: var(--bg-dark); width: 100%; cursor: text; padding: 9px 12px; margin: 0; font-size: 16px;" placeholder="z. B. Telegram Chat-ID, URL oder Shell-Befehl">
+                            </div>
+                        </div>
+                    </details>
                 </div>
 
-                <div id="creator-status" style="margin-top: 15px; font-size: 0.85em; font-weight: bold;"></div>
+                <div id="creator-status" style="margin-top: 12px; font-size: 0.88em; font-weight: bold;"></div>
 
-                <div style="border-top: 1px solid var(--border); margin-top: 15px; padding-top: 15px; display: flex; justify-content: flex-end; gap: 10px;">
-                    <button class="btn" style="width: auto; border-color: var(--accent-red);" onclick="closeSkillCreatorModal()">Abbrechen</button>
-                    <button class="btn" style="width: auto; border-color: var(--accent-green); color: var(--accent-green);" onclick="submitSkillCreator()">[💾 Skill speichern & registrieren]</button>
+                <div style="border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; display: flex; justify-content: flex-end; gap: 10px;">
+                    <button class="btn" style="width: auto; margin: 0; padding: 10px 16px; border-color: var(--accent-red);" onclick="closeSkillCreatorModal()">Abbrechen</button>
+                    <button class="btn" style="width: auto; margin: 0; padding: 10px 18px; border-color: var(--accent-green); color: var(--accent-green); font-weight: bold;" onclick="submitSkillCreator()">✓ Skill aktivieren</button>
                 </div>
             </div>
         </div>
@@ -834,6 +938,37 @@ SYSTEM \\\"\\\"\\\"Du bist Hermes Ops im Outer Heaven Cluster. Du hast Zugriff a
         }
 
         // --- Skill Creator Interaktion ---
+        const SKILL_PRESETS = {
+            mahnung: {
+                name: "mahnungs_alarm",
+                desc: "Löse diesen Skill aus, sobald im Text eine Mahnung, Zahlungsfrist oder dringende Forderung erkannt wird.",
+                params: "absender, betrag, frist",
+                handler: "Desktop-Notification"
+            },
+            telegram: {
+                name: "telegram_infosendung",
+                desc: "Sende eine Zusammenfassung an Telegram, wenn der Nutzer eine Weiterleitung oder Benachrichtigung aufs Handy wünscht.",
+                params: "titel, nachricht, prioritaet",
+                handler: "Webhook / Telegram"
+            },
+            system: {
+                name: "cluster_system_check",
+                desc: "Führe eine Diagnose aus, wenn nach Server-Status, Speicherplatz oder GPU-Auslastung gefragt wird.",
+                params: "knoten, dienst",
+                handler: "Kommandozeilen-Befehl"
+            }
+        };
+
+        function applySkillPreset(presetKey) {
+            const p = SKILL_PRESETS[presetKey];
+            if (!p) return;
+            document.getElementById('creator-skill-name').value = p.name;
+            document.getElementById('creator-skill-desc').value = p.desc;
+            document.getElementById('creator-skill-params').value = p.params;
+            document.getElementById('creator-skill-handler').value = p.handler;
+            document.getElementById('creator-status').innerHTML = "<span style='color: var(--accent-blue);'>[i] Vorlage geladen – du kannst die Felder direkt anpassen oder sofort speichern.</span>";
+        }
+
         function openSkillCreatorModal() {
             document.getElementById('creator-status').innerText = "";
             document.getElementById('creator-skill-name').value = "";
@@ -952,6 +1087,36 @@ SYSTEM \\\"\\\"\\\"Du bist Hermes Ops im Outer Heaven Cluster. Du hast Zugriff a
                 sendMessage();
             }
         });
+
+        // Mobile Sidebar Drawer Helper
+        window.toggleHermesSidebar = function(forceOpen) {
+            const sb = document.getElementById('sidebar');
+            const bd = document.getElementById('sidebar-backdrop');
+            if (!sb || !bd) return;
+            const shouldOpen = (typeof forceOpen === 'boolean') ? forceOpen : !sb.classList.contains('mobile-open');
+            if (shouldOpen) {
+                sb.classList.add('mobile-open');
+                bd.classList.add('mobile-open');
+            } else {
+                sb.classList.remove('mobile-open');
+                bd.classList.remove('mobile-open');
+            }
+        };
+
+        document.querySelectorAll('#sidebar button.btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (window.innerWidth <= 900) window.toggleHermesSidebar(false);
+            });
+        });
+
+        if (window.innerWidth <= 900) {
+            const modPanel = document.getElementById('modfile-view-panel');
+            const toggleBtn = document.getElementById('toggle-view-btn');
+            if (modPanel) {
+                modPanel.style.display = 'none';
+                if (toggleBtn) toggleBtn.innerText = '[📄] Modelfile-Ansicht: AUS';
+            }
+        }
 
         // Init
         fetchModels();
