@@ -42,6 +42,9 @@
     .scrollbar-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
   </style>
 </head>
+<!--suppress GrazieInspection, GrazieInspection -->
+zieInspection -->
+zieInspection -->
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans select-none">
 
   <!-- Top Navigation Bar -->
@@ -96,9 +99,9 @@
       <!-- Chat Input -->
       <div class="pt-2 border-t border-slate-800/80 space-y-2 shrink-0">
         <div class="flex items-center space-x-2">
-          <input type="text" id="chatInput" placeholder="Nachricht an Megan (z.B. 'Prüfe Systemstatus' oder 'Termine heute')..."
-                 onkeydown="if(event.key==='Enter') sendMessage()"
-                 class="flex-1 bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-pink-500">
+          <label for="chatInput"></label><input type="text" id="chatInput" placeholder="Nachricht an Megan (z.B. 'Prüfe Systemstatus' oder 'Termine heute')..."
+                                                onkeydown="if(event.key==='Enter') sendMessage()"
+                                                class="flex-1 bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-pink-500">
           <button id="sendBtn" onclick="sendMessage()" class="px-3.5 py-1.5 bg-pink-600 hover:bg-pink-500 text-white rounded text-xs font-bold font-mono transition">
             Senden
           </button>
@@ -125,7 +128,7 @@
         <div class="grid grid-cols-2 gap-2">
           <div>
             <label class="block text-[9px] uppercase font-bold text-slate-400 font-mono mb-0.5">Sampler</label>
-            <select id="botRenderSampler" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200">
+            <label for="botRenderSampler"></label><select id="botRenderSampler" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200">
               <option value="euler">euler</option>
               <option value="euler_ancestral" selected>euler_ancestral</option>
               <option value="dpmpp_2m">dpmpp_2m</option>
@@ -134,7 +137,7 @@
           </div>
           <div>
             <label class="block text-[9px] uppercase font-bold text-slate-400 font-mono mb-0.5">Scheduler</label>
-            <select id="botRenderScheduler" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200">
+            <label for="botRenderScheduler"></label><select id="botRenderScheduler" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-200">
               <option value="normal" selected>normal</option>
               <option value="karras">karras</option>
               <option value="sgm_uniform">sgm_uniform</option>
@@ -145,23 +148,23 @@
         <div class="grid grid-cols-4 gap-1.5 text-center">
           <div>
             <label class="block text-[9px] uppercase text-slate-400 font-mono">Steps</label>
-            <input type="number" id="botRenderSteps" min="4" max="50" value="14"
-                   class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-amber-300 text-center font-mono">
+            <label for="botRenderSteps"></label><input type="number" id="botRenderSteps" min="4" max="50" value="14"
+                                                       class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-amber-300 text-center font-mono">
           </div>
           <div>
             <label class="block text-[9px] uppercase text-slate-400 font-mono">CFG Scale</label>
-            <input type="number" id="botRenderCfg" min="1.0" max="15.0" step="0.5" value="6.5"
-                   class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-amber-300 text-center font-mono">
+            <label for="botRenderCfg"></label><input type="number" id="botRenderCfg" min="1.0" max="15.0" step="0.5" value="6.5"
+                                                     class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-amber-300 text-center font-mono">
           </div>
           <div>
             <label class="block text-[9px] uppercase text-slate-400 font-mono">Breite</label>
-            <input type="number" id="botRenderWidth" value="512" step="64"
-                   class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200 text-center font-mono">
+            <label for="botRenderWidth"></label><input type="number" id="botRenderWidth" value="512" step="64"
+                                                       class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200 text-center font-mono">
           </div>
           <div>
             <label class="block text-[9px] uppercase text-slate-400 font-mono">Höhe</label>
-            <input type="number" id="botRenderHeight" value="768" step="64"
-                   class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200 text-center font-mono">
+            <label for="botRenderHeight"></label><input type="number" id="botRenderHeight" value="768" step="64"
+                                                        class="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200 text-center font-mono">
           </div>
         </div>
 
@@ -171,25 +174,25 @@
             <label class="block text-[9px] uppercase font-bold text-cyan-300 font-mono">🏷️ Danbooru-Tags:</label>
             <span class="text-[9px] text-slate-500 font-mono">Autocomplete aktiv</span>
           </div>
-          <input type="text" id="danbooruTagsInput" placeholder="Tag tippen (z.B. masterpiece, green_eyes, solo)..."
-                 oninput="handleDanbooruInput(this.value)"
-                 class="w-full bg-slate-950 border border-cyan-800/80 rounded px-2 py-1 text-xs text-cyan-200 focus:border-cyan-400 focus:outline-none font-mono">
+          <label for="danbooruTagsInput"></label><input type="text" id="danbooruTagsInput" placeholder="Tag tippen (z.B. masterpiece, green_eyes, solo)..."
+                                                        oninput="handleDanbooruInput(this.value)"
+                                                        class="w-full bg-slate-950 border border-cyan-800/80 rounded px-2 py-1 text-xs text-cyan-200 focus:border-cyan-400 focus:outline-none font-mono">
           <div id="danbooruSuggestions" class="hidden absolute z-50 left-0 right-0 mt-1 bg-slate-900 border border-cyan-700/80 rounded shadow-2xl max-h-36 overflow-y-auto scrollbar-thin text-xs"></div>
         </div>
 
         <!-- Positive Prompt / Fließtext -->
         <div>
           <label class="block text-[9px] uppercase font-bold text-slate-400 font-mono mb-0.5">Prompt (Szenen-Beschreibung):</label>
-          <textarea id="renderPrompt" rows="2" placeholder="1girl, megan, solo, smiling, couch pov, cozy room, soft cinematic lighting..."
-                    oninput="updatePromptInspector()"
-                    class="w-full bg-slate-950 border border-slate-700 rounded p-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none resize-none"></textarea>
+          <label for="renderPrompt"></label><textarea id="renderPrompt" rows="2" placeholder="1girl, megan, solo, smiling, couch pov, cozy room, soft cinematic lighting..."
+                                                      oninput="updatePromptInspector()"
+                                                      class="w-full bg-slate-950 border border-slate-700 rounded p-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none resize-none"></textarea>
         </div>
 
         <!-- Negative Prompt -->
         <div>
           <label class="block text-[9px] uppercase font-bold text-slate-400 font-mono mb-0.5">Negative Prompt:</label>
-          <textarea id="renderNegativePrompt" rows="1" placeholder="lowres, bad anatomy, text, watermark, bad hands..."
-                    class="w-full bg-slate-950 border border-slate-700 rounded p-1.5 text-[11px] text-slate-300 focus:border-cyan-500 focus:outline-none resize-none">ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, mutated</textarea>
+          <label for="renderNegativePrompt"></label><textarea id="renderNegativePrompt" rows="1" placeholder="lowres, bad anatomy, text, watermark, bad hands..."
+                                                              class="w-full bg-slate-950 border border-slate-700 rounded p-1.5 text-[11px] text-slate-300 focus:border-cyan-500 focus:outline-none resize-none">ugly, deformed, bad anatomy, blurry, low quality, artifacts, text, watermark, mutated</textarea>
         </div>
 
         <!-- Prompt Inspector (Transparente Vorschau vor dem Render) -->
@@ -250,7 +253,7 @@
           <span>Charakter-Preset wählen:</span>
           <span class="text-pink-400 font-bold">Megan Canonical</span>
         </div>
-        <select id="charPresetSelect" onchange="applyCharPreset(this.value)" class="w-full bg-slate-950 border border-pink-700/50 rounded px-2 py-1 text-xs text-pink-200 font-mono">
+        <label for="charPresetSelect"></label><select id="charPresetSelect" onchange="applyCharPreset(this.value)" class="w-full bg-slate-950 border border-pink-700/50 rounded px-2 py-1 text-xs text-pink-200 font-mono">
           <option value="">Lade Presets...</option>
         </select>
       </div>
@@ -261,9 +264,9 @@
           <span>System-Prompt & Rollen-Justierung:</span>
           <span id="charCount" class="text-slate-500">0 Zeichen</span>
         </div>
-        <textarea id="vaultLoreText" rows="7"
-                  oninput="document.getElementById('charCount').textContent = this.value.length + ' Zeichen'"
-                  class="flex-1 w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-pink-100 font-mono focus:border-pink-500 focus:outline-none resize-none leading-relaxed scrollbar-thin"></textarea>
+        <label for="vaultLoreText"></label><textarea id="vaultLoreText" rows="7"
+                                                     oninput="document.getElementById('charCount').textContent = this.value.length + ' Zeichen'"
+                                                     class="flex-1 w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-pink-100 font-mono focus:border-pink-500 focus:outline-none resize-none leading-relaxed scrollbar-thin"></textarea>
         <div class="flex items-center space-x-2 shrink-0">
           <button onclick="loadVaultLore()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-mono transition">
             ⟳ Neu laden
@@ -1361,8 +1364,8 @@
       <div class="px-3 py-2 bg-black/60 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
         <div class="flex items-center space-x-2 flex-1 min-w-[240px]">
           <label class="text-[10px] text-slate-400 uppercase font-bold shrink-0">Datei:</label>
-          <select id="customNodeFileSelect" onchange="onCustomNodeFileChange(this.value)"
-                  class="flex-1 max-w-md bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs text-cyan-200 font-mono focus:border-amber-400 focus:outline-none">
+          <label for="customNodeFileSelect"></label><select id="customNodeFileSelect" onchange="onCustomNodeFileChange(this.value)"
+                                                            class="flex-1 max-w-md bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs text-cyan-200 font-mono focus:border-amber-400 focus:outline-none">
             <option value="">Lade Dateiliste...</option>
           </select>
           <button type="button" onclick="reloadCurrentCustomNodeFile()" title="Datei neu vom Server laden"
@@ -1390,12 +1393,12 @@
           1
         </div>
         <!-- Monospace Textarea -->
-        <textarea id="customNodeCodeArea" spellcheck="false"
-                  oninput="onCustomNodeCodeInput()"
-                  onscroll="syncCustomNodeLineScroll()"
-                  onkeydown="handleEditorTabKey(event)"
-                  placeholder="Lade Quellcode..."
-                  class="flex-1 h-full bg-black/95 text-slate-100 p-3.5 pt-3.5 font-mono text-xs leading-5 resize-none focus:outline-none scrollbar-thin select-text whitespace-pre overflow-auto"></textarea>
+        <label for="customNodeCodeArea"></label><textarea id="customNodeCodeArea" spellcheck="false"
+                                                          oninput="onCustomNodeCodeInput()"
+                                                          onscroll="syncCustomNodeLineScroll()"
+                                                          onkeydown="handleEditorTabKey(event)"
+                                                          placeholder="Lade Quellcode..."
+                                                          class="flex-1 h-full bg-black/95 text-slate-100 p-3.5 pt-3.5 font-mono text-xs leading-5 resize-none focus:outline-none scrollbar-thin select-text whitespace-pre overflow-auto"></textarea>
       </div>
 
       <!-- Syntax-Fehler-Banner (wird bei ast.parse Fehlern eingeblendet) -->
