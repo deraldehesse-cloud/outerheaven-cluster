@@ -2,7 +2,7 @@
 # ==============================================================================
 # 🎮 STANDALONE LOVENSE BLE CONTROLLER // AUTONOMOUS HARDWARE ENGINE
 # ==============================================================================
-# Synchronisation-Standard: Stand 2026-11-02 02:37:02
+# Synchronisation-Standard: Stand 2026-11-03 01:53:10
 # Unterstützte Geräte: Dynamo (28:68:47:24:C0:94), Lovense Toys (LVS-*)
 # Unterstützte Befehle: Vibrate:<0-20>;, Air:Level:<0-3>;, Stop;
 # Throttler: Strikte 80ms Mindestpause zwischen Schreibvorgängen
