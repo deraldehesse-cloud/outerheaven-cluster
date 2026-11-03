@@ -171,6 +171,7 @@ try:
         save_hermes_tools_config,
         build_megan_system_prompt,
         get_comfyui_queue_status,
+        purge_comfyui_gpu,
         set_image_finished_callback,
         KANBAN_DB,
         VALID_TASK_PROJECTS,
@@ -246,6 +247,8 @@ except ImportError:
         return "Du bist Megan, die persönliche Assistentin von Big Boss."
     def get_comfyui_queue_status(comfy_url=None):
         return {"online": True, "busy": False, "queue_total": 0, "running_count": 0, "pending_count": 0}
+    def purge_comfyui_gpu(comfy_url=None):
+        return True
     def set_image_finished_callback(cb):
         pass
 
@@ -702,52 +705,139 @@ def detect_user_photo_intent(text: str) -> bool:
     ]
     return any(bool(re.search(p, t, re.IGNORECASE)) for p in patterns)
 
-def trigger_async_photo_render(prompt: str, workflow: str = "megan_erotic_chat") -> asyncio.Task:
+LAST_RENDERED_PROMPT: Optional[str] = None
+
+def trigger_async_photo_render(prompt: str, workflow: str = "megan_erotic_chat", steps: Optional[int] = None, cfg: Optional[float] = None) -> asyncio.Task:
     """Startet einen autonomen ComfyUI Bild-Render asynchron im Hintergrund."""
-    logger.info(f"[Auto-Render] Triggere ComfyUI Render mit Prompt: '{prompt[:60]}...' (Workflow: {workflow})")
+    global LAST_RENDERED_PROMPT
+    LAST_RENDERED_PROMPT = prompt
+    logger.info(f"[Auto-Render] Triggere ComfyUI Render mit Prompt: '{prompt[:60]}...' (Workflow: {workflow}, steps={steps}, cfg={cfg})")
+    params: Dict[str, Any] = {"prompt": prompt, "workflow": workflow}
+    if steps:
+        params["steps"] = int(steps)
+    if cfg:
+        params["cfg"] = float(cfg)
     return asyncio.create_task(
         asyncio.to_thread(
             execute_autonomous_tool,
             "comfyui_render",
-            {"prompt": prompt, "workflow": workflow}
+            params
         )
     )
 
-def extract_megan_image_prompt(text: str) -> Tuple[Optional[str], str]:
+def extract_megan_image_prompt(text: str) -> Tuple[Optional[str], bool, str]:
     """
-    Extrahiert einen expliziten Prompt aus Tags wie <image>...</image>,
-    <image> text... oder [IMAGE: ...] und entfernt den Tag sauber aus dem Chat-Text.
+    Extrahiert Bildanforderungen und Feedback-Tags aus dem Modelltext:
+    - [IMAGE_TRIGGER: <danbooru-tags>]
+    - <image>...</image> oder [IMAGE: ...]
+    - [RETRY_SAFE_RENDER]
+    Entfernt alle Trigger-Tags restlos aus dem Chat-Text.
+    Gibt (extracted_prompt, has_retry, cleaned_text) zurück.
     """
     if not text:
-        return None, text
+        return None, False, text
 
     extracted_prompt = None
+    has_retry = False
     cleaned = text
 
-    # 1. <image>prompt</image>
-    m1 = re.search(r'<image>(.*?)</image>', cleaned, flags=re.DOTALL | re.IGNORECASE)
-    if m1:
-        extracted_prompt = m1.group(1).strip()
-        cleaned = re.sub(r'<image>.*?</image>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
-    else:
-        # 2. <image> prompt bis zum Zeilenumbruch oder Ende
+    # 1. [RETRY_SAFE_RENDER] Tag erkennen und entfernen
+    if re.search(r'\[RETRY_SAFE_RENDER\]', cleaned, flags=re.IGNORECASE):
+        has_retry = True
+        cleaned = re.sub(r'\[RETRY_SAFE_RENDER\]', '', cleaned, flags=re.IGNORECASE)
+
+    # 2. [IMAGE_TRIGGER: ...]
+    m_trig = re.search(r'\[IMAGE_TRIGGER:\s*([^\]]+)\]', cleaned, flags=re.IGNORECASE)
+    if m_trig:
+        extracted_prompt = m_trig.group(1).strip()
+        cleaned = re.sub(r'\[IMAGE_TRIGGER:[^\]]+\]', '', cleaned, flags=re.IGNORECASE)
+
+    # 3. <image>prompt</image>
+    if not extracted_prompt:
+        m1 = re.search(r'<image>(.*?)</image>', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        if m1:
+            extracted_prompt = m1.group(1).strip()
+            cleaned = re.sub(r'<image>.*?</image>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+
+    # 4. <image> prompt bis zum Zeilenumbruch
+    if not extracted_prompt:
         m2 = re.search(r'<image>\s*([^\n<]+)', cleaned, flags=re.IGNORECASE)
         if m2:
             extracted_prompt = m2.group(1).strip()
             cleaned = re.sub(r'<image>\s*[^\n<]+', '', cleaned, flags=re.IGNORECASE)
-        else:
-            # 3. [IMAGE: prompt] oder [PHOTO: prompt]
-            m3 = re.search(r'\[(?:image|photo|foto|bild|selfie):\s*([^\]]+)\]', cleaned, flags=re.IGNORECASE)
-            if m3:
-                extracted_prompt = m3.group(1).strip()
-                cleaned = re.sub(r'\[(?:image|photo|foto|bild|selfie):[^\]]+\]', '', cleaned, flags=re.IGNORECASE)
+
+    # 5. [IMAGE: prompt] oder [PHOTO: prompt]
+    if not extracted_prompt:
+        m3 = re.search(r'\[(?:image|photo|foto|bild|selfie):\s*([^\]]+)\]', cleaned, flags=re.IGNORECASE)
+        if m3:
+            extracted_prompt = m3.group(1).strip()
+            cleaned = re.sub(r'\[(?:image|photo|foto|bild|selfie):[^\]]+\]', '', cleaned, flags=re.IGNORECASE)
 
     # Verbleibende leere Tags entfernen und Whitespace normalisieren
     cleaned = re.sub(r'</?image>', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\[(?:IMAGE_TRIGGER|RETRY_SAFE_RENDER)[^\]]*\]', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'[ \t]+', ' ', cleaned)
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
 
-    return extracted_prompt, cleaned
+    return extracted_prompt, has_retry, cleaned
+
+def detect_black_frame_feedback(text: str) -> bool:
+    """
+    Erkennt, ob Sebastian meldet, dass das Bild schwarz war oder NaN-Pixel aufwies.
+    """
+    if not text:
+        return False
+    patterns = [
+        r"\b(?:bild|foto|render|frame|screen)\s+(?:war|ist|blieb|bleibt|wurde)\s+(?:komplett\s+|ganz\s+|völlig\s+|einfach\s+)?(?:schwarz|black)\b",
+        r"\b(?:schwarz(?:es|er)?|black)\s+(?:bild|foto|frame|screen)\b",
+        r"\bblack[\s_-]?(?:screen|frame)\b",
+        r"\b(?:nur|komplett|völlig|alles)\s+schwarz\b",
+        r"\bwar\s+schwarz\b",
+        r"\bbild\s+schwarz\b"
+    ]
+    t = text.lower()
+    return any(bool(re.search(p, t, re.IGNORECASE)) for p in patterns)
+
+def get_last_image_prompt() -> str:
+    """Ermittelt den letzten verwendeten Bild-Prompt aus dem Speicher oder der SQLite DB."""
+    global LAST_RENDERED_PROMPT
+    if LAST_RENDERED_PROMPT and LAST_RENDERED_PROMPT.strip():
+        return LAST_RENDERED_PROMPT.strip()
+
+    try:
+        init_chat_db()
+        with sqlite3.connect(str(CHAT_DB_PATH)) as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT prompt FROM messages 
+                WHERE type = 'SDXL_IMAGE' AND prompt IS NOT NULL AND prompt != ''
+                ORDER BY timestamp DESC LIMIT 1
+            """)
+            row = cur.fetchone()
+            if row and row[0] and row[0].strip():
+                LAST_RENDERED_PROMPT = row[0].strip()
+                return LAST_RENDERED_PROMPT
+    except Exception as e:
+        logger.warning(f"Fehler beim Laden des letzten Bild-Prompts aus DB: {e}")
+
+    return "1girl, megan, solo, cute smile, emerald green eyes, fiery orange hair, soft lighting, 8k uhd, photorealistic"
+
+def trigger_safe_recovery_render(custom_prompt: Optional[str] = None) -> asyncio.Task:
+    """
+    Führt die Intel Arc A770 Black-Frame Auto-Recovery durch:
+    1. ComfyUI GPU Purge (/interrupt und /free)
+    2. Sichere Fallback-Parameter: CFG 5.5, Steps 10, VAE FP32
+    3. Re-Render des letzten Prompts und Verteilung an aktive Clients
+    """
+    logger.info("[Auto-Recovery] Black-Frame gemeldet. Starte Intel Arc A770 Auto-Recovery...")
+    try:
+        purge_comfyui_gpu(COMFYUI_URL)
+    except Exception as pe:
+        logger.warning(f"[Auto-Recovery] Purge-Fehler: {pe}")
+
+    prompt_to_render = (custom_prompt or "").strip() or get_last_image_prompt()
+    logger.info(f"[Auto-Recovery] Starte Safe-Render mit 10 Steps, CFG 5.5 für Prompt: '{prompt_to_render[:60]}...'")
+    return trigger_async_photo_render(prompt_to_render, workflow="megan_erotic_chat", steps=10, cfg=5.5)
 
 def check_autonomous_intent(text: str) -> Optional[str]:
     """Detects if user asks for Google Drive project lookup, troubleshooting, or system status."""
@@ -1809,20 +1899,26 @@ async def handle_chat(request: web.Request) -> web.Response:
                 if not clean_text:
                     clean_text = re.sub(r'</?think>', '', raw_text).strip() or "Alles klar, Boss! Ich bin bereit."
 
-                # 2. Extract image prompt & strip <image> tags from clean_text
-                extracted_prompt, clean_text = extract_megan_image_prompt(clean_text)
+                # 2. Extract image prompt & strip [IMAGE_TRIGGER: ...] and [RETRY_SAFE_RENDER] from clean_text
+                extracted_prompt, has_retry_tag, clean_text = extract_megan_image_prompt(clean_text)
 
                 # Piper TTS Audio Generation
                 audio_id = await generate_piper_tts(clean_text)
                 audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
 
-                # 2b. ComfyUI Autonomous Photo Trigger: Wenn Megan ein Bild ankündigt ODER Nutzer nach Bild fragt
-                user_wants_photo = detect_user_photo_intent(user_msg)
-                megan_claims_photo = detect_megan_photo_claim(clean_text)
-                if extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
-                    render_prompt = extracted_prompt or (f"{user_msg}, {clean_text}" if (user_wants_photo and megan_claims_photo) else (clean_text if megan_claims_photo and not user_wants_photo else user_msg))
-                    logger.info(f"[Auto-Render] Photo-Trigger (POST): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
-                    trigger_async_photo_render(render_prompt, "megan_erotic_chat")
+                # 2b. Black-Frame Auto-Recovery vs. Normal Photo Trigger
+                user_reported_black_frame = detect_black_frame_feedback(user_msg)
+                is_recovery = has_retry_tag or user_reported_black_frame
+                if is_recovery:
+                    logger.info(f"[Auto-Recovery] Black-Frame Recovery ausgelöst (POST - Feedback: {user_reported_black_frame}, Tag: {has_retry_tag})")
+                    trigger_safe_recovery_render(extracted_prompt)
+                else:
+                    user_wants_photo = detect_user_photo_intent(user_msg)
+                    megan_claims_photo = detect_megan_photo_claim(clean_text)
+                    if extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
+                        render_prompt = extracted_prompt or (f"{user_msg}, {clean_text}" if (user_wants_photo and megan_claims_photo) else (clean_text if megan_claims_photo and not user_wants_photo else user_msg))
+                        logger.info(f"[Auto-Render] Photo-Trigger (POST): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
+                        trigger_async_photo_render(render_prompt, "megan_erotic_chat")
 
                 # 3. Save Megan's response to central SQLite DB
                 megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
@@ -1974,6 +2070,8 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 in_think = False
                 intro_buffer = ""
                 intro_dispatched = False
+                tag_buffer = ""
+                in_tag_bracket = False
                 english_intro_re = re.compile(
                     r'^(?:(?:Sure|Certainly|Okay|Ok|Alright|Hello|Hi|Of course|Here is|Here\'s|I will|Let me)[,!\.:\s]+)+',
                     re.IGNORECASE
@@ -2074,13 +2172,32 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                                                     intro_dispatched = True
                                                     intro_buffer = ""
                                     else:
-                                        await ws.send_json({
-                                            "type": "token",
-                                            "content": token,
-                                            "text": token,
-                                            "token": token
-                                        })
-                                        tokens_sent += 1
+                                        # Tag-Filterung während des Streams: Tags wie [IMAGE_TRIGGER: ...] oder [RETRY_SAFE_RENDER] abfangen
+                                        if "[" in token or in_tag_bracket:
+                                            in_tag_bracket = True
+                                            tag_buffer += token
+                                            if "]" in tag_buffer:
+                                                in_tag_bracket = False
+                                                # Prüfen, ob es sich um ein internes Tag handelt
+                                                if re.search(r'\[(?:IMAGE_TRIGGER|RETRY_SAFE_RENDER|image|photo|foto|bild|selfie|HAPTIC)', tag_buffer, re.I):
+                                                    tag_buffer = ""  # Restlos verwerfen, nicht an App streamen
+                                                else:
+                                                    await ws.send_json({
+                                                        "type": "token",
+                                                        "content": tag_buffer,
+                                                        "text": tag_buffer,
+                                                        "token": tag_buffer
+                                                    })
+                                                    tokens_sent += 1
+                                                    tag_buffer = ""
+                                        else:
+                                            await ws.send_json({
+                                                "type": "token",
+                                                "content": token,
+                                                "text": token,
+                                                "token": token
+                                            })
+                                            tokens_sent += 1
 
                 except Exception as e:
                     logger.error(f"Ollama Stream unterbrochen oder fehlgeschlagen: {e}", exc_info=True)
@@ -2119,8 +2236,8 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                         "token": clean_text
                     })
 
-                # 3. Extract image prompt & strip <image> tags from clean_text
-                extracted_prompt, clean_text = extract_megan_image_prompt(clean_text)
+                # 3. Extract image prompt & strip [IMAGE_TRIGGER: ...] and [RETRY_SAFE_RENDER] from clean_text
+                extracted_prompt, has_retry_tag, clean_text = extract_megan_image_prompt(clean_text)
 
                 # Piper TTS Audio Generation
                 audio_id = None
@@ -2131,13 +2248,19 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
                 audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
 
-                # 3b. ComfyUI Autonomous Photo Trigger: Wenn Megan ein Bild ankündigt ODER Nutzer nach Bild fragt
-                user_wants_photo = detect_user_photo_intent(user_text)
-                megan_claims_photo = detect_megan_photo_claim(clean_text)
-                if extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
-                    render_prompt = extracted_prompt or (f"{user_text}, {clean_text}" if (user_wants_photo and megan_claims_photo) else (clean_text if megan_claims_photo and not user_wants_photo else user_text))
-                    logger.info(f"[Auto-Render] Photo-Trigger (WS): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
-                    trigger_async_photo_render(render_prompt, "megan_erotic_chat")
+                # 3b. Black-Frame Auto-Recovery vs. Normal Photo Trigger
+                user_reported_black_frame = detect_black_frame_feedback(user_text)
+                is_recovery = has_retry_tag or user_reported_black_frame
+                if is_recovery:
+                    logger.info(f"[Auto-Recovery] Black-Frame Recovery ausgelöst (WS - Feedback: {user_reported_black_frame}, Tag: {has_retry_tag})")
+                    trigger_safe_recovery_render(extracted_prompt)
+                else:
+                    user_wants_photo = detect_user_photo_intent(user_text)
+                    megan_claims_photo = detect_megan_photo_claim(clean_text)
+                    if extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
+                        render_prompt = extracted_prompt or (f"{user_text}, {clean_text}" if (user_wants_photo and megan_claims_photo) else (clean_text if megan_claims_photo and not user_wants_photo else user_text))
+                        logger.info(f"[Auto-Render] Photo-Trigger (WS): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
+                        trigger_async_photo_render(render_prompt, "megan_erotic_chat")
 
                 megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
                 megan_ts = int(time.time() * 1000)

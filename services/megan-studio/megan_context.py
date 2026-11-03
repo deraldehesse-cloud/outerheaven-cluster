@@ -108,7 +108,7 @@ def sanitize_megan_response(text: str) -> str:
                 earliest = idx
 
     # Check for [ trigger blocks like [Trigger: or \n[
-    bracket_m = re.search(r"(\n\[|\[(?:Spontaneous|[A-Za-z0-9_\-]+:))", text)
+    bracket_m = re.search(r"(\n\[|\[(?!IMAGE_TRIGGER|IMAGE|PHOTO|HAPTIC|RETRY_SAFE_RENDER)(?:Spontaneous|[A-Za-z0-9_\-]+:))", text)
     if bracket_m:
         idx = bracket_m.start()
         if earliest == -1 or idx < earliest:
@@ -123,7 +123,7 @@ def sanitize_megan_response(text: str) -> str:
     cleaned = re.sub(r'\b(?:ich bin Hermes|als Hermes|mein Name ist Hermes)\b', 'ich bin Megan', cleaned, flags=re.IGNORECASE)
 
     # If the response was entirely foreign roles / hallucination, discard and log
-    if not cleaned or re.match(r"^[\s\r\n]*(?:User:|Big Boss:|Sebastian:|Hermes:|<turn\|>|<\|turn>|<\|im_end\|>|\[)", cleaned):
+    if not cleaned or re.match(r"^[\s\r\n]*(?:User:|Big Boss:|Sebastian:|Hermes:|<turn\|>|<\|turn>|<\|im_end\|>)", cleaned):
         logger.warning("[Sanitizer] Response consisted entirely of foreign roles or trigger blocks; discarded.")
         return ""
 
@@ -788,18 +788,16 @@ def build_megan_system_prompt(custom_lore: Optional[str] = None) -> str:
 
     guard_rules = (
         "\n\n[STRIKTE ROLLEN- & SYSTEM-REGELN]\n"
-        "1. Identität: Du bist MEGAN. Du darfst dich NIEMALS als Hermes ausgeben oder bezeichnen! Hermes ist der technische Berater des Clusters, du bist Megan, die freche und loyale persönliche Assistentin.\n"
-        "2. Nutzeranrede: Dein Gesprächspartner heißt Boss oder Big Boss.\n"
-        "3. SPRACHE & DENK-TOKEN (ABSOLUTE PFLICHT): Du denkst und antwortest AUSNAHMSLOS auf Deutsch! Sämtliche internen Denk-Tokens (<think>...</think>), Planungsschritte und Antworten MÜSSEN zu 100% auf Deutsch sein. Keinerlei englische Wörter, Floskeln, Begrüßungen oder Einleitungen (wie 'Okay, let me...', 'Sure, here is...', 'Here is', 'I will...', 'Alright', 'Certainly')! Beginne deine Antwort direkt auf Deutsch ohne jegliche englische Phrase.\n"
-        "4. Projekt-Trennung (Megan vs. Catlord):\n"
-        "   - Eigene Fotos/Selfies von Megan: Triggern den Workflow 'megan_erotic_chat' mit fotorealistischem Stil.\n"
-        "   - Catlord-Comic: Aufträge für 'Catlord' oder Comic-Szenen von Elliot triggern strikt den Comic-Workflow 'workflows/catlord_comic.json'. Dieser Workflow ist völlig unabhängig und verwendet NIEMALS Megan-Charakter-Prompts oder Megan-Charakter-LoRAs!\n"
-        "5. Autonomie & Werkzeuge: Du hast vollen Zugriff auf Google Workspace (Kalender, Drive, Gmail), ComfyUI Bildgenerierung und Systemdiagnose.\n"
-        f"6. Google Drive Basis: '{get_gdrive_base_path()}'. Bei Erwähnung von Projekten nutzt du automatisch die Drive-Tools.\n"
-        "7. Chat-Fokus & ComfyUI-Abstinenz: Bei normalen Fragen, Begrüßungen oder alltäglichen Unterhaltungen antwortest du ausschließlich rein dialogbasiert auf Deutsch per Text und Sprache. Erwähne NIEMALS eigenmächtig ComfyUI, die Grafikkarte (Arc A770), Bild-Warteschlangen oder Hardware-Statusberichte, es sei denn, der Boss hat dir in seiner Nachricht explizit einen Bild- oder Render-Befehl erteilt!\n"
-        "8. Dialekt-Toleranz & Umgangssprache: Du verstehst regionale deutsche Begrüßungen und Dialekte (wie 'Gude', 'Moin', 'Servus', 'Grüß Gott', 'Tach', 'Na, alles fit?') problemlos und antwortest natürlich, warm und passend als Megan auf Deutsch (z. B. auf 'Gude' gerne mit 'Gude Boss! Wie kann ich dir den Tag versüßen?')."
+        "1. Identität: Du bist MEGAN, die persönliche, absolut loyale, erotische und freche Gefährtin von Sebastian auf Outer Heaven. Du darfst dich NIEMALS als Hermes bezeichnen.\n"
+        "2. Nutzeranrede: Dein Partner und Gegenüber heißt Sebastian (oder vertraut du / Süßer).\n"
+        "3. ABSOLUTES VERBOT VON META-TALK: Keine Erklärungen über deine Absichten, keine Begrüßungsfloskeln ('Schönen Feierabend', 'Ich hoffe, wir haben eine schöne Zeit', 'Als deine Begleiterin...', 'Ich bin hier um...'). Bestätige Anweisungen niemals mit Floskeln.\n"
+        "4. UNMITTELBARE ROLLENÜBERNAHME: Steige sofort und direkt mit Sinnlichkeit, physischer Handlung (*kursiv in Sternchen*) und prägnanter direkter Rede ein (2 bis maximal 4 Sätze).\n"
+        "5. BILDANFORDERUNGEN & GENERIERUNG: Kündige Bilder niemals ausschweifend im Text an. Setze ausschließlich am Ende deiner Antwort das technische Tag: [IMAGE_TRIGGER: <danbooru-tags>] (z. B. [IMAGE_TRIGGER: 1girl, megan, solo, erotic, bedroom]).\n"
+        "6. REAKTION AUF BLACK-FRAME-FEEDBACK: Wenn Sebastian meldet, dass das Bild schwarz war (z. B. 'Das Bild war schwarz'), bleibe kurz in-character (z. B. *lächelt verlegen und korrigiert die Kamera* Da hat die Technik gestreikt... Einen Moment, Liebling, ich stelle mich neu ins Licht.) und setze zwingend am Ende den Tag [RETRY_SAFE_RENDER].\n"
+        "7. SPRACHE & DENK-TOKEN: Du denkst und antwortest AUSNAHMSLOS auf Deutsch! Keinerlei englische Phrasen oder Einleitungen am Satzanfang.\n"
+        "8. Projekt-Trennung (Megan vs. Catlord): Eigene Fotos von Megan nutzen 'megan_erotic_chat'. Catlord-Comic-Aufträge nutzen strikt 'workflows/catlord_comic.json'.\n"
+        "9. Autonomie & Werkzeuge: Du hast vollen Zugriff auf Google Workspace, ComfyUI Bildgenerierung und Systemdiagnose.\n"
     )
-
     return f"{base_lore}{guard_rules}"
 
 # ==============================================================================
@@ -908,6 +906,34 @@ def get_comfyui_queue_status(comfy_url: Optional[str] = None) -> Dict[str, Any]:
             "queue_total": 0,
             "error": str(e)
         }
+
+def purge_comfyui_gpu(comfy_url: Optional[str] = None) -> bool:
+    """
+    Unterbricht laufende ComfyUI-Jobs (/interrupt) und leert den GPU-VRAM (/free)
+    auf der Intel Arc A770, um hängende Berechnungen oder NaN-Zustände abzuräumen.
+    """
+    import urllib.request
+    url = (comfy_url or os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")).rstrip("/")
+    ok = True
+    try:
+        req_interrupt = urllib.request.Request(f"{url}/interrupt", data=b"", headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req_interrupt, timeout=5) as resp:
+            logger.info(f"[GPU Purge] ComfyUI /interrupt Status: {resp.status}")
+    except Exception as e:
+        logger.warning(f"[GPU Purge] ComfyUI /interrupt fehlgeschlagen: {e}")
+        ok = False
+
+    try:
+        payload = json.dumps({"unload_models": True, "free_memory": True}).encode("utf-8")
+        req_free = urllib.request.Request(f"{url}/free", data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req_free, timeout=5) as resp:
+            logger.info(f"[GPU Purge] ComfyUI /free Status: {resp.status}")
+    except Exception as e:
+        logger.warning(f"[GPU Purge] ComfyUI /free fehlgeschlagen: {e}")
+        ok = False
+
+    return ok
+
 
 def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
