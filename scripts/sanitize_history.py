@@ -69,8 +69,13 @@ def is_corrupted_text(text: str) -> Tuple[bool, str]:
 
     # Abnormal unsegmented subwords (e.g. genfgKarseblevedfesapakigosfand)
     for w in t.split():
-        clean_w = w.strip(".,!?:;\"'()[]{}")
-        if len(clean_w) > 22 and not (clean_w.startswith("http://") or clean_w.startswith("https://") or clean_w.startswith("/") or clean_w.startswith("hf.co")):
+        clean_w = w.strip(".,!?:;\"'()[]{}<>")
+        if clean_w.startswith("http://") or clean_w.startswith("https://") or clean_w.startswith("/") or clean_w.startswith("hf.co"):
+            continue
+        # Split tokens separated by underscores, hyphens, slashes, brackets or colons (e.g. tags or paths)
+        subparts = [p for p in re.split(r"[-_/:<>]", clean_w) if p]
+        max_subpart_len = max([len(p) for p in subparts], default=len(clean_w))
+        if max_subpart_len > 32:
             return True, f"Abnormal langes Kunstwort / BPE-Verschmelzung ({clean_w[:20]}...)"
 
     # Schizophrenic / English hallucinations & out-of-character English chatter
@@ -139,6 +144,36 @@ def is_corrupted_text(text: str) -> Tuple[bool, str]:
         if len(upper) / len(letters) > 0.35:
             return True, f"Unrealistische Großbuchstaben-Dichte (BPE-Kollaps): {len(upper) / len(letters):.2%}"
 
+    # 9. Prompt-Leaking / System-Instruktionen
+    if re.search(r"\[(?:Wenn Big Boss|SYSTEM-|Spontaneous Daytime|IMAGE:\s*<|IMAGE:\s*1girl.*?\.{3})", t, re.IGNORECASE):
+        return True, "System-Prompt-Direktive / Leaking-Fragment"
+    if re.search(r"\b(?:Wenn Big Boss nach einem Foto fragt|AUTONOME PROMPT-ERSTELLUNG|ROLLENTREUE:)\b", t, re.IGNORECASE):
+        return True, "System-Prompt-Instruktion im Text"
+    if re.search(r"\b###\s*(?:UNVERRÜCKBARE|MEGAN AUTONOMIE|YOUR LONG-TERM|PERSÖNLICHES INTERESSE|LOCAL PROJECT|FOTO-ANWEISUNG)", t, re.IGNORECASE):
+        return True, "System-Prompt-Header im Text"
+
+    # 10. Out-of-Character: Megan verlangt ComfyUI-Tags / Prompts vom User
+    if re.search(r"\b(?:gib mir|schick mir|nenn mir|sag mir|brauch(?:e)?)\b.*?\b(?:comfyui[- ](?:prompt|tag)|danbooru|sd[- ]tag|bild[- ]tag)", t, re.IGNORECASE):
+        return True, "Aufforderung zu ComfyUI-Tags (Rollenbruch)"
+    if re.search(r"\b(?:deinen|deine|gewünschten)\s+comfyui[- ](?:prompt|tag)", t, re.IGNORECASE):
+        return True, "ComfyUI-Prompt-Abfrage (Rollenbruch)"
+
+    # 11. Out-of-Character: Meta-Berater / Schreibcoach Rollenbruch
+    if re.search(r"\b(?:Viel Erfolg (?:bei|mit) deiner Kommunikation|Ich helfe dir bei Big Boss|in deiner Kommunikation mit Big Boss|Lass uns ein gutes Gespräch führen|Ratschläge darüber, wie man mit Big Boss redet)\b", t, re.IGNORECASE):
+        return True, "Meta-Berater / Schreibcoach Rollenbruch"
+
+    # 12. Male anatomy confusion for Megan
+    if re.search(r"\bmein(?:er|en)?\s+(?:prügel|penis|schwanz|riemen|zauberstab)\b", t, re.IGNORECASE):
+        return True, "Anatomie-Verwechslung (Männliche Geschlechtsmerkmale bei Megan)"
+
+    # 13. Letter format leftovers
+    if re.search(r"\b(?:Liebe[rs]?\s+(?:Big Boss|Sebastian|Basti|Süßer))\b", t, re.IGNORECASE):
+        return True, "Brief-Format Anrede (Rollenbruch)"
+    if re.search(r"\b(?:Deine Megan|In Liebe(?:,| deine)?\s+Megan)\b", t, re.IGNORECASE):
+        return True, "Brief-Format Schlussformel (Rollenbruch)"
+    if re.search(r"\bP\.?S\.?:", t, re.IGNORECASE):
+        return True, "Brief-Format P.S.-Zusatz (Rollenbruch)"
+
     return False, ""
 
 
@@ -146,54 +181,181 @@ TRUNCATE_MARKERS = [
     "\nUser:", "\nBig Boss:", "Big Boss:",
     "\nSebastian:", "Sebastian:",
     "\n[", "[Spontaneous",
+    "Wenn Big Boss", "[Wenn Big Boss",
+    "FOTO-ANWEISUNG", "###",
+    "ComfyUI-Prompt:", "(ComfyUI-Prompt:",
+    "SYSTEM-DIREKTIVE", "[SYSTEM-",
+    "AUTONOME PROMPT-ERSTELLUNG", "ROLLENTREUE:",
     "<turn|>", "<|turn|>", "<|im_end|>", "<|end_of_text|>", "<|eot_id|>"
 ]
+
+LEAK_LINE_PREFIXES = (
+    "wenn big boss",
+    "###",
+    "foto-",
+    "fotoanweisung",
+    "system-",
+    "[system",
+    "[wenn big boss",
+    "(comfyui",
+    "comfyui-prompt",
+    "autonome prompt",
+    "rollentreue"
+)
 
 BRACKET_START_REGEX = re.compile(r"^\[(?:Spontaneous|Context|System|OOC|Thought|Scene)[^\]]*\]:?\s*", re.IGNORECASE)
 FOREIGN_ROLE_START_REGEX = re.compile(r"^(?:User|Big Boss|Sebastian):", re.IGNORECASE)
 
 
-def sanitize_history_data(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
+def clean_text_content(role: str, text: str, user_name: str = "Big Boss") -> Tuple[str, bool, str]:
     """
-    Filters corrupted messages out of a history message list and truncates rogue markers.
+    Sanitizes single message content:
+    - Truncates leaks at any marker in TRUNCATE_MARKERS or user-specific marker
+    - Cuts off lines starting with system directives
+    - Strips sentences where assistant asks user for ComfyUI-Tags / technical prompts
+    - Strips placeholders like <dein_ausgearbeiteter_prompt> or <passende_tags>
+    - Strips stray asterisks
+    - Validates against is_corrupted_text
+    Returns: (cleaned_text, is_valid, reason_if_invalid)
+    """
+    if not text or not isinstance(text, str):
+        return "", False, "Leerer oder ungültiger Text"
+
+    t = text.strip()
+    if not t:
+        return "", False, "Leere Nachricht"
+
+    if role == "assistant":
+        # Check foreign role prefix or pure system bracket
+        if FOREIGN_ROLE_START_REGEX.search(t) or (t.startswith("[") and t.endswith("]") and BRACKET_START_REGEX.search(t)):
+            return "", False, "Fremde Rolle oder System-Bracket"
+
+        # 1. Truncate at leak markers
+        markers = list(TRUNCATE_MARKERS)
+        if user_name:
+            markers.extend([f"Wenn {user_name}", f"[Wenn {user_name}", f"{user_name}:"])
+
+        earliest_idx = -1
+        for marker in markers:
+            idx = t.find(marker)
+            if idx != -1:
+                if earliest_idx == -1 or idx < earliest_idx:
+                    earliest_idx = idx
+
+        if earliest_idx != -1:
+            t = t[:earliest_idx].rstrip()
+
+        # 2. Line-by-line prefix cutoff
+        clean_lines = []
+        for line in t.splitlines():
+            s_lower = line.strip().lower()
+            if any(s_lower.startswith(pfx) for pfx in LEAK_LINE_PREFIXES):
+                break
+            if user_name and (s_lower.startswith(f"wenn {user_name.lower()}") or s_lower.startswith(f"[wenn {user_name.lower()}")):
+                break
+            clean_lines.append(line)
+        t = "\n".join(clean_lines).strip()
+
+        # 3. Strip sentences where assistant asks user for ComfyUI tags / prompt
+        if re.search(r"\b(?:gib mir|schick mir|nenn mir|sag mir|brauch(?:e)?|deinen|deine)\b.*?\b(?:comfyui|danbooru|sd[- ]tag)", t, re.IGNORECASE):
+            sentences = re.split(r"(?<=[.!?\n])\s+", t)
+            kept = [
+                s for s in sentences
+                if not re.search(r"\b(?:gib mir|schick mir|nenn mir|sag mir|brauch(?:e)?|deinen|deine)\b.*?\b(?:comfyui|danbooru|sd[- ]tag)", s, re.IGNORECASE)
+            ]
+            t = " ".join(kept).strip()
+
+        # 4. Strip placeholders
+        t = re.sub(r"<\s*(?:dein_ausgearbeiteter_prompt|passende_tags|weitere_tags)[^>]*>", "", t, flags=re.IGNORECASE)
+        t = re.sub(r"\[IMAGE:\s*1girl,\s*megan,\s*solo,\s*cute\s*face.*?\.{3}\s*\]", "", t, flags=re.IGNORECASE)
+
+        # 5. Strip residual asterisks stage directions
+        t = re.sub(r"\*[^*]+\*", "", t).strip()
+        t = re.sub(r"\n{3,}", "\n\n", t).strip()
+
+        # 6. Strip letter greetings (e.g. "Liebe Big Boss,", "Lieber Big Boss,")
+        t = re.sub(r"^(?:Liebe[rs]?\s+(?:Big Boss|Sebastian|Basti|Süßer)[,:]?\s*\n*)+", "", t, flags=re.IGNORECASE).strip()
+
+        # 7. Strip sign-offs like "Deine Megan 💕...", "In Liebe, deine Megan", "Deine Megan 🚀💫"
+        t = re.sub(r"(?:\n|^)\s*(?:Deine|In Liebe(?:,| deine)?)\s+Megan[^\n]*$", "", t, flags=re.IGNORECASE).strip()
+
+        # 8. Strip P.S. lines / trailers
+        t = re.sub(r"(?:\n|^)\s*P\.?S\.?:?.*$", "", t, flags=re.IGNORECASE | re.DOTALL).strip()
+
+        # 9. Male anatomy confusion for Megan: strip sentences where Megan claims male anatomy
+        if re.search(r"\bmein(?:er|en)?\s+(?:prügel|penis|schwanz|riemen|zauberstab)\b", t, re.IGNORECASE):
+            sentences = re.split(r"(?<=[.!?\n])\s+", t)
+            kept = [
+                s for s in sentences
+                if not re.search(r"\bmein(?:er|en)?\s+(?:prügel|penis|schwanz|riemen|zauberstab)\b", s, re.IGNORECASE)
+            ]
+            t = " ".join(kept).strip()
+
+    if not t.strip():
+        return "", False, "Inhalt nach Bereinigung leer"
+
+    corrupted, reason = is_corrupted_text(t)
+    if corrupted:
+        return "", False, reason
+
+    return t.strip(), True, ""
+
+
+def sanitize_history_data_detailed(messages: List[Dict[str, Any]], user_name: str = "Big Boss") -> Tuple[List[Dict[str, Any]], int, int]:
+    """
+    Cleans a list of message dictionaries:
+    - Filters out corrupted, leaked, or empty messages
+    - Cleans inline leaks/trailers from messages
+    - Deduplicates identical consecutive messages
+    Returns: (cleaned_messages, removed_count, modified_count)
     """
     cleaned: List[Dict[str, Any]] = []
     removed_count = 0
+    modified_count = 0
+    last_content = None
+    last_role = None
 
     for msg in messages:
-        content = msg.get("content", "")
-        role = msg.get("role", "")
-
-        corrupted, reason = is_corrupted_text(content)
-        if corrupted:
+        if not isinstance(msg, dict):
             removed_count += 1
             continue
 
-        if role == "assistant" and isinstance(content, str):
-            # Check if entire content is foreign role or bracket trigger
-            stripped = content.strip()
-            if FOREIGN_ROLE_START_REGEX.search(stripped) or (stripped.startswith("[") and stripped.endswith("]") and BRACKET_START_REGEX.search(stripped)):
-                removed_count += 1
-                continue
+        raw_content = msg.get("content", "")
+        role = msg.get("role", "user")
 
-            # Apply truncate markers
-            earliest_idx = -1
-            for marker in TRUNCATE_MARKERS:
-                idx = content.find(marker)
-                if idx != -1:
-                    if earliest_idx == -1 or idx < earliest_idx:
-                        earliest_idx = idx
+        if not isinstance(raw_content, str) or not raw_content.strip():
+            removed_count += 1
+            continue
 
-            if earliest_idx != -1:
-                content = content[:earliest_idx].rstrip()
-                if not content.strip():
-                    removed_count += 1
-                    continue
-                msg = dict(msg)
-                msg["content"] = content
+        clean_content, is_valid, reason = clean_text_content(role, raw_content, user_name=user_name)
+        if not is_valid or not clean_content:
+            removed_count += 1
+            continue
 
-        cleaned.append(msg)
+        is_mod = (clean_content != raw_content.strip())
+        if is_mod:
+            modified_count += 1
 
+        # Deduplicate exact consecutive messages (avoid repetition loops)
+        if clean_content == last_content and role == last_role:
+            removed_count += 1
+            continue
+
+        new_entry = dict(msg)
+        new_entry["content"] = clean_content
+        cleaned.append(new_entry)
+        last_content = clean_content
+        last_role = role
+
+    return cleaned, removed_count, modified_count
+
+
+def sanitize_history_data(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Filters corrupted messages out of a history message list and truncates rogue markers.
+    Backward-compatible wrapper returning (cleaned_messages, removed_count).
+    """
+    cleaned, removed_count, _ = sanitize_history_data_detailed(messages)
     return cleaned, removed_count
 
 
@@ -216,21 +378,30 @@ def atomic_save_json(file_path: Union[Path, str], data: Any) -> bool:
         return False
 
 
-def sanitize_history_file(path: Path = HISTORY_PATH) -> int:
-    """Scans and cleans history.json, creating a backup before saving."""
+def sanitize_history_file(path: Path = HISTORY_PATH, max_length: int = 30, user_name: str = "Big Boss") -> Tuple[int, int]:
+    """
+    Scans and cleans history.json, creating a backup before saving.
+    Returns: (removed_count, modified_count)
+    """
     if not path.is_file():
-        return 0
+        return 0, 0
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
         print(f"[Sanitizer] Konnte {path} nicht parsen: {e}")
-        return 0
+        return 0, 0
 
     messages = data.get("messages", [])
-    cleaned_messages, removed = sanitize_history_data(messages)
+    initial_count = len(messages)
+    cleaned_messages, removed, modified = sanitize_history_data_detailed(messages, user_name=user_name)
 
-    if removed > 0:
+    effective_limit = max(15, max_length)
+    if len(cleaned_messages) > effective_limit:
+        removed += (len(cleaned_messages) - effective_limit)
+        cleaned_messages = cleaned_messages[-effective_limit:]
+
+    if removed > 0 or modified > 0 or len(cleaned_messages) != initial_count:
         data["messages"] = cleaned_messages
         data["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         # Backup before writing
@@ -241,13 +412,13 @@ def sanitize_history_file(path: Path = HISTORY_PATH) -> int:
         except Exception as be:
             print(f"[Sanitizer] Backup-Fehler vor Save: {be}")
         atomic_save_json(path, data)
-        print(f"[Sanitizer] ✔ {removed} korrumpierte Nachricht(en) aus {path.name} entfernt.")
+        print(f"[Sanitizer] ✔ {removed} entfernt, {modified} bereinigt in {path.name} (neu: {len(cleaned_messages)} Einträge).")
 
-    return removed
+    return removed, modified
 
 
-def sanitize_session_file(path: Path = SESSION_PATH) -> int:
-    """Scans and cleans .brain/session.json."""
+def sanitize_session_file(path: Path = SESSION_PATH, user_name: str = "Big Boss") -> int:
+    """Scans and cleans .brain/session.json history entries."""
     if not path.is_file():
         return 0
 
@@ -260,23 +431,75 @@ def sanitize_session_file(path: Path = SESSION_PATH) -> int:
     history_entries = data.get("history", [])
     cleaned_entries = []
     removed = 0
+    modified = 0
 
     for entry in history_entries:
         fb = entry.get("feedback", "")
         act = entry.get("actions", "")
-        c1, _ = is_corrupted_text(fb)
-        c2, _ = is_corrupted_text(act)
-        if c1 or c2:
+
+        clean_fb, valid_fb, _ = clean_text_content("assistant", str(fb), user_name=user_name)
+        clean_act, valid_act, _ = clean_text_content("user", str(act), user_name=user_name)
+
+        if not valid_fb or not valid_act:
             removed += 1
             continue
+
+        if clean_fb != fb or clean_act != act:
+            modified += 1
+            entry = dict(entry)
+            entry["feedback"] = clean_fb
+            entry["actions"] = clean_act
+
         cleaned_entries.append(entry)
 
-    if removed > 0:
+    if removed > 0 or modified > 0:
         data["history"] = cleaned_entries
         atomic_save_json(path, data)
-        print(f"[Sanitizer] ✔ {removed} korrumpierte(r) Eintrag/Einträge aus {path.name} entfernt.")
+        print(f"[Sanitizer] ✔ {removed} entfernt, {modified} bereinigt in {path.name}.")
 
     return removed
+
+
+def maintain_clean_history(
+    history_file: Union[Path, str] = HISTORY_PATH,
+    session_file: Optional[Union[Path, str]] = SESSION_PATH,
+    max_length: int = 30,
+    user_name: str = "Big Boss"
+) -> Dict[str, Any]:
+    """
+    All-in-one general maintenance function to keep history.json (and .brain/session.json) clean.
+    - Loads history safely
+    - Scans and cleans all corrupted, leaked, or out-of-character entries
+    - Sanitizes system prompt leaks, ComfyUI tag requests, and glitch tokens
+    - Deduplicates identical consecutive messages
+    - Enforces ring buffer size
+    - Backs up if modifications are made
+    - Atomically saves cleaned history
+    - Also cleans .brain/session.json history/feedback entries
+    Returns summary dict with stats.
+    """
+    h_path = Path(history_file)
+    s_path = Path(session_file) if session_file else None
+
+    h_removed, h_mod = sanitize_history_file(h_path, max_length=max_length, user_name=user_name)
+    s_removed = sanitize_session_file(s_path, user_name=user_name) if (s_path and s_path.is_file()) else 0
+
+    total_msgs = 0
+    if h_path.is_file():
+        try:
+            with open(h_path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+                total_msgs = len(d.get("messages", []))
+        except Exception:
+            pass
+
+    return {
+        "history_removed": h_removed,
+        "history_modified": h_mod,
+        "session_removed": s_removed,
+        "total_messages": total_msgs,
+        "clean": (h_removed == 0 and h_mod == 0 and s_removed == 0)
+    }
 
 
 def reset_history_file(path: Path = HISTORY_PATH) -> None:
@@ -290,20 +513,13 @@ def reset_history_file(path: Path = HISTORY_PATH) -> None:
     print(f"[Sanitizer] ✔ {path} auf leeren Nachrichtenverlauf [] zurückgesetzt.")
 
 
-def sanitize_all(project_root: Optional[Path] = None) -> Dict[str, Any]:
+def sanitize_all(project_root: Optional[Path] = None, user_name: str = "Big Boss") -> Dict[str, Any]:
     """Sanitizes both history.json and .brain/session.json for the project."""
     root = Path(project_root) if project_root else PROJECT_ROOT
     h_file = root / "history.json"
     s_file = root / ".brain" / "session.json"
 
-    h_removed = sanitize_history_file(h_file)
-    s_removed = sanitize_session_file(s_file)
-
-    return {
-        "history_removed": h_removed,
-        "session_removed": s_removed,
-        "clean": (h_removed == 0 and s_removed == 0)
-    }
+    return maintain_clean_history(history_file=h_file, session_file=s_file, user_name=user_name)
 
 
 if __name__ == "__main__":
@@ -311,6 +527,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Outer Heaven Companion History Sanitizer")
     parser.add_argument("--reset-history", action="store_true", help="Setzt history.json komplett auf [] zurueck")
     parser.add_argument("--clean", action="store_true", help="Bereinigt history.json und session.json von korrumpierten Eintraegen")
+    parser.add_argument("--watch", type=int, nargs="?", const=60, help="Startet kontinuierliche Überwachung (z. B. alle 60 Sekunden)")
     parser.add_argument("--project-root", default=str(PROJECT_ROOT), help="Projekt-Stammverzeichnis")
 
     args = parser.parse_args()
@@ -319,6 +536,17 @@ if __name__ == "__main__":
     if args.reset_history:
         reset_history_file(root / "history.json")
         sanitize_session_file(root / ".brain" / "session.json")
+    elif args.watch:
+        interval = max(5, args.watch)
+        print(f"[Sanitizer] Starte kontinuierliche Überwachung von {root} (Intervall: {interval}s)...")
+        try:
+            while True:
+                res = maintain_clean_history(root / "history.json", root / ".brain" / "session.json")
+                if not res["clean"]:
+                    print(f"[{time.strftime('%X')}] Bereinigung durchgeführt: {res}")
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            print("\n[Sanitizer] Überwachung beendet.")
     else:
-        res = sanitize_all(root)
-        print(f"[Sanitizer] Status: history_removed={res['history_removed']}, session_removed={res['session_removed']}")
+        res = maintain_clean_history(root / "history.json", root / ".brain" / "session.json")
+        print(f"[Sanitizer] Status: history_removed={res['history_removed']}, history_modified={res['history_modified']}, session_removed={res['session_removed']}, total_messages={res['total_messages']}")

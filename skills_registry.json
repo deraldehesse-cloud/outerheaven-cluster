@@ -1,0 +1,204 @@
+[
+  {
+    "id": "buero_hermes",
+    "name": "Büro Hermes / Paperless Advisor",
+    "description": "Automatische Klassifikation, Verschlagwortung und Dokumentenanalyse via Paperless-ngx.",
+    "category": "Office & Workflow",
+    "enabled": true,
+    "source": "local:OuterHeaven/buero_hermes.py",
+    "parameters": [
+      "dokument_typ",
+      "tags",
+      "korrespondenz_partner"
+    ]
+  },
+  {
+    "id": "telegram_service",
+    "name": "Telegram Dispatcher & Alarmierung",
+    "description": "Bidirektionale Kommunikation via Telegram Bot, Status-Pushes und Benachrichtigungen.",
+    "category": "Communication",
+    "enabled": true,
+    "source": "local:OuterHeaven/hermes_telegram_service.py",
+    "parameters": [
+      "chat_id",
+      "nachricht",
+      "dringlichkeit"
+    ]
+  },
+  {
+    "id": "system_terminal",
+    "name": "Cluster-Terminal Executor",
+    "description": "Sichere Ausführung von Sandbox-Shellbefehlen, Diagnostik und Log-Analyse.",
+    "category": "System Administration",
+    "enabled": false,
+    "source": "builtin:terminal_executor",
+    "parameters": [
+      "command",
+      "working_dir"
+    ]
+  },
+  {
+    "id": "lora_dataset_curation",
+    "name": "LoRA Dataset Kuration",
+    "description": "Filterung, Bereinigung und Konvertierung von Chat-Historien in JSONL-Datensätze für Fine-Tuning.",
+    "category": "Machine Learning",
+    "enabled": false,
+    "source": "github:outerheaven/lora-curator",
+    "parameters": [
+      "dataset_path",
+      "split_ratio"
+    ]
+  },
+  {
+    "id": "web_search_research",
+    "name": "Web Research & Fact Checking",
+    "description": "Automatisierte Webrecherche über SearXNG mit Quellen-Synthese.",
+    "category": "Research",
+    "enabled": false,
+    "source": "remote:skills/web_research.json",
+    "parameters": [
+      "search_query",
+      "max_results"
+    ]
+  },
+  {
+    "id": "mahnungs_alarm",
+    "name": "mahnungs_alarm",
+    "description": "Löse diesen Skill aus, wenn im Text eine Mahnung, Inkassoforderung oder Zahlungsfrist vorkommt.",
+    "category": "Webhook / Telegram",
+    "enabled": true,
+    "source": "custom:webhook_/_telegram",
+    "handler": {
+      "type": "Webhook / Telegram",
+      "target": "https://example.com/webhook/telegram"
+    },
+    "parameters": [
+      "aktenzeichen",
+      "betrag",
+      "dringlichkeit"
+    ],
+    "function_schema": {
+      "type": "function",
+      "function": {
+        "name": "mahnungs_alarm",
+        "description": "Löse diesen Skill aus, wenn im Text eine Mahnung, Inkassoforderung oder Zahlungsfrist vorkommt.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "aktenzeichen": {
+              "type": "string",
+              "description": "Extrahierter Parameter 'aktenzeichen' für mahnungs_alarm."
+            },
+            "betrag": {
+              "type": "string",
+              "description": "Extrahierter Parameter 'betrag' für mahnungs_alarm."
+            },
+            "dringlichkeit": {
+              "type": "string",
+              "description": "Extrahierter Parameter 'dringlichkeit' für mahnungs_alarm."
+            }
+          },
+          "required": [
+            "aktenzeichen",
+            "betrag",
+            "dringlichkeit"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "id": "email_autoreply_dispatch",
+    "name": "E-Mail Auto-Reply & Entwurf (Paperworker)",
+    "description": "Erstelle bei eingehenden Rechnungen, Mahnungen oder behördlichen Dokumenten automatisch eine professionelle, deeskalierende E-Mail-Antwort.",
+    "category": "E-Mail Dispatch & Draft",
+    "enabled": true,
+    "source": "local:OuterHeaven/hermes_email_handler.py",
+    "handler": {
+      "type": "E-Mail Dispatch & Draft",
+      "target": "",
+      "action_mode": "draft"
+    },
+    "parameters": [
+      "absender",
+      "aktenzeichen",
+      "betrag",
+      "empfaenger_email"
+    ],
+    "function_schema": {
+      "type": "function",
+      "function": {
+        "name": "email_autoreply_dispatch",
+        "description": "Erstelle bei eingehenden Rechnungen, Mahnungen oder behördlichen Dokumenten automatisch eine professionelle, deeskalierende E-Mail-Antwort.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "absender": {
+              "type": "string",
+              "description": "Name der Firma, Behörde oder Gläubigers."
+            },
+            "aktenzeichen": {
+              "type": "string",
+              "description": "Aktenzeichen oder Rechnungsnummer."
+            },
+            "betrag": {
+              "type": "string",
+              "description": "Forderungs- oder Rechnungsbetrag."
+            },
+            "empfaenger_email": {
+              "type": "string",
+              "description": "E-Mail-Adresse des Empfängers."
+            }
+          },
+          "required": [
+            "absender",
+            "aktenzeichen"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "id": "lebensplan_reminder",
+    "name": "Lebensplan & Smart Reminder",
+    "description": "Wenn der Nutzer Pläne äußert, Aufgaben festhalten will oder um eine Erinnerung bittet.",
+    "category": "Lebensplan & Smart Reminder",
+    "enabled": true,
+    "source": "local:OuterHeaven/hermes_reminder.py",
+    "handler": {
+      "type": "Lebensplan & Smart Reminder",
+      "target": "local:OuterHeaven/lebensplan.json",
+      "action_mode": "reminder",
+      "push_notify": true,
+      "speaker_broadcast": false
+    },
+    "parameters": [
+      "datum_uhrzeit",
+      "vorhaben_aufgabe"
+    ],
+    "function_schema": {
+      "type": "function",
+      "function": {
+        "name": "lebensplan_reminder",
+        "description": "Wenn der Nutzer Pläne äußert, Aufgaben festhalten will oder um eine Erinnerung bittet.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "datum_uhrzeit": {
+              "type": "string",
+              "description": "Extrahierter Zeitpunkt oder Datums-/Uhrzeitangabe für die Erinnerung (z.B. ISO-8601 oder \"morgen um 15 Uhr\")."
+            },
+            "vorhaben_aufgabe": {
+              "type": "string",
+              "description": "Extrahierte Aufgabe oder Vorhaben des Nutzers."
+            }
+          },
+          "required": [
+            "datum_uhrzeit",
+            "vorhaben_aufgabe"
+          ]
+        }
+      }
+    }
+  }
+]

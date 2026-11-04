@@ -1,56 +1,88 @@
 #!/usr/bin/env bash
-# cluster-power.sh - Graceful Power Management für das Outer Heaven Cluster
+# ======================================================================
+# Cluster Power Management für Sebastian (Shutdown, Cleanup & Reboot)
+# Host Laptop: Big Boss (User: bigboss)
+# ======================================================================
 
-# Megan verabschiedet sich vor dem Herunterfahren/Neustart von Outer Heaven
-# (Push über WebSocket, mit ~50 % Chance noch ein Feierabend-Schnappschuss; wartet bis zu ~75 s auf das Bild)
-megan_farewell() {
-  echo "Megan verabschiedet sich..."
-  ssh -o ConnectTimeout=3 -o BatchMode=yes outerheaven \
-    "curl -s -m 100 -X POST 'http://127.0.0.1:8080/api/system/shutdown-warning?wait=75'" >/dev/null 2>&1 || true
-}
+# Linux-Äquivalent zum Windows DISM/Component-Cleanup
+LINUX_CLEAN="sudo DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && sudo apt-get clean && sudo journalctl --vacuum-time=3d"
 
-CHOICE=$(zenity --list --title="Cluster Power Management" \
+CHOICE=$(zenity --list --title="Outer Heaven Cluster Power Management" \
   --column="Nr." --column="Aktion" \
-  "1" "Alle Rechner herunterfahren (Cluster Shutdown)" \
-  "2" "Nur Outer Heaven herunterfahren" \
-  "3" "Nur Fox herunterfahren" \
-  "4" "Nur Der Alde Hesse (NAS) herunterfahren" \
-  "5" "Outer Heaven neu starten (Reboot)" \
-  "6" "Fox neu starten (Reboot)" \
-  "7" "Der Alde Hesse (NAS) neu starten (Reboot)" \
-  --height=360 --width=520)
+  "1" "Kompletten Cluster BEREINIGEN & HERUNTERFAHREN (OH -> Rex/Ray -> Fox -> NAS)" \
+  "2" "Kompletten Cluster NEUSTARTEN (Reboot aller aktiven Knoten)" \
+  "3" "Nur Outer Heaven bereinigen & herunterfahren" \
+  "4" "Nur Outer Heaven neustarten" \
+  "5" "Nur Fox bereinigen & herunterfahren (Paperless / Research Node)" \
+  "6" "Nur Fox neustarten" \
+  "7" "Nur Thin Clients (Rex & Ray) bereinigen & herunterfahren" \
+  "8" "Nur Der Alde Hesse herunterfahren (NAS / Storage)" \
+  "9" "Nur Der Alde Hesse neustarten" \
+  --height=430 --width=620 2>/dev/null)
 
 case "$CHOICE" in
   1)
-    megan_farewell
-    echo "Fahre Fox herunter..."
-    ssh -o ConnectTimeout=2 fox "sudo shutdown -h now" 2>/dev/null || true
-    echo "Fahre Der Alde Hesse herunter..."
-    ssh -o ConnectTimeout=2 deraldehesse "sudo shutdown -h now" 2>/dev/null || true
-    echo "Fahre Outer Heaven herunter..."
-    ssh -o ConnectTimeout=2 outerheaven "sudo shutdown -h now" 2>/dev/null || true
+    echo "Schritt A: Cleanup & Shutdown Outer Heaven..."
+    ssh -o ConnectTimeout=3 outerheaven "$LINUX_CLEAN; sudo poweroff" || true
+
+    echo "Schritt B: Cleanup & Shutdown Thin Clients (falls online)..."
+    ssh -o ConnectTimeout=2 rex "$LINUX_CLEAN; sudo poweroff" 2>/dev/null || echo "Rex offline oder übersprungen"
+    ssh -o ConnectTimeout=2 ray "$LINUX_CLEAN; sudo poweroff" 2>/dev/null || echo "Ray offline oder übersprungen"
+
+    echo "Schritt C: Cleanup & Shutdown Fox..."
+    ssh -o ConnectTimeout=3 fox "$LINUX_CLEAN; sudo poweroff" || true
+
+    echo "Schritt D: Fahre Der Alde Hesse (NAS) herunter..."
+    ssh -o ConnectTimeout=3 deraldehesse "sudo poweroff" || true
+
+    zenity --info --text="Cleanup durchgeführt und Shutdown-Signal an alle Nodes gesendet." --timeout=4 2>/dev/null
     ;;
   2)
-    megan_farewell
-    ssh -o ConnectTimeout=2 outerheaven "sudo shutdown -h now"
+    echo "Starte Outer Heaven neu..."
+    ssh -o ConnectTimeout=3 outerheaven "sudo reboot" 2>/dev/null || true
+    echo "Starte Thin Clients neu (falls online)..."
+    ssh -o ConnectTimeout=2 rex "sudo reboot" 2>/dev/null || true
+    ssh -o ConnectTimeout=2 ray "sudo reboot" 2>/dev/null || true
+    echo "Starte Fox neu..."
+    ssh -o ConnectTimeout=3 fox "sudo reboot" 2>/dev/null || true
+    echo "Starte Der Alde Hesse neu..."
+    ssh -o ConnectTimeout=3 deraldehesse "sudo reboot" 2>/dev/null || true
+    zenity --info --text="Reboot-Signal an alle aktiven Nodes gesendet." --timeout=3 2>/dev/null
     ;;
   3)
-    ssh -o ConnectTimeout=2 fox "sudo shutdown -h now"
+    echo "Cleanup & Shutdown Outer Heaven..."
+    ssh -o ConnectTimeout=3 outerheaven "$LINUX_CLEAN; sudo poweroff" || true
+    zenity --info --text="Outer Heaven bereinigt und heruntergefahren." --timeout=3 2>/dev/null
     ;;
   4)
-    ssh -o ConnectTimeout=2 deraldehesse "sudo shutdown -h now"
+    echo "Starte Outer Heaven neu..."
+    ssh -o ConnectTimeout=3 outerheaven "sudo reboot" || true
+    zenity --info --text="Outer Heaven startet neu." --timeout=3 2>/dev/null
     ;;
   5)
-    megan_farewell
-    echo "Starte Outer Heaven neu..."
-    ssh -o ConnectTimeout=2 outerheaven "sudo reboot"
+    echo "Cleanup & Shutdown Fox..."
+    ssh -o ConnectTimeout=3 fox "$LINUX_CLEAN; sudo poweroff" || true
+    zenity --info --text="Fox bereinigt und heruntergefahren." --timeout=3 2>/dev/null
     ;;
   6)
     echo "Starte Fox neu..."
-    ssh -o ConnectTimeout=2 fox "sudo reboot"
+    ssh -o ConnectTimeout=3 fox "sudo reboot" || true
+    zenity --info --text="Fox startet neu." --timeout=3 2>/dev/null
     ;;
   7)
-    echo "Starte Der Alde Hesse neu..."
-    ssh -o ConnectTimeout=2 deraldehesse "sudo reboot"
+    echo "Cleanup & Shutdown Thin Clients..."
+    ssh -o ConnectTimeout=2 rex "$LINUX_CLEAN; sudo poweroff" 2>/dev/null || echo "Rex offline"
+    ssh -o ConnectTimeout=2 ray "$LINUX_CLEAN; sudo poweroff" 2>/dev/null || echo "Ray offline"
+    zenity --info --text="Thin Clients bereinigt und abgeschaltet." --timeout=3 2>/dev/null
+    ;;
+  8)
+    echo "Fahre Der Alde Hesse (NAS) herunter..."
+    ssh -o ConnectTimeout=3 deraldehesse "sudo poweroff" || true
+    zenity --info --text="Der Alde Hesse (NAS) fährt herunter." --timeout=3 2>/dev/null
+    ;;
+  9)
+    echo "Starte Der Alde Hesse (NAS) neu..."
+    ssh -o ConnectTimeout=3 deraldehesse "sudo reboot" || true
+    zenity --info --text="Der Alde Hesse (NAS) startet neu." --timeout=3 2>/dev/null
     ;;
 esac

@@ -79,7 +79,7 @@ Um zu verhindern, dass Tasks an Node Fox gesendet werden, während Fox einen gep
 Das Web-Dashboard dient als zentrale Leitstelle zur Überwachung und Steuerung beider Knoten:
 
 - **Striktes Host-Binding (Zero-0.0.0.0 Policy):**
-  Bindet **ausschließlich** an `127.0.0.1:8080` und die Tailscale-IP `<OUTERHEAVEN_IP>:8080`. Ein offenes Binding an `0.0.0.0` ist architektonisch unterbunden.
+  Bindet **ausschließlich** an `127.0.0.1:8000` und die Tailscale-IP `<OUTERHEAVEN_IP>:8000` (Port 8080 ist für Megan Studio reserviert). Ein offenes Binding an `0.0.0.0` ist architektonisch unterbunden.
 - **Authentifizierung:**
   Geschützt durch Session-Cookie, HTTP-Basic-Auth und Inter-Agent API-Key (`X-Cluster-Key`).
 - **Multi-Node Telemetrie:**
@@ -103,19 +103,28 @@ Das Web-Dashboard dient als zentrale Leitstelle zur Überwachung und Steuerung b
 ├── config.yaml.example                  # Hermes Agent Konfigurations-Template
 ├── .gitignore                           # Strenger Ausschluss sensibler Daten
 ├── README.md                            # Diese Dokumentation
+├── hermes_web_ui.py                     # Hermes Agent Kontrollzentrum & Automation Backend (:8081)
+├── skills_registry.json                 # Kanonische Skill-Registry (Hermes / Cluster)
+├── hermes_skills.json                   # Hermes Agent Skill-Definitionen
+├── cluster_nodes.json                   # Multi-Node Topologie- und Service-Konfiguration
 │
 ├── scripts/
+│   ├── cluster-deploy.sh                # Ganzheitliches Cluster-Deployment (OH & Fox Sync)
+│   ├── cluster-power.sh                 # 9-Optionen Power Management & System-Cleanup (Zenity)
+│   ├── deploy-megan-app.sh              # 1-Klick ADB-Deployer für Android Megan Companion
+│   ├── deploy-paperless-app.sh          # 1-Klick ADB-Deployer für Android Paperless Scanner
+│   ├── deploy-hermes-app.sh             # 1-Klick ADB-Deployer für Android Hermes Agent
+│   ├── buero_hermes.py                  # Büro-Autopilot, Mahnungs-Guard & Schriftsätze
 │   ├── cluster_delegate.py              # Intelligentes Multi-Node Routing & Handover-Schutz
-│   ├── watch-ollama-model.sh            # Ollama Model Watcher & VRAM-Flush Synchronizer
-│   ├── cluster-pre-shutdown.sh          # Fox Pre-Shutdown Signal Hook
-│   ├── cluster-boot-notify.sh           # Fox Boot Recovery Hook
-│   ├── hermes_telegram_service.py       # Telegram Bot Service (Bigbossheaven_bot) mit ComfyUI-Bridge
-│   ├── verify-cluster.sh                # Ganzheitlicher Cluster-Health-Check
-│   ├── google_calendar.py               # Google Calendar Integration via Service Account
-│   └── google_drive.py                  # Google Drive Integration via Service Account
+│   ├── sync-paperless-backup.sh         # Konsistenter Paperless Backup-Sync auf NAS
+│   ├── hermes_telegram_service.py       # Telegram Bot Service mit Voice STT/TTS Bridge
+│   ├── verify-cluster.sh                # Ganzheitlicher Cluster-Health-Check (OH & Fox)
+│   ├── sanitize_history.py              # Prompt-Leakage-Schutz & History-Sanitizer
+│   ├── watch-ollama-model.sh            # Ollama Model Watcher (Fox)
+│   └── watch-ollama-model-outerheaven.sh # Ollama Model Watcher (Outer Heaven)
 │
 ├── mission-control/
-│   ├── server.py                        # Aiohttp Async Backend (Dual TCPSite Binding)
+│   ├── server.py                        # Aiohttp Async Backend (:8000, Dual TCPSite Binding)
 │   ├── templates/
 │   │   ├── index.html                   # Sci-Fi Terminal UI mit Tailwind, Chat, Gauges & TTS
 │   │   └── login.html                   # Authentifizierungs-Terminal
@@ -124,10 +133,23 @@ Das Web-Dashboard dient als zentrale Leitstelle zur Überwachung und Steuerung b
 │       ├── sw.js                        # PWA Service Worker
 │       └── icon.svg                     # Vektor-Cluster-Icon
 │
+├── services/
+│   └── megan-studio/                    # Megan Studio Desktop Backend (:8080)
+│       ├── server.py                    # Megan Studio Fast-API Server
+│       ├── megan_learning.py            # Autonome Erfahrungs- und Präferenz-Schleife
+│       ├── persona_assembler.py         # Lore- & Persona-Compiler
+│       └── templates/index.html         # Megan Studio Web-GUI
+│
 └── systemd/
-    ├── mission-control.service          # User-Dienst für das Dashboard
-    ├── hermes-telegram.service          # User-Dienst für den Telegram-Bot
-    ├── comfyui.service                  # User-Dienst für ComfyUI auf Arc A770
+    ├── mission-control.service          # User-Dienst für das Dashboard (:8000)
+    ├── megan-studio.service             # User-Dienst für Megan Studio (:8080)
+    ├── hermes-agent.service             # User-Dienst für Hermes Agent auf Fox (:8081)
+    ├── fox-research-agent.service       # User-Dienst für Research Agent auf Fox (:5005)
+    ├── buero-hermes.service             # Büro-Autopilot Service auf Fox
+    ├── buero-hermes.timer               # Büro-Autopilot 30-Minuten-Timer
+    ├── paperless-backup.service         # Paperless-Backup Sync Service
+    ├── paperless-backup.timer           # Paperless-Backup täglicher Timer
+    ├── comfyui.service                  # User-Dienst für ComfyUI auf Arc A770 (:8188)
     ├── ollama-model-watcher.service     # System-Dienst für VRAM-Schutz & Modellwechsel
     ├── cluster-shutdown-notify.service  # Handover-Hook vor Reboot auf Fox
     ├── cluster-boot-notify.service      # Handover-Hook nach Boot auf Fox

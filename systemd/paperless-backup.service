@@ -1,0 +1,16 @@
+[Unit]
+Description=Paperless-ngx Backup and Sync to NAS Der Alde Hesse
+Requires=docker.service
+After=docker.service network-online.target tailscaled.service
+
+[Service]
+Type=oneshot
+User=fox
+Group=fox
+WorkingDirectory=/home/fox/scripts
+ExecStart=/home/fox/scripts/sync-paperless-backup.sh
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

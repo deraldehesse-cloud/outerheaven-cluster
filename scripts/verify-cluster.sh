@@ -74,6 +74,24 @@ if ssh -o ConnectTimeout=3 -o BatchMode=yes fox "true" 2>/dev/null; then
         echo -e "  Ollama Daemon:          [${RED}$OLLAMA_STATUS${RESET}]"
     fi
 
+    # Hermes Agent Service (:8081)
+    HERMES_AGENT_STATUS=$(ssh fox "systemctl --user is-active hermes-agent.service 2>/dev/null || echo 'inactive'")
+    if [ "$HERMES_AGENT_STATUS" = "active" ]; then
+        HERMES_BIND=$(ssh fox "ss -tuln | grep ':8081 ' | awk '{print \$5}' | tr '\n' ' '")
+        echo -e "  Hermes Agent (:8081):   [${GREEN}AKTIV / RUNNING${RESET}] (Binding: $HERMES_BIND)"
+    else
+        echo -e "  Hermes Agent (:8081):   [${YELLOW}$HERMES_AGENT_STATUS${RESET}]"
+    fi
+
+    # Fox Research Agent Service (:5005)
+    RESEARCH_STATUS=$(ssh fox "systemctl --user is-active fox-research-agent.service 2>/dev/null || echo 'inactive'")
+    if [ "$RESEARCH_STATUS" = "active" ]; then
+        RESEARCH_BIND=$(ssh fox "ss -tuln | grep ':5005 ' | awk '{print \$5}' | tr '\n' ' '")
+        echo -e "  Fox Research Agent (:5005):[${GREEN}AKTIV / RUNNING${RESET}] (Binding: $RESEARCH_BIND)"
+    else
+        echo -e "  Fox Research Agent (:5005):[${YELLOW}$RESEARCH_STATUS${RESET}]"
+    fi
+
     # Speicher (RAM, Swap, VRAM)
     MEM_INFO=$(ssh fox "free -h | awk '/Mem:/ {print \$3 \" / \" \$2} /Swap:/ {print \"Swap: \" \$3 \" / \" \$2}'")
     echo -e "  Arbeitsspeicher & Swap: $MEM_INFO"

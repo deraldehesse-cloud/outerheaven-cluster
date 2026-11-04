@@ -1,0 +1,28 @@
+profile:
+  user_name: "Sebastian"
+  household_status:
+    living_situation: "Untermieter in Dachwohnung (Hauptwohnsitz Eltern gemeldet)"
+    rundfunkbeitrag:
+      already_covered: true
+      reason: "Haushalt zahlt bereits bzw. über Hauptwohnsitz abgedeckt"
+      action_hint: "Nicht zahlen! Beitragskonto auf bestehendes Haushaltskonto umschreiben oder abmelden."
+    
+  budget_context:
+    regular_check_enabled: true
+    warn_threshold_eur: 100.00
+
+  rules:
+    - name: "Rundfunkbeitrag Duplikat"
+      match_keywords: ["Beitragsservice", "Rundfunkbeitrag", "ARD ZDF Deutschlandradio"]
+      flag: "HANDLUNG_SPART_GELD"
+      action: "Widerspruch bzw. Abmeldung / Verweis auf Hauptzahler"
+
+    - name: "Altbelege Archivierung"
+      max_age_days: 60
+      auto_archive: true
+      tag: "Archiv"
+
+    - name: "Werbung & Infopost"
+      match_keywords: ["Lieber Kunde", "Gewinnspiel", "Exklusives Angebot", "Katalog"]
+      tag: "Infopost"
+      skip_budget_check: true

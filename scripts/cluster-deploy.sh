@@ -252,6 +252,24 @@ if [ "${FOX_ONLINE}" -eq 1 ]; then
         rsync -avz "${REPO_DIR}/character_canonical.json" "${FOX_HOST}:${FOX_TARGET_HERMES}character_canonical.json" >/dev/null 2>&1 || true
     fi
 
+    # 4c. Hermes Agent Web UI, Skills & Service Units nach Fox übertragen
+    log_info "Übertrage Hermes Agent Backend & Skills nach ${FOX_HOST}:${FOX_TARGET_SCRIPTS}..."
+    HERMES_SRC_DIR="${REPO_DIR}"
+    rsync -avz \
+        "${HERMES_SRC_DIR}/hermes_web_ui.py" \
+        "${HERMES_SRC_DIR}/skills_registry.json" \
+        "${HERMES_SRC_DIR}/hermes_skills.json" \
+        "${HERMES_SRC_DIR}/cluster_nodes.json" \
+        "${HERMES_SRC_DIR}/hermes_email_handler.py" \
+        "${HERMES_SRC_DIR}/hermes_reminder.py" \
+        "${HERMES_SRC_DIR}/fints_connector.py" \
+        "${FOX_HOST}:${FOX_TARGET_SCRIPTS}" >/dev/null 2>&1 || true
+
+    ssh -o BatchMode=yes -o ConnectTimeout=5 "${FOX_HOST}" "mkdir -p ~/.config/systemd/user" 2>/dev/null || true
+    if [ -f "${REPO_DIR}/systemd/hermes-agent.service" ]; then
+        rsync -avz "${REPO_DIR}/systemd/hermes-agent.service" "${FOX_HOST}:~/.config/systemd/user/" >/dev/null 2>&1 || true
+    fi
+
     if [ "${FOX_SCRIPTS_OK}" -eq 1 ] && [ "${FOX_CONFIG_OK}" -eq 1 ]; then
         FOX_SYNC_OK=1
     fi
@@ -303,29 +321,29 @@ if [ "${OH_ONLINE}" -eq 1 ]; then
         log_fail "Fehler beim Starten von megan-studio.service auf outerheaven!"
     fi
 
-    # 5d. Hermes Agent Web UI (:8081) auf outerheaven via tmux neu starten
-    log_info "Starte Hermes Agent Web UI (:8081) auf outerheaven neu..."
-    ssh -q outerheaven "pkill --older 1 -f hermes_web_ui.py 2>/dev/null || true; tmux kill-session -t hermes_ui 2>/dev/null; tmux new-session -d -s hermes_ui 'cd ~/Documents/OuterHeaven-Projekt-doc && python3 hermes_web_ui.py'"
-    sleep 1
-    OH_HERMES_RUNNING=$(ssh -o BatchMode=yes -o ConnectTimeout=3 "${OH_HOST}" "tmux has-session -t hermes_ui 2>/dev/null && echo 'running' || echo 'stopped'")
-    if [ "${OH_HERMES_RUNNING}" = "running" ]; then
-        log_ok "Hermes Agent Web UI läuft auf outerheaven (Port 8081 via tmux session 'hermes_ui')."
+    # 5d. Hermes Agent auf outerheaven stilllegen (Migration nach Fox)
+    log_info "Hermes Agent auf outerheaven stilllegen (verlagert nach fox)..."
+    ssh -q outerheaven "pkill -f hermes_web_ui.py 2>/dev/null || true; tmux kill-session -t hermes_ui 2>/dev/null || true; systemctl --user stop hermes-agent.service 2>/dev/null || true; systemctl --user disable hermes-agent.service 2>/dev/null || true"
+    OH_HERMES_RUNNING=$(ssh -o BatchMode=yes -o ConnectTimeout=3 "${OH_HOST}" "ss -lptn 'sport = :8081' 2>/dev/null | grep -q 8081 && echo 'running' || echo 'stopped'")
+    if [ "${OH_HERMES_RUNNING}" = "stopped" ]; then
+        log_ok "Port 8081 auf outerheaven erfolgreich freigegeben."
         OH_RESTART_HERMES_OK=1
     else
-        log_warn "Hermes Agent Web UI Session-Status auf outerheaven: ${OH_HERMES_RUNNING}"
+        log_warn "Port 8081 auf outerheaven noch belegt: ${OH_HERMES_RUNNING}"
     fi
 fi
 
-# 5e. Fox: hermes-gateway.service neu starten (falls aktiv)
+# 5e. Fox: hermes-agent.service (:8081) und hermes-gateway neu starten
 if [ "${FOX_SYNC_OK}" -eq 1 ]; then
-    log_info "Triggere Daemon-Reload & Gateway-Restart auf fox..."
-    if ssh -o BatchMode=yes -o ConnectTimeout=5 "${FOX_HOST}" 'systemctl --user daemon-reload && (systemctl --user restart hermes-gateway.service 2>/dev/null || true)'; then
-        sleep 1
-        FOX_SVC_STATE=$(ssh -o BatchMode=yes -o ConnectTimeout=3 "${FOX_HOST}" 'systemctl --user is-active hermes-gateway.service 2>/dev/null || echo "standby"')
-        log_ok "Fox Services aktualisiert (hermes-gateway: ${FOX_SVC_STATE})."
+    log_info "Triggere Daemon-Reload & hermes-agent Service auf fox..."
+    ssh -o BatchMode=yes -o ConnectTimeout=5 "${FOX_HOST}" 'systemctl --user stop fox-port-forward-8081.service 2>/dev/null || true; systemctl --user disable fox-port-forward-8081.service 2>/dev/null || true; systemctl --user daemon-reload && systemctl --user enable --now hermes-agent.service && systemctl --user restart hermes-agent.service && (systemctl --user restart hermes-gateway.service 2>/dev/null || true)'
+    sleep 2
+    FOX_HERMES_STATE=$(ssh -o BatchMode=yes -o ConnectTimeout=3 "${FOX_HOST}" 'systemctl --user is-active hermes-agent.service 2>/dev/null || echo "unknown"')
+    if [ "${FOX_HERMES_STATE}" = "active" ]; then
+        log_ok "hermes-agent.service auf fox läuft (active) auf Port 8081."
         FOX_RESTART_OK=1
     else
-        log_warn "Konnte Services auf fox nicht neu starten."
+        log_warn "hermes-agent.service Status auf fox: ${FOX_HERMES_STATE}"
     fi
 fi
 

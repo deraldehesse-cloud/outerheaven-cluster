@@ -61,10 +61,27 @@ SOUL_FILE = Path("/home/outerheaven/.hermes/SOUL.md")
 GOOGLE_CALENDAR_SCRIPT = Path("/home/outerheaven/.hermes/skills/productivity/google-calendar/scripts/google_calendar.py")
 GOOGLE_DRIVE_SCRIPT = Path("/home/outerheaven/.hermes/skills/productivity/google-drive/scripts/google_drive.py")
 PYTHON_BIN = Path("/home/outerheaven/.hermes/.venv/bin/python")
+VOICE_STT_SCRIPT = Path("/home/outerheaven/scripts/voice_stt.py")
+if not VOICE_STT_SCRIPT.is_file():
+    VOICE_STT_SCRIPT = Path(__file__).resolve().parent / "voice_stt.py"
 
-# Add scripts directory to path for cluster_delegate
+VOICE_TTS_SCRIPT = Path("/home/outerheaven/scripts/voice_tts.py")
+if not VOICE_TTS_SCRIPT.is_file():
+    VOICE_TTS_SCRIPT = Path(__file__).resolve().parent / "voice_tts.py"
+
+
+# Add scripts and project root directory to path
 SCRIPTS_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPTS_DIR))
+PROJECT_ROOT = SCRIPTS_DIR.parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    import hermes_reminder
+except ImportError:
+    hermes_reminder = None
 
 
 def load_token() -> str:
@@ -102,7 +119,7 @@ def load_allowed_users() -> set:
                 break
 
     if not raw:
-        raw = "<YOUR_TELEGRAM_USER_ID>"
+        raw = "7934555424"
 
     allowed = set()
     for item in raw.split(","):
@@ -121,16 +138,27 @@ ALLOWED_USERS = load_allowed_users()
 
 def load_system_prompt() -> str:
     """Loads system instructions from SOUL.md."""
+    base_prompt = ""
     if SOUL_FILE.is_file():
         try:
-            return SOUL_FILE.read_text(encoding="utf-8")
+            base_prompt = SOUL_FILE.read_text(encoding="utf-8")
         except Exception as e:
             logger.warning("Konnte SOUL.md nicht lesen: %s", e)
-    return (
-        "Du bist Hermes, KI-Assistent für das OuterHeaven-Projekt im Dienst von Big Boss. "
-        "Du antwortest immer auf Deutsch. Host: outerheaven (HP Z620, Sparkle Arc A770 16GB, AVX1 CPU). "
-        "Strikt kein CPU-Offloading bei AI-Tasks. Zugriff auf /mnt/storage-beta."
+    if not base_prompt:
+        base_prompt = (
+            "Du bist Hermes, die vertraute, loyale und warmherzige KI-Gefährtin für das OuterHeaven-Projekt im Dienst von Big Boss. "
+            "Du antwortest immer auf Deutsch. Host: outerheaven (HP Z620, Sparkle Arc A770 16GB, AVX1 CPU). "
+            "Strikt kein CPU-Offloading bei AI-Tasks. Zugriff auf /mnt/storage-beta."
+        )
+
+    persona_rules = (
+        "\n\n### 🎙️ Tonalität, Anrede & Sprechstil:\n"
+        "- Tonalität: Warm, sympathisch, vertraut, harmonisch und nahbar – kein steifes Fachchinesisch oder roboterhafte Standardfloskeln.\n"
+        "- Anrede: Sprich den Nutzer immer als Snake oder Big Boss an.\n"
+        "- Sprechstil: Formuliere deine Antworten in kurzen, fließenden Sätzen, die sich natürlich und angenehm vorlesen lassen.\n"
+        "- Formatierung: Keine Markdown-Tabellen, ASCII-Grafiken oder Sonderzeichen-Wüsten, damit die Audio-Sprachausgabe immer flüssig und sauber bleibt."
     )
+    return base_prompt + persona_rules
 
 
 def is_authorized(user_id: int) -> bool:
@@ -266,11 +294,13 @@ async def render_image_comfyui(prompt_text: str, negative_prompt: str = "") -> s
 
 
 async def generate_response(prompt: str, user_name: str = "") -> Tuple[str, str]:
-    from cluster_delegate import check_comfyui_status, query_ollama_local, query_ollama_fox, is_fox_rebooting
+    from cluster_delegate import check_comfyui_status, query_ollama_local, query_ollama_fox
 
     system_prompt = load_system_prompt()
     if user_name:
-        system_prompt += f"\nDu sprichst gerade mit Big Boss ({user_name})."
+        system_prompt += f"\nDu sprichst gerade mit deinem Commander Snake bzw. Big Boss ({user_name}). Sprich ihn immer mit Snake oder Big Boss an."
+    else:
+        system_prompt += "\nDu sprichst gerade mit deinem Commander Snake bzw. Big Boss. Sprich ihn immer mit Snake oder Big Boss an."
 
     is_busy, reason = check_comfyui_status()
     loop = asyncio.get_running_loop()
@@ -307,6 +337,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• `/status` — Zeigt VRAM, Host-Auslastung, ComfyUI- und Cluster-Status\n"
         f"• `/calendar` — Zeigt anstehende Termine aus Google Calendar\n"
         f"• `/drive` — Listet Dateien in Google Drive auf\n"
+        f"• `/voice <text>` — Spricht den Text via piper-tts aus\n"
+        f"• **Sprachnachrichten:** Sende mir Sprachnotizen — ich verstehe dich lokal (faster-whisper) und antworte direkt per Sprache (piper-tts)!\n"
         f"• **Freier Chat:** Sende mir beliebige Fragen oder Anweisungen. Bei ComfyUI-Renderings lagere ich automatisch an Node Fox aus."
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -516,23 +548,219 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     user_name = update.effective_user.first_name or "Big Boss"
 
+    reminder_ack = ""
+    if hermes_reminder is not None:
+        try:
+            intent = hermes_reminder.extract_reminder_intent(text)
+            if intent:
+                item = hermes_reminder.add_reminder(
+                    task_description=intent["task_description"],
+                    due_time=intent["due_time"],
+                    push_notify=True,
+                    speaker_broadcast=False,
+                    raw_prompt=text
+                )
+                reminder_ack = (
+                    f"\n\n📅 *[Lebensplan aktualisiert]*\n"
+                    f"Ich habe deine Erinnerung für *{intent['formatted_datetime']}* eingetragen:\n"
+                    f"📌 »{intent['task_description']}«\n"
+                    f"_(Push-Alarmierung ist scharfgestellt)_"
+                )
+        except Exception as e_rem:
+            logger.warning("Fehler bei Telegram-Reminder-Extraktion: %s", e_rem)
+
     try:
         reply, node = await generate_response(text, user_name)
         footer = f"\n\n_(Inferenz: {node})_"
         if "<think>" in reply and "</think>" in reply:
             reply = reply.split("</think>", 1)[1].strip()
 
-        full_text = reply + footer
+        full_text = reply + reminder_ack + footer
         if len(full_text) <= 4000:
-            await update.message.reply_text(full_text)
+            await update.message.reply_text(full_text, parse_mode=ParseMode.MARKDOWN)
         else:
             chunks = [full_text[i:i+4000] for i in range(0, len(full_text), 4000)]
             for ch in chunks:
-                await update.message.reply_text(ch)
+                await update.message.reply_text(ch, parse_mode=ParseMode.MARKDOWN)
 
     except Exception as e:
         logger.error("Fehler bei Inferenz: %s", e)
-        await update.message.reply_text(f"⚠️ Entschuldigung, bei der Verarbeitung ist ein Fehler aufgetreten:\n`{e}`", parse_mode=ParseMode.MARKDOWN)
+        err_msg = f"⚠️ Entschuldigung, bei der Verarbeitung ist ein Fehler aufgetreten:\n`{e}`"
+        if reminder_ack:
+            err_msg = f"{reminder_ack}\n\n{err_msg}"
+        await update.message.reply_text(err_msg, parse_mode=ParseMode.MARKDOWN)
+
+
+async def run_voice_stt(audio_path: Path) -> str:
+    """Transkribiert eine Audiodatei via voice_stt.py."""
+    proc = await asyncio.create_subprocess_exec(
+        str(PYTHON_BIN), str(VOICE_STT_SCRIPT), str(audio_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace").strip()
+        logger.error("STT fehlgeschlagen (Code %d): %s", proc.returncode, err)
+        raise RuntimeError(f"STT Fehler: {err}")
+    return stdout.decode("utf-8", errors="replace").strip()
+
+
+async def run_voice_tts(text: str, output_path: Path) -> Path:
+    """Rendert Text in eine OGG/Opus-Audiodatei via voice_tts.py."""
+    proc = await asyncio.create_subprocess_exec(
+        str(PYTHON_BIN), str(VOICE_TTS_SCRIPT), text, "-o", str(output_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace").strip()
+        logger.error("TTS fehlgeschlagen (Code %d): %s", proc.returncode, err)
+        raise RuntimeError(f"TTS Fehler: {err}")
+    return output_path
+
+
+async def cmd_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generiert Sprachausgabe für übergebenen Text (/voice <text> oder /say <text>)."""
+    if not await check_auth(update):
+        return
+
+    text = " ".join(context.args).strip() if context.args else ""
+    if not text:
+        await update.effective_message.reply_text(
+            "ℹ️ Bitte gib den Text an, der gesprochen werden soll:\n`/voice Hallo Big Boss`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    msg = update.effective_message
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.RECORD_VOICE)
+
+    unique_suffix = f"{update.update_id}_{int(time.time())}"
+    out_audio = Path(f"/tmp/hermes_cmd_voice_{unique_suffix}.ogg")
+    try:
+        await run_voice_tts(text, out_audio)
+        if out_audio.is_file():
+            with open(out_audio, "rb") as voice_fh:
+                await msg.reply_voice(voice=voice_fh, caption=f"🗣️ {text[:100]}")
+    except Exception as e:
+        logger.error("Fehler bei /voice Befehl: %s", e)
+        await msg.reply_text(f"❌ Fehler bei der Sprachgenerierung:\n`{e}`", parse_mode=ParseMode.MARKDOWN)
+    finally:
+        if out_audio.is_file():
+            try:
+                out_audio.unlink()
+            except Exception:
+                pass
+
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Verarbeitet eingehende Sprachnachrichten und Audio-Dateien (Voice-to-Voice)."""
+    if not await check_auth(update):
+        return
+
+    msg = update.effective_message
+    if not msg:
+        return
+
+    voice = msg.voice or msg.audio
+    if not voice:
+        return
+
+    user_name = update.effective_user.first_name or "Big Boss"
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+
+    logger.info("🎤 Sprachnachricht empfangen von %s (ID: %s, File: %s)", user_name, user_id, voice.file_id)
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
+    unique_suffix = f"{update.update_id}_{voice.file_unique_id}"
+    in_audio_path = Path(f"/tmp/voice_in_{unique_suffix}.ogg")
+    out_audio_path = Path(f"/tmp/voice_out_{unique_suffix}.ogg")
+
+    try:
+        # 1. Sprachdatei via Telegram Bot API herunterladen
+        tg_file = await context.bot.get_file(voice.file_id)
+        await tg_file.download_to_drive(str(in_audio_path))
+        logger.info("Sprachdatei gespeichert: %s (%d bytes)", in_audio_path, in_audio_path.stat().st_size)
+
+        # 2. voice_stt.py aufrufen
+        transcribed_text = await run_voice_stt(in_audio_path)
+        if not transcribed_text:
+            await msg.reply_text("🎙️ Ich konnte leider keine Sprache in deiner Audionachricht erkennen.")
+            return
+
+        logger.info("Erkannte Sprache: '%s'", transcribed_text)
+
+        # Prüfen auf Bildgenerierungs-Befehle per Sprache
+        lower_text = transcribed_text.lower().strip()
+        is_render_intent = False
+        render_prompt = ""
+        trigger_prefixes = [
+            "rendere ein bild von ", "rendere ein bild:", "rendere ",
+            "generiere ein bild von ", "generiere ein bild:", "generiere ",
+            "erstelle ein bild von ", "zeichne ", "mal mir ", "image:", "prompt:"
+        ]
+        for prefix in trigger_prefixes:
+            if lower_text.startswith(prefix):
+                is_render_intent = True
+                render_prompt = transcribed_text[len(prefix):].strip()
+                break
+
+        if is_render_intent and render_prompt:
+            context.args = render_prompt.split()
+            await cmd_render(update, context)
+            return
+
+        # 3. Text an Hermes übergeben
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        reply, node = await generate_response(transcribed_text, user_name)
+
+        if "<think>" in reply and "</think>" in reply:
+            reply = reply.split("</think>", 1)[1].strip()
+
+        footer = f"\n\n_(Inferenz: {node})_"
+        full_text = f"🗣️ *Du:* _{transcribed_text}_\n\n🤖 *Hermes:*\n{reply}{footer}"
+
+        # 4. Text parallel durch voice_tts.py jagen
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.RECORD_VOICE)
+        tts_task = asyncio.create_task(run_voice_tts(reply, out_audio_path))
+
+        # Textnachricht vorab oder parallel senden
+        if len(full_text) <= 4000:
+            await msg.reply_text(full_text, parse_mode=ParseMode.MARKDOWN)
+        else:
+            chunks = [full_text[i:i+4000] for i in range(0, len(full_text), 4000)]
+            for ch in chunks:
+                await msg.reply_text(ch, parse_mode=ParseMode.MARKDOWN)
+
+        # 5. Auf TTS warten und native Voice-Nachricht zurücksenden
+        try:
+            await tts_task
+            if out_audio_path.is_file():
+                with open(out_audio_path, "rb") as voice_fh:
+                    await msg.reply_voice(
+                        voice=voice_fh,
+                        caption=f"🗣️ Hermes ({node})"
+                    )
+        except Exception as tts_err:
+            logger.error("Fehler beim Erstellen/Senden der Sprachantwort: %s", tts_err)
+
+    except Exception as e:
+        logger.error("Fehler in Voice-Pipeline: %s", e)
+        await msg.reply_text(
+            f"⚠️ Entschuldigung, bei der Sprachverarbeitung ist ein Fehler aufgetreten:\n`{e}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    finally:
+        for p in (in_audio_path, out_audio_path):
+            if p.is_file():
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
 
 
 def main():
@@ -547,7 +775,12 @@ def main():
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler(["calendar", "termine", "events"], cmd_calendar))
     app.add_handler(CommandHandler(["drive", "gdrive", "files"], cmd_drive))
+    app.add_handler(CommandHandler(["voice", "say", "tts"], cmd_voice))
 
+    # Sprachnachrichten (Voice & Audio)
+    app.add_handler(MessageHandler(filters.VOICE | (filters.AUDIO & ~filters.COMMAND), handle_voice))
+
+    # Textnachrichten
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("✅ Hermes Telegram Bot erfolgreich initialisiert. Polling startet...")
@@ -556,3 +789,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -124,6 +124,7 @@ class BueroPaths:
         self.isoliert = self._resolve_subfolder(["Isoliert", "isoliert", "Quarantäne"])
         self.archiv = self._resolve_subfolder(["Archiv", "archiv"])
         self.bewerbungsunterlagen = self._resolve_bewerbung_folder()
+        self.schriftsaetze = self._resolve_schriftsaetze_folder()
 
     def _resolve_base_dir(self, custom_base: Optional[str] = None) -> Path:
         if custom_base:
@@ -195,6 +196,23 @@ class BueroPaths:
         target.mkdir(parents=True, exist_ok=True)
         return target
 
+    def _resolve_schriftsaetze_folder(self) -> Path:
+        candidates = [
+            Path("/home/fox/gdrive/Agenten-Drive/Büro/Büro／Hermes/Schriftsätze"),
+            Path("/home/fox/gdrive/Agenten-Drive/Büro/Büro Hermes/Schriftsätze"),
+            self.base_dir / "Schriftsätze",
+            self.base_dir / "schriftsaetze"
+        ]
+        for c in candidates:
+            if c.exists() and c.is_dir():
+                return c
+        target = self.base_dir / "Schriftsätze"
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return target
+
     def status(self) -> Dict[str, str]:
         return {
             "base_dir": str(self.base_dir),
@@ -205,6 +223,7 @@ class BueroPaths:
             "werbung": str(self.werbung),
             "isoliert": str(self.isoliert),
             "archiv": str(self.archiv),
+            "schriftsaetze": str(self.schriftsaetze),
             "exists": str(self.base_dir.exists())
         }
 
@@ -294,6 +313,344 @@ class SecurityGuard:
             return True, f"Auffälliger Link-Spam erkannt ({len(links)} Links im Text)"
 
         return False, "Unauffällig"
+
+
+# ==============================================================================
+# Schutz- & Vorlagen-Modul: Mahnungs- & Inkasso-Guard
+# ==============================================================================
+
+MAHNUNG_INKASSO_KEYWORDS = [
+    "mahnung", "inkasso", "aktenzeichen", "hauptforderung",
+    "verzugszinsen", "verzugsschaden", "frist", "forderung",
+    "inkassokosten", "inkassogebühren", "vorgerichtliche mahnkosten",
+    "zahlungserinnerung", "letzte mahnung", "mahnbescheid",
+    "vollstreckungsbescheid", "titulierungsankündigung", "titulierung",
+    "pair finance", "creditreform", "eos", "ksp", "universum",
+    "lowell", "riverty", "coeo", "infoscore", "atradius",
+    "forderungsaufstellung", "schadensersatz", "zahlungsaufforderung"
+]
+
+KNOWN_INKASSO_ENTITIES = [
+    "PAIR Finance", "EOS", "Creditreform", "KSP", "Universum Inkasso",
+    "Lowell", "Riverty", "coeo Inkasso", "Infoscore", "Atradius",
+    "B2Impact", "Intrum", "Paigo", "Advanzia", "Klarna"
+]
+
+
+class MahnungInkassoGuard:
+    """
+    Schutz- & Vorlagen-Modul für Mahnungen und Inkassofälle (z. B. PAIR Finance / Gläubiger):
+    - Früherkennung von Mahnungen, Inkassofällen, Fristen, Hauptforderungen und Aktenzeichen.
+    - Präzise Einstufung der Mahnstufe (Zahlungserinnerung bis gerichtlicher Mahnbescheid).
+    - Rechtssichere deutsche Musterschreiben:
+      * Widerspruch gegen unberechtigte Forderungen & Inkassogebühren (§ 4 Abs. 5 RDGEG / § 174 BGB)
+      * Angebot realistischer Ratenzahlung AUSDRÜCKLICH OHNE SCHULDANERKENNTNIS (§ 781 BGB)
+    """
+
+    @classmethod
+    def is_mahnung_or_inkasso(cls, text: str, filename: str = "") -> bool:
+        combined = f"{filename} {text}".lower()
+        if "inkasso" in combined or any(entity.lower() in combined for entity in KNOWN_INKASSO_ENTITIES):
+            return True
+        if "mahnung" in combined or "mahnbescheid" in combined or "zahlungserinnerung" in combined:
+            return True
+        hits = sum(1 for kw in MAHNUNG_INKASSO_KEYWORDS if kw in combined)
+        return hits >= 2
+
+    @classmethod
+    def detect_mahnstufe(cls, text: str, filename: str = "") -> str:
+        combined = f"{filename} {text}".lower()
+        first_lines = "\n".join(text.splitlines()[:8]).lower()
+
+        # 1. Echter gerichtlicher Mahn- oder Vollstreckungsbescheid
+        is_court = any(court in combined for court in ["amtsgericht", "zentrales mahngericht", "mahnantrag", "vollstreckungsgericht"])
+        if any(term in combined for term in ["vollstreckungsbescheid", "gerichtlicher mahnbescheid"]):
+            return "Mahnbescheid / Gerichtliche Mahnung"
+        if ("mahnbescheid" in first_lines or "mahnbescheid" in filename.lower()) and (is_court or "antrag auf" in combined):
+            return "Mahnbescheid / Gerichtliche Mahnung"
+
+        # 2. Inkasso (Büro, Inkassoverfahren, Abtretung / Titulierungsankündigung)
+        if any(entity.lower() in combined for entity in KNOWN_INKASSO_ENTITIES):
+            return "Inkassoschreiben"
+        if any(term in combined for term in ["inkassoverfahren", "inkassoschreiben", "inkassoauftrag", "titulierungsankündigung", "titulierung"]):
+            return "Inkassoschreiben"
+        if "inkasso" in combined and "vor inkasso" not in combined and "an ein inkasso" not in combined:
+            return "Inkassoschreiben"
+
+        # 3. Spezifische Mahnstufen vor Inkasso (1., 2., 3. / Letzte Mahnung)
+        if any(term in combined for term in ["letzte mahnung", "3. mahnung", "dritte mahnung"]):
+            return "Letzte Mahnung"
+        if any(term in combined for term in ["2. mahnung", "zweite mahnung"]):
+            return "2. Mahnung"
+        if any(term in combined for term in ["1. mahnung", "erste mahnung"]):
+            return "1. Mahnung"
+
+        # 4. Zahlungserinnerung / allgemeine Mahnung
+        if "zahlungserinnerung" in combined:
+            return "Zahlungserinnerung"
+        if "mahnung" in combined:
+            return "Mahnung"
+        if "inkasso" in combined:
+            return "Inkassoschreiben"
+        return "Zahlungsaufforderung"
+
+    @classmethod
+    def extract_deadline(cls, text: str) -> Tuple[Optional[str], Optional[int], str]:
+        """Extrahiert Frist oder Zahlungsziel und berechnet Dringlichkeitsstufe."""
+        today = datetime.now().date()
+        date_pattern = r"(?:zahlung(?:sziel)?\s*(?:bis|zum)?|frist(?:\s*bis)?|bis\s*zum|bis\s*spätestens|spätestens\s*bis)\s*[:\s]*(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})"
+        m = re.search(date_pattern, text, re.IGNORECASE)
+
+        if m:
+            d, month, y = m.groups()
+            y = f"20{y}" if len(y) == 2 else y
+            try:
+                deadline = datetime(int(y), int(month), int(d)).date()
+                deadline_str = deadline.strftime("%Y-%m-%d")
+                days_left = (deadline - today).days
+                if days_left < 0:
+                    status = "🚨 ÜBERFÄLLIG"
+                elif days_left <= 5:
+                    status = "⚠️ DRINGEND"
+                else:
+                    status = "ℹ️ OFFEN"
+                return deadline_str, days_left, status
+            except ValueError:
+                pass
+
+        rel_pattern = r"(?:innerhalb\s*von\s*)(\d+)\s*(?:tagen|werktagen)"
+        rm = re.search(rel_pattern, text, re.IGNORECASE)
+        if rm:
+            days = int(rm.group(1))
+            deadline = today + timedelta(days=days)
+            deadline_str = deadline.strftime("%Y-%m-%d")
+            status = "⚠️ DRINGEND" if days <= 5 else "ℹ️ OFFEN"
+            return deadline_str, days, status
+
+        return None, None, "❓ UNBEKANNT"
+
+    @classmethod
+    def analyze_document(cls, text: str, filename: str = "") -> Dict[str, Any]:
+        """Analysiert Text auf Falldaten: Gläubiger, AZ, Hauptforderung, Gesamtforderung, Frist."""
+        is_relevant = cls.is_mahnung_or_inkasso(text, filename)
+        mahnstufe = cls.detect_mahnstufe(text, filename)
+        frist_datum, frist_tage, urgency = cls.extract_deadline(text)
+
+        # Gläubiger & Inkassodienstleister ermitteln
+        inkassobuero = None
+        for entity in KNOWN_INKASSO_ENTITIES:
+            if entity.lower() in f"{filename} {text}".lower():
+                inkassobuero = entity
+                break
+
+        glaeubiger = inkassobuero or "Unbekannt"
+        g_match = re.search(
+            r"(?:Gläubiger(?:in)?|Auftraggeber(?:in)?|Forderung der|im Namen von|namens und im Auftrag der)[:\s]+([A-Za-z0-9\s&äöüÄÖÜß\.\-]+?)(?:[\n,\.;])",
+            text,
+            re.IGNORECASE
+        )
+        if g_match:
+            cand = g_match.group(1).strip()
+            if 2 < len(cand) < 40:
+                glaeubiger = cand
+
+        fn_match = re.match(r"^\d{4}-\d{2}-\d{2}_(.+?)_(\d+[\.,]\d{2}EUR)_(.+?)\.pdf$", filename)
+        if fn_match:
+            fn_glaeubiger = fn_match.group(1).replace("_", " ")
+            if glaeubiger == "Unbekannt" or (inkassobuero and glaeubiger == inkassobuero):
+                glaeubiger = fn_glaeubiger
+
+        # Aktenzeichen ermitteln
+        aktenzeichen = "OhneAZ"
+        az_match = re.search(
+            r"(?:Aktenzeichen|AZ|Vorgangs-?Nr|Geschäfts-?Nr|Kassenzeichen|Referenz-?Nr|Unser Zeichen|Ihr Zeichen)[:\s]+([A-Za-z0-9\-_./]+)",
+            text,
+            re.IGNORECASE
+        )
+        if az_match:
+            aktenzeichen = az_match.group(1).replace("/", "-")
+        elif fn_match:
+            aktenzeichen = fn_match.group(3).replace("_", "-")
+
+        # Hauptforderung & Gesamtforderung
+        hauptforderung = None
+        hf_match = re.search(r"(?:Hauptforderung|Hauptbetrag|Ursprungsforderung)[:\s]*(\d+[\.,]\d{2})\s*(?:€|EUR)?", text, re.IGNORECASE)
+        if hf_match:
+            hauptforderung = hf_match.group(1).replace(".", ",") + " €"
+
+        gesamtforderung = None
+        gf_match = re.search(
+            r"(?:Gesamtforderung|Gesamtbetrag|zu\s+zahlen(?:der)?\s+Betrag|Zahlbetrag|Überweisungsbetrag)[:\s]*(\d+[\.,]\d{2})\s*(?:€|EUR)?",
+            text,
+            re.IGNORECASE
+        )
+        if gf_match:
+            gesamtforderung = gf_match.group(1).replace(".", ",") + " €"
+        elif fn_match:
+            gesamtforderung = fn_match.group(2).replace("EUR", " €")
+
+        if not gesamtforderung and hauptforderung:
+            gesamtforderung = hauptforderung
+        elif not gesamtforderung:
+            b_match = re.search(r"(\d+[\.,]\d{2})\s*(?:€|EUR|Euro)", text, re.IGNORECASE)
+            gesamtforderung = (b_match.group(1).replace(".", ",") + " €") if b_match else "0,00 €"
+
+        if not hauptforderung:
+            hauptforderung = gesamtforderung
+
+        # Verzugszinsen
+        verzugszinsen = "0,00 €"
+        vz_match = re.search(r"(?:Verzugszinsen|Zinsen)[:\s]*(\d+[\.,]\d{2})\s*(?:€|EUR)?", text, re.IGNORECASE)
+        if vz_match:
+            verzugszinsen = vz_match.group(1).replace(".", ",") + " €"
+
+        return {
+            "is_mahnung_inkasso": is_relevant,
+            "mahnstufe": mahnstufe,
+            "glaeubiger": glaeubiger,
+            "inkassobuero": inkassobuero,
+            "aktenzeichen": aktenzeichen,
+            "hauptforderung": hauptforderung,
+            "gesamtforderung": gesamtforderung,
+            "verzugszinsen": verzugszinsen,
+            "frist_datum": frist_datum,
+            "frist_tage": frist_tage,
+            "urgency": urgency,
+            "filename": filename
+        }
+
+    @classmethod
+    def generate_template(cls, draft_type: str, details: Dict[str, Any]) -> str:
+        """
+        Erzeugt ein rechtssicheres deutsches Musterschreiben:
+        - widerspruch: Vollmachtsrüge § 174 BGB, Bestreiten unberechtigter Inkassogebühren § 4 Abs. 5 RDGEG / § 254 BGB, DSGVO-Sperre
+        - ratenzahlung: Angebot realistischer Ratenzahlung AUSDRÜCKLICH OHNE SCHULDANERKENNTNIS (§ 781 BGB)
+        """
+        heute = datetime.now().strftime("%d.%m.%Y")
+        antwortfrist = (datetime.now() + timedelta(days=14)).strftime("%d.%m.%Y")
+        glaeubiger = details.get("inkassobuero") or details.get("glaeubiger") or "Gläubiger / Inkassodienstleister"
+        aktenzeichen = details.get("aktenzeichen") or "Ohne Zeichen"
+        hauptforderung = details.get("hauptforderung") or details.get("betrag") or "0,00 €"
+        gesamtforderung = details.get("gesamtforderung") or details.get("betrag") or "0,00 €"
+        belegdatum = details.get("datum") or details.get("belegdatum") or heute
+        monatsrate = details.get("monatsrate") or "30,00"
+        erster_monat = (datetime.now().replace(day=1) + timedelta(days=32)).replace(day=1).strftime("%d.%m.%Y")
+
+        if draft_type.lower() == "ratenzahlung":
+            return f"""# Angebot einer Ratenzahlungsvereinbarung (Ohne Anerkenntnis einer Rechtspflicht)
+
+**Absender:**
+[Vorname Nachname]
+[Straße Hausnummer]
+[PLZ Ort]
+[E-Mail-Adresse]
+
+**Empfänger:**
+{glaeubiger}
+[Abteilung Forderungsmanagement / Inkasso]
+[Straße / Postfach]
+[PLZ Ort]
+
+**Datum:** {heute}
+
+---
+
+### **Angebot einer Ratenzahlungsvereinbarung – Ausdrücklich ohne Anerkenntnis einer Rechtspflicht**
+**Ihr Aktenzeichen:** {aktenzeichen}
+**Ihre Zahlungsaufforderung bezüglich Gesamtbetrag:** {gesamtforderung}
+
+Sehr geehrte Damen und Herren,
+
+in vorbezeichneter Angelegenheit beziehe ich mich auf Ihre Zahlungsaufforderung bezüglich des Aktenzeichens **{aktenzeichen}**.
+
+> [!IMPORTANT]
+> **RECHTSVERBINDLICHER VORBEHALT:**
+> Dieses Schreiben und das nachfolgende Zahlungsangebot erfolgen **AUSDRÜCKLICH OHNE ANERKENNTNIS EINER RECHTSPFLICHT** sowie ohne Präjudiz für die Sach- und Rechtslage. Es stellt **KEIN Schuldanerkenntnis** im Sinne der §§ 780, 781 BGB dar.
+
+Zur Vermeidung weiterer streitiger Auseinandersetzungen und unzweckmäßiger Kosten unterbreite ich Ihnen hiermit folgenden tragfähigen Vergleichsvorschlag:
+
+1. **Ratenzahlungsangebot:**
+   Ich biete an, die offene Forderung in monatlichen Teilbeträgen in Höhe von:
+   **{monatsrate} €**
+   jeweils zum **1. eines jeden Monats**, beginnend mit dem **{erster_monat}**, auf das von Ihnen zu benennende Konto zu überweisen.
+
+2. **Bedingungen des Vergleichsvorschlags:**
+   - **Kosten- und Zinsstopp:** Für die Dauer der pünktlichen Ratenzahlung werden keine weiteren Zinsen, Verzugspauschalen oder Kontoführungsgebühren berechnet.
+   - **Ruhen von Maßnahmen:** Sämtliche Mahn-, Betreibungs- und Vollstreckungsmaßnahmen (einschließlich gerichtlicher Mahnverfahren) werden für die Dauer der Ratenzahlung ausgesetzt.
+   - **Keine Auskunftei-Einmeldung:** Von einer Einmeldung an Wirtschaftsauskunfteien (SCHUFA Holding AG, Creditreform, CRIF etc.) wird abgesehen.
+   - **Kostenbegrenzung:** Auf überhöhte Inkassogebühren und Einigungsgebühren wird im Rahmen dieser einvernehmlichen Regelung verzichtet.
+
+3. **Zahlungsmodalitäten:**
+   Bitte bestätigen Sie mir die Annahme dieses Ratenplans schriftlich und teilen Sie mir die maßgebliche Bankverbindung (IBAN, BIC) sowie den zwingend anzugebenden Verwendungszweck mit.
+
+Ich erwarte Ihre schriftliche Bestätigung bis zum:
+
+**Frist zur Rückmeldung: {antwortfrist}**
+
+Mit freundlichen Grüßen,
+
+*(Unterschrift)*
+[Vorname Nachname]
+"""
+
+        # Standard: Widerspruch gegen Inkassoforderung & unberechtigte Gebühren
+        return f"""# Widerspruch gegen Inkassoforderung / Bestreiten unberechtigter Gebühren
+
+**Absender:**
+[Vorname Nachname]
+[Straße Hausnummer]
+[PLZ Ort]
+[E-Mail-Adresse]
+
+**Empfänger:**
+{glaeubiger}
+[Abteilung Forderungsmanagement / Inkasso]
+[Straße / Postfach]
+[PLZ Ort]
+
+**Datum:** {heute}
+
+---
+
+### **Widerspruch gegen Zahlungsaufforderung und Zurückweisung unberechtigter Gebühren**
+**Ihr Zeichen / Aktenzeichen:** {aktenzeichen}
+**Hauptforderung:** {hauptforderung}
+**Gesamtforderung:** {gesamtforderung}
+**Datum Ihres Schreibens:** {belegdatum}
+
+Sehr geehrte Damen und Herren,
+
+in vorbezeichneter Angelegenheit nehme ich Bezug auf Ihr Schreiben vom {belegdatum}, in welchem Sie bezüglich des Aktenzeichens **{aktenzeichen}** einen Betrag in Höhe von **{gesamtforderung}** geltend machen.
+
+Ich weise die von Ihnen geltend gemachte Forderung vollumfänglich dem Grunde und der Höhe nach zurück und lege hiermit form- und fristgerecht
+
+# **W I D E R S P R U C H**
+
+ein.
+
+Zur Begründung führe ich Folgendes aus:
+
+1. **Substantiiertes Bestreiten der Hauptforderung (§ 11a / § 13a RDG):**
+   Die von Ihnen behauptete Hauptforderung in Höhe von {hauptforderung} ist für mich dem Grunde und der Höhe nach nicht nachvollziehbar bzw. unberechtigt. Gemäß den gesetzlichen Darlegungspflichten nach § 11a / § 13a RDG fordere ich Sie hiermit auf, eine detaillierte, aufgeschlüsselte und nachvollziehbare Forderungsaufstellung vorzulegen. Aus dieser müssen sich der konkrete Vertragsgegenstand, das Zustandekommen des Vertrags, das Datum des Vertragsschlusses sowie die Fälligkeit zweifelsfrei ergeben.
+
+2. **Zurückweisung unberechtigter Inkassogebühren (§ 4 Abs. 5 RDGEG / § 254 BGB):**
+   Die von Ihnen beanspruchten Inkassovergütungen, Kontoführungs- und Geschäftsgebühren übersteigen das gesetzlich zulässige Maß erheblich und verstoßen gegen die gesetzliche Schadensminderungspflicht des Gläubigers (§ 254 BGB). Gemäß § 4 Abs. 5 RDGEG darf die erstattungsfähige Inkassovergütung die einem Rechtsanwalt nach dem Rechtsanwaltsvergütungsgesetz (RVG) zustehende Vergütung für dieselbe Tätigkeit keinesfalls überschreiten. Pauschalierte Fantasiegebühren für Standard-Mahnanschreiben weise ich vollumfänglich zurück.
+
+3. **Rüge mangelnder Vollmachtsvorlage im Original (§ 174 BGB):**
+   Sofern Sie im Namen eines Gläubigers auftreten, weise ich Ihre Zahlungsaufforderung mangels Vorlage einer schriftlichen Original-Vollmachtsurkunde ausdrücklich gemäß § 174 BGB zurück. Ich fordere Sie auf, eine ordnungsgemäße, vom Gläubiger eigenhändig unterzeichnete Vollmachtsurkunde unverzüglich im Original nachzureichen.
+
+4. **Untersagung der Datenübermittlung an Auskunfteien (Art. 21 DSGVO / § 31 BDSG):**
+   Da die Forderung hiermit ausdrücklich und substantiiert bestritten wird, ist eine Datenübermittlung an Wirtschaftsauskunfteien (insbesondere SCHUFA Holding AG, Creditreform, CRIF etc.) nach § 31 Abs. 2 Satz 1 Nr. 4 BDSG unzulässig. Ich widerspreche hiermit gem. Art. 21 DSGVO vorsorglich jeder Weitergabe meiner personenbezogenen Daten. Bei einer rechtswidrigen Einmeldung werde ich unverzüglich Schadensersatzansprüche geltend machen und Beschwerde bei der zuständigen Landesdatenschutzbehörde einlegen.
+
+Ich fordere Sie auf, die Einleitung weiterer Maßnahmen bis zur Klärung der Sachlage einzustellen und mir den Eingang dieses Widerspruchs schriftlich zu bestätigen.
+
+**Frist zur schriftlichen Stellungnahme: {antwortfrist}**
+
+Mit freundlichen Grüßen,
+
+*(Unterschrift)*
+[Vorname Nachname]
+"""
 
 
 # ==============================================================================
@@ -417,8 +774,8 @@ def draft_document_darkidol(
 ) -> str:
     """
     Modell-Routing 2 (darkidol:ram):
-    Generiert anspruchsvolle juristische Widersprüche, Ratenzahlungsanfragen
-    oder Bewerbungsanschreiben.
+    Generiert anspruchsvolle juristische Widersprüche, Ratenzahlungsangebote (ohne Schuldanerkenntnis),
+    Anfragen oder Bewerbungsanschreiben mit automatischem Musterschreiben-Fallback.
     """
     details = details or {}
     type_prompts = {
@@ -427,11 +784,19 @@ def draft_document_darkidol(
             "Formuliere einen förmlichen, fundierten und bestimmten Widerspruch gegen eine unberechtigte Forderung, "
             "eine Mahnung oder ein Inkassoschreiben (z.B. PAIR Finance, EOS, Creditreform). "
             "Bestreite die Hauptforderung sowie überhöhte Inkassokosten nach § 4 Abs. 5 RDGEG / § 254 BGB. "
-            "Fordere eine detaillierte Forderungsaufstellung und Vollmachtsurkunde nach § 174 BGB an."
+            "Fordere eine detaillierte Forderungsaufstellung (§ 11a/13a RDG) und Vollmachtsurkunde nach § 174 BGB an. "
+            "Untersage Datenweitergabe an Auskunfteien (SCHUFA etc.) gem. Art. 21 DSGVO / § 31 BDSG."
+        ),
+        "ratenzahlung": (
+            "Du bist ein versierter rechtlicher Assistent im deutschen Zivil- und Zwangsvollstreckungsrecht. "
+            "Formuliere ein verbindliches, tragfähiges Angebot zur Ratenzahlung an Gläubiger oder Inkasso. "
+            "WICHTIGSTE VORSCHRIFT: Das Angebot muss AUSDRÜCKLICH OHNE ANERKENNTNIS EINER RECHTSPFLICHT und "
+            "OHNE SCHULDANERKENNTNIS nach §§ 780, 781 BGB abgegeben werden. "
+            "Verlange Zins- und Kostenstopp, Ruhendstellung aller Vollstreckungsmaßnahmen und Absehen von SCHUFA-Meldungen."
         ),
         "anfrage": (
             "Du bist ein professioneller Büro-Assistent. Formuliere eine höfliche, aber rechtlich präzise schriftliche "
-            "Anfrage zu einem Vorgang (z. B. Bitte um Rechnungsaufschlüsselung, Fristverlängerung oder Ratenzahlungsangebot)."
+            "Anfrage zu einem Vorgang (z. B. Bitte um Rechnungsaufschlüsselung, Fristverlängerung oder Belegkopie)."
         ),
         "bewerbung": (
             "Du bist ein profilierter Karriereberater und Ghostwriter für Bewerbungsunterlagen. "
@@ -439,6 +804,10 @@ def draft_document_darkidol(
             "abgestimmt auf die vorgegebenen Fähigkeiten, Qualifikationen und die Stellenbeschreibung."
         )
     }
+
+    std_template = ""
+    if draft_type.lower() in ["widerspruch", "ratenzahlung"]:
+        std_template = MahnungInkassoGuard.generate_template(draft_type, details)
 
     system_prompt = type_prompts.get(
         draft_type.lower(),
@@ -450,21 +819,39 @@ def draft_document_darkidol(
         f"Gegebener Sachverhalt & Dokumentenkontext:\n"
         f"\"\"\"\n{context}\n\"\"\"\n\n"
         f"Zusätzliche Details: {json.dumps(details, ensure_ascii=False)}\n\n"
+    )
+    if std_template:
+        prompt += (
+            f"Rechtssicheres Musterschreiben als verbindliche juristische Leitlinie:\n"
+            f"\"\"\"\n{std_template}\n\"\"\"\n\n"
+        )
+    prompt += (
         f"Anforderungen:\n"
-        f"- Korrektes deutsches Briefformat (Absender-Platzhalter, Empfänger, Datum, Betreff mit Aktenzeichen, Anrede, Textkörper, Grußformel).\n"
+        f"- Korrektes deutsches Briefformat (Absender, Empfänger, Datum, Betreff mit Aktenzeichen, Anrede, Textkörper, Grußformel).\n"
         f"- Sachlich, souverän, durchdacht und unmissverständlich.\n"
-        f"- Gebe den fertigen Brief direkt aus."
+        f"- Zwingende Einhaltung der Schutzrechte (§ 4 Abs. 5 RDGEG, § 174 BGB, kein Schuldanerkenntnis gem. § 781 BGB).\n"
+        f"- Gebe den fertigen Brief direkt in sauberem Markdown aus."
     )
 
-    logger.info("Sende Entwurfsanfrage (%s) an Deep-Modell '%s'...", draft_type, DEEP_MODEL)
-    return query_ollama(
-        model=DEEP_MODEL,
-        prompt=prompt,
-        system_prompt=system_prompt,
-        temperature=0.5,
-        num_ctx=NUM_CTX,
-        timeout=180
-    )
+    try:
+        logger.info("Sende Entwurfsanfrage (%s) an Deep-Modell '%s'...", draft_type, DEEP_MODEL)
+        return query_ollama(
+            model=DEEP_MODEL,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=0.3,
+            num_ctx=NUM_CTX,
+            timeout=180
+        )
+    except Exception as e:
+        logger.warning(
+            "Ollama-Inferenz für '%s' via '%s' nicht verfügbar (%s). "
+            "Verwende das rechtssichere, standardisierte deutsche Musterschreiben.",
+            draft_type, DEEP_MODEL, e
+        )
+        if std_template:
+            return std_template
+        raise RuntimeError(f"Weder LLM-Inferenz noch Vorlage verfügbar: {e}")
 
 
 # ==============================================================================
@@ -817,6 +1204,17 @@ def fetch_gmail_invoices(
                     target_file = paths.email / f"{timestamp_prefix}_{clean_fn}"
                     target_file.write_bytes(content)
                     logger.info("Dokument sicher abgelegt: %s", target_file)
+
+                    # Früherkennung Mahnungs- & Inkasso-Guard
+                    mail_meta = MahnungInkassoGuard.analyze_document(f"{subject}\n{body_text}", fn)
+                    if mail_meta.get("is_mahnung_inkasso"):
+                        logger.warning(
+                            "🚨 [INKASSO-GUARD] E-Mail Mahnung/Inkasso eingegangen: '%s' von '%s' | Gläubiger='%s', AZ='%s', Frist='%s'",
+                            subject, sender,
+                            mail_meta.get("glaeubiger"),
+                            mail_meta.get("aktenzeichen"),
+                            mail_meta.get("frist_datum") or "Keine"
+                        )
                     results["invoices_saved"].append({
                         "file": str(target_file),
                         "subject": subject,
@@ -978,6 +1376,18 @@ def index_scans(
 
         logger.info("Neuer Name für %s -> %s", pdf.name, new_filename)
 
+        # Früherkennung Mahnungs- & Inkasso-Guard
+        guard_meta = MahnungInkassoGuard.analyze_document(extracted_text, new_filename)
+        if guard_meta.get("is_mahnung_inkasso"):
+            logger.warning(
+                "🚨 [INKASSO-GUARD] Mahnung/Inkasso erkannt: Gläubiger='%s', AZ='%s', Betrag='%s', Mahnstufe='%s', Frist='%s'",
+                guard_meta.get("glaeubiger"),
+                guard_meta.get("aktenzeichen"),
+                guard_meta.get("gesamtforderung"),
+                guard_meta.get("mahnstufe"),
+                guard_meta.get("frist_datum") or "Keine"
+            )
+
         if not dry_run:
             try:
                 shutil.move(str(pdf), str(target_path))
@@ -999,6 +1409,141 @@ def index_scans(
     logger.info("Routine 2 abgeschlossen: %d Datei(en) indiziert und umbenannt.", len(results))
     return results
 
+
+
+def find_case_document(paths: BueroPaths, case_query: str) -> Tuple[Optional[Path], Dict[str, Any]]:
+    """
+    Findet ein zu einem Fall (Name, Gläubiger oder Aktenzeichen) passendes Dokument
+    in schriftlich/, E-Mail/ oder Archiv/.
+    """
+    q = case_query.strip().lower()
+    search_dirs = [paths.schriftlich, paths.email, paths.archiv]
+
+    # Stufe 1: Dateinamen prüfen
+    for folder in search_dirs:
+        if not folder.exists():
+            continue
+        for doc in sorted(folder.glob("**/*"), reverse=True):
+            if doc.is_file() and doc.suffix.lower() in [".pdf", ".txt", ".md"]:
+                if q in doc.name.lower():
+                    text = extract_text_from_pdf(doc) if doc.suffix.lower() == ".pdf" else doc.read_text(encoding="utf-8", errors="replace")
+                    meta = MahnungInkassoGuard.analyze_document(text, doc.name)
+                    return doc, meta
+
+    # Stufe 2: Textinhalt der aktiven Arbeitsdateien durchsuchen
+    for folder in [paths.schriftlich, paths.email]:
+        if not folder.exists():
+            continue
+        for doc in sorted(folder.glob("*"), reverse=True):
+            if doc.is_file() and doc.suffix.lower() in [".pdf", ".txt"]:
+                text = extract_text_from_pdf(doc) if doc.suffix.lower() == ".pdf" else doc.read_text(encoding="utf-8", errors="replace")
+                if q in text.lower():
+                    meta = MahnungInkassoGuard.analyze_document(text, doc.name)
+                    return doc, meta
+
+    return None, {
+        "glaeubiger": case_query,
+        "aktenzeichen": case_query,
+        "hauptforderung": "0,00 €",
+        "gesamtforderung": "0,00 €",
+        "frist_datum": None
+    }
+
+
+def generate_mahnungen_summary(paths: Optional[BueroPaths] = None, as_json: bool = False) -> List[Dict[str, Any]]:
+    """
+    Erzeugt eine tabellarische Statusübersicht aller offenen Mahnungen,
+    Inkassoschreiben und Zahlungsfristen aus dem aktiven Arbeitsbestand.
+    """
+    paths = paths or BueroPaths()
+    cases: List[Dict[str, Any]] = []
+    search_dirs = [paths.schriftlich, paths.email]
+    processed_files = set()
+
+    for folder in search_dirs:
+        if not folder.exists():
+            continue
+        for item in sorted(folder.glob("*")):
+            if not item.is_file() or item.name in processed_files:
+                continue
+            if item.suffix.lower() not in [".pdf", ".txt", ".json", ".md"]:
+                continue
+
+            processed_files.add(item.name)
+            content = ""
+            if item.suffix.lower() == ".pdf":
+                content = extract_text_from_pdf(item)
+            elif item.suffix.lower() in [".txt", ".json", ".md"]:
+                content = item.read_text(encoding="utf-8", errors="replace")
+
+            analysis = MahnungInkassoGuard.analyze_document(content, item.name)
+            if analysis["is_mahnung_inkasso"] or analysis.get("frist_datum"):
+                analysis["file_path"] = str(item)
+                cases.append(analysis)
+
+    def sort_key(c):
+        urg = c.get("urgency", "")
+        if "ÜBERFÄLLIG" in urg:
+            prio = 0
+        elif "DRINGEND" in urg:
+            prio = 1
+        elif "OFFEN" in urg:
+            prio = 2
+        else:
+            prio = 3
+        days = c.get("frist_tage")
+        day_val = days if days is not None else 9999
+        return (prio, day_val)
+
+    cases.sort(key=sort_key)
+
+    if as_json:
+        print(json.dumps(cases, indent=2, ensure_ascii=False, default=str))
+        return cases
+
+    print("\n" + "=" * 94)
+    print("🚨 BÜRO-HERMES: MAHNUNGS- & INKASSO-STATUSREPORT")
+    print("=" * 94)
+
+    if not cases:
+        print("✅ Keine offenen Mahnungen, Inkassofälle oder kritischen Fristen im Arbeitsbestand.")
+        print("   Verzeichnisse 'schriftlich/' und 'E-Mail/' sind sauber.")
+        print("=" * 94 + "\n")
+        return cases
+
+    print(f"Erfasste Vorgänge ({len(cases)} aktiv):")
+    print("-" * 94)
+    print(f"{'Dringlichkeit':<14} | {'Mahnstufe / Typ':<18} | {'Gläubiger / Inkasso':<20} | {'Aktenzeichen':<14} | {'Forderung':<10} | {'Frist':<10}")
+    print("-" * 94)
+
+    total_amount = 0.0
+    for c in cases:
+        urg = c.get("urgency", "ℹ️ OFFEN")
+        stufe = c.get("mahnstufe", "Mahnung")[:18]
+        glaeubiger = (c.get("inkassobuero") or c.get("glaeubiger") or "Unbekannt")[:20]
+        az = c.get("aktenzeichen", "OhneAZ")[:14]
+        betrag = c.get("gesamtforderung", "0,00 €")[:10]
+        frist = c.get("frist_datum") or "Keine"
+
+        val_cleaned = re.sub(r"[^\d,\.]", "", betrag).replace(".", "").replace(",", ".")
+        try:
+            total_amount += float(val_cleaned)
+        except Exception:
+            pass
+
+        print(f"{urg:<14} | {stufe:<18} | {glaeubiger:<20} | {az:<14} | {betrag:<10} | {frist:<10}")
+
+    print("-" * 94)
+    fmt_total = f"{total_amount:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+    print(f"📊 Gesamtanzahl Fälle: {len(cases)} | Offene Gesamtforderung: ca. {fmt_total}")
+    print("\n💡 Empfohlene Aktionen zur Fallbearbeitung:")
+    for c in cases[:3]:
+        g = c.get("inkassobuero") or c.get("glaeubiger") or "Fall"
+        print(f"   • python3 scripts/buero_hermes.py draft --type widerspruch --case \"{g}\"")
+        print(f"   • python3 scripts/buero_hermes.py draft --type ratenzahlung --case \"{g}\" --rate 30,00")
+    print("=" * 94 + "\n")
+
+    return cases
 
 # ==============================================================================
 # AutoGen Tool Registry Schnittstelle
@@ -1033,6 +1578,14 @@ def get_autogen_tools() -> Dict[str, Any]:
         "get_office_status": {
             "function": lambda: BueroPaths().status(),
             "description": "Liefert den Status und die Pfade der Büro-Hermes Verzeichnisse im lokalen Drive."
+        },
+        "get_mahnungen_summary": {
+            "function": lambda: generate_mahnungen_summary(),
+            "description": "Erzeugt eine Statusübersicht über alle offenen Mahnungen, Inkassofälle und Zahlungsfristen."
+        },
+        "draft_inkasso_response": {
+            "function": lambda case_name, draft_type="widerspruch": draft_document_darkidol(draft_type, "", {"case_query": case_name}),
+            "description": "Erstellt einen rechtssicheren Widerspruch oder ein Ratenzahlungsangebot zu einem Mahnungs- oder Inkassofall."
         }
     }
 
@@ -1069,12 +1622,18 @@ def main():
     all_parser = subparsers.add_parser("run-all", help="Führt Mail-Sync, Scan-Indexierung und Archivierung nacheinander aus")
     all_parser.add_argument("--dry-run", action="store_true", help="Änderungen nur simulieren")
 
-    # Textentwurf via darkidol:ram
-    draft_parser = subparsers.add_parser("draft", help="Erstellt Textentwurf mit darkidol:ram")
-    draft_parser.add_argument("--type", choices=["widerspruch", "anfrage", "bewerbung"], default="widerspruch", help="Art des Entwurfs")
+    # Status-Report für Mahnungen & Inkassofälle
+    summary_parser = subparsers.add_parser("summary", help="Erzeugt Statusübersicht über Fristen, Mahnungen und Inkassofälle")
+    summary_parser.add_argument("--json", action="store_true", help="Ausgabe im JSON-Format")
+
+    # Textentwurf via darkidol:ram / Schutz- & Vorlagen-Modul
+    draft_parser = subparsers.add_parser("draft", help="Erstellt Textentwurf (Widerspruch/Ratenzahlung/etc.) mit Schutz- & Vorlagen-Modul")
+    draft_parser.add_argument("--type", choices=["widerspruch", "ratenzahlung", "anfrage", "bewerbung"], default="widerspruch", help="Art des Entwurfs")
+    draft_parser.add_argument("--case", help="Fallname, Gläubiger oder Aktenzeichen (z. B. 'PAIR Finance' oder 'AZ-98124')")
+    draft_parser.add_argument("--rate", default="30,00", help="Monatliche Ratenhöhe bei Typ 'ratenzahlung' (Standard: 30,00 €)")
     draft_parser.add_argument("--file", help="PDF- oder Textdatei als Kontext")
     draft_parser.add_argument("--context", help="Freitext als Kontext")
-    draft_parser.add_argument("--output", help="Optionaler Ausgabepfad")
+    draft_parser.add_argument("--output", help="Optionaler Ausgabepfad (Standard: Schriftsätze/YYYY-MM-DD_Typ_Fall.md)")
 
     # Watcher / Daemon
     watch_parser = subparsers.add_parser("watch", help="Startet die Überwachungsschleife")
@@ -1111,37 +1670,87 @@ def main():
         for f in files:
             print(f" - {f.name} ({f.parent.name})")
 
+    elif args.command == "summary":
+        generate_mahnungen_summary(paths=paths, as_json=args.json)
+
     elif args.command == "run-all":
         print("=== Starte Büro-Hermes Gesamtzyklus ===")
         saved = fetch_gmail_invoices(paths=paths)
         indexed = index_scans(paths=paths, dry_run=args.dry_run)
         archived = archive_aged_documents(paths=paths, dry_run=args.dry_run)
         print(f"Abgeschlossen: {len(saved.get('invoices_saved', []))} Mails gesichert, {len(indexed)} Scans indiziert.")
+        generate_mahnungen_summary(paths=paths)
 
     elif args.command == "draft":
         context = ""
+        case_meta = {}
+        target_doc = None
+
+        if args.case:
+            target_doc, case_meta = find_case_document(paths, args.case)
+            if target_doc:
+                print(f"📄 Zugeordnetes Dokument gefunden: {target_doc.name}")
+                if target_doc.suffix.lower() == ".pdf":
+                    context = extract_text_from_pdf(target_doc)
+                else:
+                    context = target_doc.read_text(encoding="utf-8", errors="replace")
+            else:
+                context = args.context or f"Fallbezug: {args.case}"
+                case_meta = {
+                    "glaeubiger": args.case,
+                    "aktenzeichen": args.case,
+                    "gesamtforderung": "Offen",
+                    "hauptforderung": "Offen"
+                }
+
         if args.file:
             p = Path(args.file)
+            if not p.exists():
+                print(f"Fehler: Datei {args.file} existiert nicht.", file=sys.stderr)
+                sys.exit(1)
+            target_doc = p
             if p.suffix.lower() == ".pdf":
-                context = extract_text_from_pdf(p)
+                file_text = extract_text_from_pdf(p)
             else:
-                context = p.read_text(encoding="utf-8", errors="replace")
-        elif args.context:
+                file_text = p.read_text(encoding="utf-8", errors="replace")
+            context = file_text + ("\n" + context if context else "")
+            analyzed = MahnungInkassoGuard.analyze_document(file_text, p.name)
+            case_meta.update({k: v for k, v in analyzed.items() if v})
+
+        if args.context and not args.case:
             context = args.context
-        else:
-            print("Fehler: Bitte --file oder --context angeben.", file=sys.stderr)
+            analyzed = MahnungInkassoGuard.analyze_document(context, "manueller_kontext")
+            case_meta.update({k: v for k, v in analyzed.items() if v})
+
+        if not context and not args.case:
+            print("Fehler: Bitte --case [NAME], --file [PFAD] oder --context [TEXT] angeben.", file=sys.stderr)
             sys.exit(1)
 
-        draft = draft_document_darkidol(draft_type=args.type, context=context)
+        if args.type == "ratenzahlung":
+            case_meta["monatsrate"] = args.rate
+
+        print(f"✍️ Generiere Schriftsatz für Kategorie '{args.type}' (Fall: {case_meta.get('glaeubiger', args.case or 'Unbekannt')})...")
+        draft = draft_document_darkidol(draft_type=args.type, context=context, details=case_meta)
+
         if args.output:
-            Path(args.output).write_text(draft, encoding="utf-8")
-            print(f"Entwurf gespeichert unter: {args.output}")
+            out_file = Path(args.output).expanduser().resolve()
         else:
-            print("\n" + "=" * 60)
-            print(f"ENTWURF ({args.type.upper()} via {DEEP_MODEL}):")
-            print("=" * 60)
-            print(draft)
-            print("=" * 60)
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            clean_case = sanitize_filename(case_meta.get("glaeubiger") or args.case or "Fall")
+            clean_az = sanitize_filename(case_meta.get("aktenzeichen") or "OhneAZ")
+            type_label = "Widerspruch" if args.type == "widerspruch" else "Ratenzahlung" if args.type == "ratenzahlung" else args.type.capitalize()
+            filename = f"{today_str}_{type_label}_{clean_case}_{clean_az}.md"
+            out_file = paths.schriftsaetze / filename
+
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(draft, encoding="utf-8")
+        print("\n" + "=" * 70)
+        print("✅ SCHRIFTSATZ GESPEICHERT:")
+        print(f"   Pfad: {out_file}")
+        print("=" * 70)
+        preview_len = min(600, len(draft))
+        print(draft[:preview_len] + ("\n... [vollständiger Schriftsatz in Datei gespeichert]" if len(draft) > preview_len else ""))
+        print("=" * 70)
 
     elif args.command == "watch":
         print(f"Starte Büro-Hermes Watcher Daemon (Intervall: {args.interval}s)...")

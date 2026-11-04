@@ -1,0 +1,14 @@
+[Unit]
+Description=Büro-Hermes Autopilot (Mail-Sync, Scan-Indexierung & Archivierung)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/mkdir -p %h/.hermes/logs
+ExecStart=/usr/bin/python3 /home/fox/scripts/buero_hermes.py run-all
+StandardOutput=append:%h/.hermes/logs/buero_hermes.log
+StandardError=append:%h/.hermes/logs/buero_hermes.log
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=default.target

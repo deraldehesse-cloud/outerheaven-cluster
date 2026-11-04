@@ -1,0 +1,97 @@
+[
+  {
+    "id": "rem_1793656955_3c8fc2",
+    "task_description": "X",
+    "due_time": "2026-11-03T15:00:00",
+    "due_timestamp": 1793714400.0,
+    "created_at": "2026-11-02T23:02:35.313383",
+    "status": "completed",
+    "channels": {
+      "push": true,
+      "speaker": false
+    },
+    "raw_prompt": "Ich habe morgen vor X, erinnere mich um 15 Uhr",
+    "dispatched_at": "2026-11-04T01:44:58.389956"
+  },
+  {
+    "id": "rem_1793656973_51e38d",
+    "task_description": "Test-Vorhaben: Antenne am Fox-Worker prüfen",
+    "due_time": "2026-11-02T23:02:55.617899",
+    "due_timestamp": 1793656975.6178992,
+    "created_at": "2026-11-02T23:02:53.617920",
+    "status": "completed",
+    "channels": {
+      "push": true,
+      "speaker": false
+    },
+    "raw_prompt": "Ich habe gleich vor die Antenne am Fox-Worker zu prüfen, erinnere mich in 2 Sekunden",
+    "dispatched_at": "2026-11-02T23:03:03.833454"
+  },
+  {
+    "id": "rem_1793657020_643fad",
+    "task_description": "Test-Vorhaben: Antenne am Fox-Worker prüfen",
+    "due_time": "2026-11-02T23:03:42.957546",
+    "due_timestamp": 1793657022.9575465,
+    "created_at": "2026-11-02T23:03:40.957568",
+    "status": "completed",
+    "channels": {
+      "push": true,
+      "speaker": false
+    },
+    "raw_prompt": "Ich habe gleich vor die Antenne am Fox-Worker zu prüfen, erinnere mich in 2 Sekunden",
+    "dispatched_at": "2026-11-02T23:03:46.220073"
+  },
+  {
+    "id": "rem_1793657032_6aedc2",
+    "task_description": "X",
+    "due_time": "2026-11-03T15:00:00",
+    "due_timestamp": 1793714400.0,
+    "created_at": "2026-11-02T23:03:52.707767",
+    "status": "completed",
+    "channels": {
+      "push": true,
+      "speaker": false
+    },
+    "raw_prompt": "Ich habe morgen vor X, erinnere mich um 15 Uhr",
+    "dispatched_at": "2026-11-04T01:44:58.389956"
+  },
+  {
+    "id": "rem_1793666144_0c1cc7",
+    "task_description": "X",
+    "due_time": "2026-11-04T15:00:00",
+    "due_timestamp": 1793800800.0,
+    "created_at": "2026-11-03T01:35:44.715939",
+    "status": "pending",
+    "channels": {
+      "push": true,
+      "speaker": false
+    },
+    "raw_prompt": "Ich habe morgen vor X, erinnere mich um 15 Uhr"
+  },
+  {
+    "id": "rem_1793666284_ba94d4",
+    "task_description": "X",
+    "due_time": "2026-11-04T15:00:00",
+    "due_timestamp": 1793800800.0,
+    "created_at": "2026-11-03T01:38:04.564466",
+    "status": "pending",
+    "channels": {
+      "push": true,
+      "speaker": false
+    },
+    "raw_prompt": "Ich habe morgen vor X, erinnere mich um 15 Uhr"
+  },
+  {
+    "id": "rem_1793666322_15b1eb",
+    "task_description": "X",
+    "due_time": "2026-11-04T15:00:00",
+    "due_timestamp": 1793800800.0,
+    "created_at": "2026-11-03T01:38:42.220597",
+    "status": "pending",
+    "channels": {
+      "push": true,
+      "speaker": false
+    },
+    "raw_prompt": "Ich habe morgen vor X, erinnere mich um 15 Uhr"
+  }
+]

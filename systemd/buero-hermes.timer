@@ -1,0 +1,11 @@
+[Unit]
+Description=Büro-Hermes Autopilot 30-Minuten-Timer
+ConditionPathExists=%h/scripts/buero_hermes.py
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

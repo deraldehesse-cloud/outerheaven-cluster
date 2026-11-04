@@ -11,6 +11,7 @@ chat_logs/
 !README.md
 !shared_brain/**/*.md
 !shared_brain/*.md
+!scripts/SKILL_*.md
 .cursor_tasks.md
 .cursor_task.md
 
@@ -20,14 +21,23 @@ chat_logs/
 *.env
 *.env.*
 !*.env.example
+*.keystore
+debug.keystore
 secrets/
 credentials/
 *.token
 
-# JSON Secrets & Service Accounts
+# JSON Secrets & Service Accounts (Whitelist canonical configs)
 *.json
 !manifest.json
 !package.json
+!skills_registry.json
+!hermes_skills.json
+!cluster_nodes.json
+!character.json
+!character_canonical.json
+!lebensplan.json
+!services/megan-studio/config/*.json
 !workflows/*.json
 !workflows/templates/*.json
 !workflows/archetypes/*.json

@@ -1,0 +1,21 @@
+[Unit]
+Description=Hermes Agent Web UI & Automation Backend
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/fox/scripts
+ExecStart=/home/fox/.hermes/.venv/bin/python /home/fox/scripts/hermes_web_ui.py
+Restart=always
+RestartSec=5
+Environment="PATH=/home/fox/.hermes/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PORT=8081"
+Environment="OLLAMA_URL=http://100.116.38.29:11434"
+KillMode=process
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

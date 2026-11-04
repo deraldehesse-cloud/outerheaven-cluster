@@ -1,0 +1,33 @@
+[
+  {
+    "id": "outerheaven",
+    "name": "Outer Heaven (Compute)",
+    "host": "100.116.38.29",
+    "tailscale_ip": "100.116.38.29",
+    "ollama_urls": [
+      "http://100.116.38.29:11434",
+      "http://outerheaven:11434"
+    ],
+    "agent_urls": [
+      "http://100.116.38.29:8000/"
+    ],
+    "description": "Heavy Compute & Lokale Ollama-Instanz"
+  },
+  {
+    "id": "fox",
+    "name": "Fox (Worker)",
+    "host": "127.0.0.1",
+    "tailscale_ip": "100.93.184.87",
+    "ollama_urls": [
+      "http://127.0.0.1:11434",
+      "http://100.93.184.87:11434",
+      "http://fox:11434"
+    ],
+    "agent_urls": [
+      "http://127.0.0.1:8081/",
+      "http://100.93.184.87:8081/",
+      "http://127.0.0.1:5005/health"
+    ],
+    "description": "Always-On Standby-Worker & Hermes Agent Backend"
+  }
+]
