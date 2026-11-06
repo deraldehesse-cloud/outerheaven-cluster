@@ -29,5 +29,37 @@
       "http://127.0.0.1:5005/health"
     ],
     "description": "Always-On Standby-Worker & Hermes Agent Backend"
+  },
+  {
+    "id": "metal-dgear",
+    "name": "Metal Gear (Build-Runner & Sandbox)",
+    "hostname": "metal-dgear",
+    "host": "100.96.88.84",
+    "ip": "100.96.88.84",
+    "tailscale_ip": "100.96.88.84",
+    "roles": [
+      "build-runner",
+      "sandbox",
+      "reverse-engineering",
+      "remote-dev"
+    ],
+    "hardware": "Lenovo M910q (i7-7700, 16GB RAM, Dual NVMe)",
+    "storage_fast": "/mnt/storage-fast",
+    "status": "active",
+    "agent_urls": [
+      "http://100.96.88.84:8443/"
+    ],
+    "description": "Headless Android-Build-Runner, REA Sandbox & Remote Dev"
+  },
+  {
+    "id": "metalray",
+    "name": "Metal Ray",
+    "hostname": "metal-ray",
+    "host": "100.115.37.6",
+    "ip": "100.115.37.6",
+    "tailscale_ip": "100.115.37.6",
+    "roles": [],
+    "status": "offline_maintenance",
+    "description": "Offline Maintenance (wartet auf RAM & HDD)"
   }
 ]
