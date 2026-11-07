@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Analyze Dropzone APKs
+Comment=Dekompiliert APKs aus der Dropzone per JADX und analysiert sie mit deepseek-coder
+Exec=x-terminal-emulator -e /mnt/storage-fast/scripts/process-catlord-apks.sh
+Icon=system-search
+Terminal=true
+Categories=Development;

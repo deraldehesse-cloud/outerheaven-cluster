@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Send APKs to Metal-Dgear
+Comment=Sendet Game-APKs aus Catlord-Drop an metal-dgear zur Analyse
+Exec=x-terminal-emulator -e /home/bigboss/scripts/send-apks-to-metal.sh
+Icon=emblem-shared
+Terminal=false
+Categories=Development;
