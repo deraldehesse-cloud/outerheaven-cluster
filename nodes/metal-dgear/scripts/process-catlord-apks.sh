@@ -39,7 +39,7 @@ for apk in "${APKS[@]}"; do
     echo "Zielordner:     $out_dir"
     echo "----------------------------------------------------------"
 
-    # 1. Dekompilieren mit Docker-JADX
+    # 1. Dekompilieren mit Docker-JADX (Relative Container-Pfade)
     echo "[1/4] Starte JADX-Dekompilierung (Docker)..."
     docker compose -f "$COMPOSE_FILE" run --rm rea-sandbox jadx \
         -d "/output/catlord/${pkg_name}" \
@@ -49,26 +49,38 @@ for apk in "${APKS[@]}"; do
     echo "[2/4] Extrahiere relevante Klassen (Savegame, Netzwerk, Crypto)..."
     sources_dir="$out_dir/sources"
 
-    # Suche Klassen nach Kategorien
     save_files=""
     net_files=""
     crypto_files=""
     code_snippets=""
 
     if [ -d "$sources_dir" ]; then
-        save_files=$(find "$sources_dir" -type f \( -iname "*save*" -o -iname "*storage*" -o -iname "*pref*" -o -iname "*database*" -o -iname "*player*" -o -iname "*inventory*" \) 2>/dev/null | head -n 30 || true)
-        net_files=$(find "$sources_dir" -type f \( -iname "*http*" -o -iname "*api*" -o -iname "*client*" -o -iname "*network*" -o -iname "*socket*" -o -iname "*url*" \) 2>/dev/null | head -n 30 || true)
-        crypto_files=$(find "$sources_dir" -type f \( -iname "*crypt*" -o -iname "*cipher*" -o -iname "*token*" -o -iname "*auth*" -o -iname "*secret*" -o -iname "*hash*" \) 2>/dev/null | head -n 30 || true)
+        # Zuerst anwendungsspezifischen Code priorisieren (Standard-Frameworks ausschließen)
+        save_files=$(find "$sources_dir" -type f \
+            ! -path "*/androidx/*" ! -path "*/android/*" ! -path "*/kotlin/*" ! -path "*/kotlinx/*" ! -path "*/com/google/*" ! -path "*/org/intellij/*" ! -path "*/org/jetbrains/*" \
+            \( -iname "*save*" -o -iname "*storage*" -o -iname "*pref*" -o -iname "*database*" -o -iname "*player*" -o -iname "*inventory*" -o -iname "*game*" -o -iname "*state*" \) 2>/dev/null | head -n 20 || true)
 
-        # Relevante Code-Snippets extrahieren (erste 200 Zeilen der wichtigsten Matches)
-        candidate_files=$(echo -e "${save_files}\n${crypto_files}\n${net_files}" | grep -v '^$' | head -n 8 || true)
+        if [ -z "$save_files" ]; then
+            save_files=$(find "$sources_dir" -type f \( -iname "*save*" -o -iname "*storage*" -o -iname "*pref*" -o -iname "*database*" \) 2>/dev/null | head -n 15 || true)
+        fi
+
+        net_files=$(find "$sources_dir" -type f \
+            ! -path "*/androidx/*" ! -path "*/android/*" ! -path "*/kotlin/*" ! -path "*/kotlinx/*" ! -path "*/com/google/*" \
+            \( -iname "*http*" -o -iname "*api*" -o -iname "*client*" -o -iname "*network*" -o -iname "*socket*" -o -iname "*url*" \) 2>/dev/null | head -n 20 || true)
+
+        crypto_files=$(find "$sources_dir" -type f \
+            ! -path "*/androidx/*" ! -path "*/android/*" ! -path "*/kotlin/*" ! -path "*/kotlinx/*" ! -path "*/com/google/*" \
+            \( -iname "*crypt*" -o -iname "*cipher*" -o -iname "*token*" -o -iname "*auth*" -o -iname "*secret*" -o -iname "*hash*" \) 2>/dev/null | head -n 20 || true)
+
+        # Wichtigste Kandidaten für Code-Snippets (max 3 Dateien, je bis zu 60 Zeilen)
+        candidate_files=$(echo -e "${save_files}\n${crypto_files}\n${net_files}" | grep -v '^$' | head -n 3 || true)
         while IFS= read -r cfile; do
             if [ -f "$cfile" ]; then
                 rel_path="${cfile#$out_dir/}"
                 code_snippets+=$'\n\n'
                 code_snippets+="### Datei: $rel_path"$'\n'
                 code_snippets+='```java'$'\n'
-                code_snippets+=$(head -n 80 "$cfile")
+                code_snippets+=$(head -n 60 "$cfile")
                 code_snippets+=$'\n```'
             fi
         done <<< "$candidate_files"
@@ -108,37 +120,24 @@ MDEOF
 
     echo "Kontext gesichert unter: $context_file"
 
-    # 3. LLM Analyse via Ollama REST API
+    # 3. LLM Analyse via Ollama REST API mit jq Payload & 60s Timeout
     echo "[3/4] Sende Auswertung an Ollama ($MODEL)..."
-    prompt_text="Du bist ein hochqualifizierter Senior Security- & Reverse-Engineering-Experte.
-Analysiere die folgenden dekompilierten Informationen der Android-APK '${pkg_name}'.
+    prompt_text="Du bist ein Senior Android Reverse-Engineering-Experte.
+Analysiere die folgenden dekompilierten Klassen der APK '${pkg_name}':
 
 ${code_snippets}
 
-Kontext-Zusammenfassung:
-Savegame-Klassen:
-${save_files}
+Erstelle eine präzise Markdown-Zusammenfassung:
+1. **Savegame / Speicherlogik:** Wo/wie werden Daten abgelegt?
+2. **Netzwerk & Endpunkte:** Gibt es API-Calls oder Server-Kommunikation?
+3. **Krypto / Schutz:** Werden Daten verschlüsselt?
+4. **Modding-Fazit:** Einschätzung zur Manipulierbarkeit."
 
-Netzwerk-Klassen:
-${net_files}
-
-Krypto-Klassen:
-${crypto_files}
-
-AUFGABE:
-Erstelle eine präzise, strukturierte deutsche Zusammenfassung (Markdown):
-1. **Savegame & Datenpersistenz:** Wo und in welcher Form werden Spielstände / Benutzerdaten gespeichert? (z.B. SharedPreferences, SQLite/Room, Binärdateien, JSON).
-2. **Netzwerk & Telemetrie:** Werden externe Server, Endpunkte oder Tracking aufgerufen?
-3. **Krypto & Integritätsschutz:** Werden Daten verschlüsselt oder signiert? Welche Algorithmen oder Keys sind erkennbar?
-4. **Modding & Reverse-Engineering-Bewertung:** Wie leicht lassen sich Spielstände manipulieren oder die Spiellogik anpassen?
-
-Antworte strukturiert und fundiert."
-
-    # Erstelle JSON-Payload sicher mit jq
+    # JSON-Payload zwingend über jq erzeugen
     json_payload=$(jq -n \
         --arg model "$MODEL" \
         --arg prompt "$prompt_text" \
-        '{model: $model, prompt: $prompt, stream: false}')
+        '{model: $model, prompt: $prompt, stream: false, options: {num_predict: 280, temperature: 0.2}}')
 
     # REST-Call mit 60 Sekunden Timeout
     ollama_output=""
