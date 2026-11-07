@@ -11,8 +11,7 @@ Responsibilities:
      * /mnt/storage-beta/models/loras/
    - Stores catalog in data/comfy_catalog.json
 2. Google Drive Synchronization & Project Indexing:
-   - Verifies /mnt/fox-home/fox/gdrive/Agenten-Drive
-   - Scans projects and project folders
+   - Scans projects and project folders across local drives
    - Stores index in data/gdrive_index.json
 3. Autonomous Status & Suggestion Notes in SQLite (data/megan_chat.db):
    - When idle or on demand, Megan leaves proactive system/assistant notes for Big Boss
@@ -46,9 +45,12 @@ CATALOG_PATH = DATA_DIR / "comfy_catalog.json"
 GDRIVE_INDEX_PATH = DATA_DIR / "gdrive_index.json"
 
 GDRIVE_BASE_PATHS = [
-    Path("/mnt/fox-home/fox/gdrive/Agenten-Drive"),
+    Path("/mnt/storage-alpha/megan-assets/gdrive"),
     Path("/home/outerheaven/gdrive/Agenten-Drive"),
-    Path("/mnt/storage-beta/gdrive/Agenten-Drive")
+    Path("/home/outerheaven/gdrive"),
+    Path("/mnt/storage-beta/gdrive/Agenten-Drive"),
+    Path("/mnt/storage-beta/Agenten-Drive"),
+    Path("/mnt/storage-beta/projekte")
 ]
 
 CHECKPOINT_PATHS = [

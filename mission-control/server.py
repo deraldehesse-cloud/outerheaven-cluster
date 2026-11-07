@@ -3414,14 +3414,14 @@ async def handle_comfy_models(request: web.Request) -> web.Response:
 
     # Fallback to local files if API list is empty
     if not checkpoints:
-        for p in [COMFYUI_OUTPUT_DIR.parent / "models" / "checkpoints", Path("/mnt/storage-beta/models/checkpoints"), Path("/mnt/fox-assets/models/checkpoints")]:
+        for p in [COMFYUI_OUTPUT_DIR.parent / "models" / "checkpoints", Path("/mnt/storage-beta/models/checkpoints"), Path("/mnt/storage-alpha/models/checkpoints")]:
             if p.is_dir():
                 for f in p.rglob("*"):
                     if f.is_file() and f.suffix.lower() in [".safetensors", ".ckpt"] and f.name not in checkpoints:
                         checkpoints.append(f.name)
 
     if not loras:
-        for p in [COMFYUI_OUTPUT_DIR.parent / "models" / "loras", Path("/mnt/storage-beta/models/loras"), Path("/mnt/fox-assets/models/loras")]:
+        for p in [COMFYUI_OUTPUT_DIR.parent / "models" / "loras", Path("/mnt/storage-beta/models/loras"), Path("/mnt/storage-alpha/models/loras")]:
             if p.is_dir():
                 for f in p.rglob("*"):
                     if f.is_file() and f.suffix.lower() in [".safetensors", ".ckpt"] and f.name not in loras:

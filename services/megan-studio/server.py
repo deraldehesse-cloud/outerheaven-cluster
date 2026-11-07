@@ -64,6 +64,16 @@ CANONICAL_CHARACTER_FILE = SEXCHAT_DIR / "character.json"
 VIDEO_CACHE_DIR = SEXCHAT_DIR / "video_cache"
 APPEARANCE_DIR = DATA_DIR / "appearance_presets"
 
+# Local Autarkic Megan Assets & Caches (Outer Heaven storage-alpha)
+MEGAN_ASSETS_DIR = Path("/mnt/storage-alpha/megan-assets")
+MEGAN_AVATARS_DIR = MEGAN_ASSETS_DIR / "avatars"
+MEGAN_IMAGES_DIR = MEGAN_ASSETS_DIR / "images"
+MEGAN_FRAMES_DIR = MEGAN_ASSETS_DIR / "frames"
+MEGAN_ASSET_CACHE_DIR = MEGAN_ASSETS_DIR / "cache"
+
+STATIC_IMAGES_DIR = STATIC_DIR / "images"
+STATIC_AVATAR_DIR = STATIC_DIR / "avatar"
+
 COMFYUI_OUTPUT_DIR = Path("/home/outerheaven/ComfyUI/output")
 if not COMFYUI_OUTPUT_DIR.is_dir():
     _alt = Path("/mnt/storage-beta/ComfyUI/output")
@@ -74,6 +84,17 @@ if not COMFYUI_OUTPUT_DIR.is_dir():
         COMFYUI_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Ensure cache dirs exist
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+STATIC_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+STATIC_AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    MEGAN_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    MEGAN_AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+    MEGAN_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    MEGAN_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+    MEGAN_ASSET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 VIDEO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 APPEARANCE_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -234,7 +255,16 @@ except ImportError:
     def sanitize_megan_response(text: str) -> str:
         return text.strip()
     def get_gdrive_base_path():
-        return Path("/mnt/fox-home/fox/gdrive/Agenten-Drive")
+        candidates = [
+            Path("/mnt/storage-alpha/megan-assets/gdrive"),
+            Path("/home/outerheaven/gdrive"),
+            Path("/mnt/storage-beta/gdrive"),
+            Path.home() / "gdrive"
+        ]
+        for c in candidates:
+            if c.is_dir():
+                return c
+        return Path("/mnt/storage-alpha/megan-assets/gdrive")
     def resolve_gdrive_project_path(query: str):
         return {"found": False, "query": query}
     def execute_autonomous_tool(name: str, params=None):
@@ -2304,6 +2334,15 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
     finally:
         ACTIVE_WS_CLIENTS.discard(ws)
         logger.info(f"WebSocket Chat Client getrennt (Aktive Clients: {len(ACTIVE_WS_CLIENTS)})")
+        if not ACTIVE_WS_CLIENTS:
+            try:
+                import haptic_engine
+                if hasattr(haptic_engine, "frame_buffer"):
+                    asyncio.create_task(haptic_engine.frame_buffer.on_client_disconnected("Keine aktiven WebSocket-Clients"))
+                if hasattr(haptic_engine, "haptic_controller"):
+                    asyncio.create_task(haptic_engine.haptic_controller.on_client_disconnected("Keine aktiven WebSocket-Clients"))
+            except Exception as failsafe_err:
+                logger.warning(f"[Fail-Safe] Fehler beim Ausführen des Disconnect-Not-Aus: {failsafe_err}")
     return ws
 
 # ------------------------------------------------------------------------------
@@ -2514,13 +2553,80 @@ async def handle_gallery_list(request: web.Request) -> web.Response:
     images.sort(key=lambda x: x["mtime"], reverse=True)
     return web.json_response({"images": images[:60]})
 
+def _find_image_file(filename: str) -> Optional[Path]:
+    """Finds an image file across ComfyUI output, megan-assets, static dirs and sexchat assets."""
+    search_dirs = [
+        COMFYUI_OUTPUT_DIR,
+        STATIC_IMAGES_DIR,
+        STATIC_AVATAR_DIR,
+        STATIC_DIR,
+        MEGAN_AVATARS_DIR,
+        MEGAN_IMAGES_DIR,
+        MEGAN_FRAMES_DIR,
+        MEGAN_ASSETS_DIR,
+        BASE_DIR / "assets",
+        SEXCHAT_DIR / "assets"
+    ]
+    clean_name = filename.strip("/")
+    for d in search_dirs:
+        if d.is_dir():
+            target = (d / clean_name).resolve()
+            if target.is_file():
+                return target
+    return None
+
 async def handle_gallery_file(request: web.Request) -> web.Response:
     raw_filename = request.match_info.get("filename", "")
-    filename = urllib.parse.unquote(raw_filename)
-    path = (COMFYUI_OUTPUT_DIR / filename).resolve()
-    if not path.is_file() or not str(path).startswith(str(COMFYUI_OUTPUT_DIR.resolve())):
+    filename = urllib.parse.unquote(raw_filename).strip("/")
+    if not filename:
+        return web.HTTPNotFound(text="Dateiname fehlt")
+    path = _find_image_file(filename)
+    if not path or not path.is_file():
         return web.HTTPNotFound(text="Bild nicht gefunden")
-    # Fester Content-Type (Android-Clients zeigen sonst schwarze Bilder durch falsches MIME-Sniffing)
+    ext = path.suffix.lower()
+    ctype_map = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".mp4": "video/mp4"
+    }
+    ctype = ctype_map.get(ext, "image/png")
+    return web.FileResponse(path, headers={
+        "Content-Type": ctype,
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "public, max-age=3600",
+    })
+
+async def handle_avatar_serve(request: web.Request) -> web.Response:
+    """GET /api/avatar or /api/avatar/{filename} - Serves current avatar or requested avatar image."""
+    raw_filename = request.match_info.get("filename", "").strip()
+    filename = urllib.parse.unquote(raw_filename).strip("/") if raw_filename else ""
+    path = None
+    if filename:
+        path = _find_image_file(filename)
+
+    if not path or not path.is_file():
+        # Fallback to default avatar candidates
+        avatar_candidates = [
+            STATIC_AVATAR_DIR / "megan.jpg",
+            STATIC_IMAGES_DIR / "megan.jpg",
+            STATIC_AVATAR_DIR / "main.png",
+            STATIC_IMAGES_DIR / "main.png",
+            MEGAN_AVATARS_DIR / "megan.jpg",
+            MEGAN_AVATARS_DIR / "main.png",
+            BASE_DIR / "assets" / "main.png",
+            SEXCHAT_DIR / "assets" / "megan.jpg"
+        ]
+        for cand in avatar_candidates:
+            if cand.is_file():
+                path = cand
+                break
+
+    if not path or not path.is_file():
+        return web.HTTPNotFound(text="Avatar nicht gefunden")
+
     ext = path.suffix.lower()
     ctype = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(ext, "image/png")
     return web.FileResponse(path, headers={
@@ -2632,6 +2738,8 @@ def create_app() -> web.Application:
 
     # Index & Health
     app.router.add_get("/", handle_index)
+    app.router.add_get("/megan", handle_index)
+    app.router.add_get("/megan/", handle_index)
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/status", handle_status)
     app.router.add_get("/api/gpu/status", handle_gpu_status)
@@ -2695,7 +2803,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/kanban/{id}/execute", handle_tasks_execute)
     app.router.add_post("/api/tasks/{id}/execute", handle_tasks_execute)
 
-    # ComfyUI Render & Gallery
+    # ComfyUI Render & Gallery & Autarkic Assets
     app.router.add_post("/api/render", handle_render)
     app.router.add_post("/api/render/direct", handle_render)
     app.router.add_post("/api/comfy/graph/validate", handle_comfy_graph_validate)
@@ -2703,6 +2811,10 @@ def create_app() -> web.Application:
     app.router.add_get("/api/gallery", handle_gallery_list)
     app.router.add_get("/api/gallery/{filename:.+}", handle_gallery_file)
     app.router.add_get("/api/images/{filename:.+}", handle_gallery_file)
+    app.router.add_get("/static/images/{filename:.+}", handle_gallery_file)
+    app.router.add_get("/static/avatar/{filename:.+}", handle_gallery_file)
+    app.router.add_get("/api/avatar", handle_avatar_serve)
+    app.router.add_get("/api/avatar/{filename:.+}", handle_avatar_serve)
     app.router.add_get("/output/{filename:.+}", handle_gallery_file)
     app.router.add_get("/outputs/{filename:.+}", handle_gallery_file)
     if COMFYUI_OUTPUT_DIR.is_dir():
@@ -2718,7 +2830,9 @@ def create_app() -> web.Application:
 
     # Static assets
     if STATIC_DIR.is_dir():
-        app.router.add_static("/static/", path=str(STATIC_DIR), name="static")
+        app.router.add_static("/static/", path=str(STATIC_DIR), name="static", follow_symlinks=True)
+    if MEGAN_ASSETS_DIR.is_dir():
+        app.router.add_static("/assets/", path=str(MEGAN_ASSETS_DIR), name="assets", follow_symlinks=True)
 
     return app
 

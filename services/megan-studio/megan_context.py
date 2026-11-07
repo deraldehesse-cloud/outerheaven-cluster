@@ -404,10 +404,11 @@ megan_context_engine = MeganContextEngine()
 # ==============================================================================
 GDRIVE_CANDIDATE_PATHS = [
     lambda: os.environ.get("GDRIVE_BASE_PATH"),
+    lambda: "/mnt/storage-alpha/megan-assets/gdrive",
     lambda: "/mnt/storage-beta/Agenten-Drive",
     lambda: "/mnt/storage-beta/projekte",
     lambda: str(Path.home() / "gdrive" / "Agenten-Drive"),
-    lambda: "/mnt/fox-home/fox/gdrive/Agenten-Drive",
+    lambda: str(Path.home() / "gdrive"),
 ]
 
 def get_gdrive_base_path() -> Path:
@@ -718,7 +719,7 @@ def delete_mission_task(task_id: int) -> bool:
 DEFAULT_TOOLS_CONFIG = {
     "builtin_tools": {
         "google_workspace": {
-            "description": "Google Calendar (Termine), Gmail (E-Mails & Rechnungen) und Google Drive (/mnt/fox-home/fox/gdrive/Agenten-Drive)",
+            "description": "Google Calendar (Termine), Gmail (E-Mails & Rechnungen) und Google Drive",
             "enabled": True
         },
         "system_diagnostics": {
@@ -817,7 +818,7 @@ ALLOWED_SHELL_COMMANDS = [
     "journalctl --user -u megan-studio.service -n 25 --no-pager",
     "journalctl --user -u mission-control.service -n 25 --no-pager",
     "ping -c 2 100.116.38.29",
-    "ping -c 2 100.93.184.87",
+    "ping -c 2 127.0.0.1",
     "docker ps"
 ]
 
@@ -1175,7 +1176,7 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
 def execute_autonomous_tool(tool_name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Executes autonomous tools across the entire stack:
-    - Google Workspace: Calendar (read/write), Gmail, Google Drive (/mnt/fox-home/fox/gdrive/Agenten-Drive)
+    - Google Workspace: Calendar (read/write), Gmail, Google Drive
     - System Diagnostics: Cluster status, GPU Arc A770, Services, Shell checks
     - ComfyUI: Image generation workflows with quality tags, LoRA & negative prompts
     - Custom Tools: Executing scripts in ~/.hermes/custom_tools/

@@ -12,7 +12,7 @@ Modul-Übersicht:
    - Automatischer Scan nach Geräten (Präfix "LVS-" oder Service-UUID Suffix "4c5653" / LVS).
    - Dynamische Präfix-Unterstützung (z.B. 5030..., 5a30..., 455a...).
    - Automatische Auflösung der TX-Characteristic (Standard-Suffix: 0002-0000-5000-8000-00805f9b34fb).
-   - Strikter 80-ms-Throttler (asyncio.sleep(0.08)) zum Schutz des Mikrocontrollers vor Überlastung.
+   - VibeMate 200-ms-Throttler (asyncio.sleep(0.20), 5 FPS) zum Schutz des Mikrocontrollers und stabiler Bild-Haptik-Synchronisation.
    - Intensity-Wert Caching: Befehle werden nur übertragen, wenn sich der Wert geändert hat.
    - Native ASCII-Befehle: Vibrate:<level>;, Air:Level:<level>;, Stop;
    - Sicherheits-Watchdog: Automatischer Not-Stopp nach 5s ohne Heartbeat bei aktiven Impulsen.
@@ -51,7 +51,7 @@ LOVENSE_UUID_SUFFIX = "4c5653"  # Hex für 'LVS'
 LOVENSE_TX_CHAR_SUFFIX = "0002-0000-5000-8000-00805f9b34fb"
 TARGET_DEVICE_MAC = "28:68:47:24:C0:94"
 TARGET_DEVICE_NAME = "Dynamo"
-MIN_THROTTLE_INTERVAL = 0.08  # Strikte 80ms Sperre zwischen BLE-Writes
+MIN_THROTTLE_INTERVAL = 0.20  # VibeMate Standard: 200 ms (5 FPS) Frame-Sampling-Takt
 DEFAULT_WATCHDOG_TIMEOUT = 5.0  # 5s Not-Stopp
 
 
@@ -632,6 +632,14 @@ class LovenseBLEController(HapticControllerBase):
             except Exception:
                 pass
 
+    async def on_client_disconnected(self, reason: str = "Client getrennt") -> None:
+        """
+        Not-Aus & Fail-Safe bei Verbindungsabbruch zum Client:
+        Stoppt sofort alle aktiven Lovense-Hardware-Impulse (Stop; / Level 0).
+        """
+        logger.warning(f"🚨 [Lovense BLE Fail-Safe] Client getrennt ({reason}) -> Not-Aus (Stop;)!")
+        await self.emergency_stop(f"Client disconnected: {reason}")
+
     async def _watchdog_loop(self) -> None:
         """
         Watchdog-Hintergrundschleife:
@@ -869,8 +877,97 @@ Dieses Journal erfasst vollautomatisch alle haptischen Test-Aktionen, Latenzen, 
 
 
 # ==============================================================================
+# 5. VibeMate Frame-Haptik-Puffer & Fail-Safe (200 ms / 5 FPS Standard)
+# ==============================================================================
+
+class FrameHapticBuffer:
+    """
+    VibeMate- und Innocent-Witches-kompatibler Frame-Haptik-Puffer.
+    Sampling-Takt: 200 ms (5 FPS Standard).
+
+    Fail-Safe-Spezifikation:
+    - Bei leerem Frame-Puffer während aktiver Wiedergabe (Buffer Underrun):
+      Sofortiges Absetzen von Stop; (Level 0) an alle verbundenen Lovense-Geräte.
+    - Bei Verbindungsabbruch zum Client:
+      Puffer wird unmittelbar entleert und Stop; (Level 0) erzwungen.
+    """
+
+    def __init__(
+        self,
+        controller: HapticControllerBase,
+        sample_interval: float = MIN_THROTTLE_INTERVAL
+    ):
+        self.controller = controller
+        self.sample_interval = sample_interval
+        self._queue: asyncio.Queue = asyncio.Queue()
+        self._worker_task: Optional[asyncio.Task] = None
+        self._is_streaming: bool = False
+        self._lock = asyncio.Lock()
+
+    async def push_frame(self, strength: int, air: int = 0, context: str = "frame") -> None:
+        """Schiebt einen neuen Haptik-Frame in den 200-ms-Puffer."""
+        await self._queue.put({"strength": strength, "air": air, "context": context})
+        async with self._lock:
+            if not self._is_streaming:
+                self.start_streaming()
+
+    def start_streaming(self) -> None:
+        if not self._worker_task or self._worker_task.done():
+            self._is_streaming = True
+            self._worker_task = asyncio.create_task(self._process_buffer())
+
+    async def _process_buffer(self) -> None:
+        logger.info(f"[FrameHapticBuffer] Starte VibeMate 200ms Frame-Sampling (5 FPS)...")
+        try:
+            while self._is_streaming:
+                if self._queue.empty():
+                    # FAIL-SAFE: Puffer leer -> Sofortiger Not-Aus Stop;
+                    logger.warning("[FrameHapticBuffer] Frame-Puffer ist leer -> FAILSAFE: Not-Aus (Stop;)")
+                    await self.controller.stop(context="FAILSAFE_EMPTY_BUFFER")
+                    self._is_streaming = False
+                    break
+
+                frame = await self._queue.get()
+                strength = frame.get("strength", 0)
+                air = frame.get("air", 0)
+                ctx = frame.get("context", "frame")
+
+                if strength > 0:
+                    await self.controller.vibrate(strength, time_sec=self.sample_interval, context=ctx)
+                if air > 0:
+                    await self.controller.air(air, time_sec=self.sample_interval, context=ctx)
+                if strength == 0 and air == 0:
+                    await self.controller.stop(context=ctx)
+
+                await asyncio.sleep(self.sample_interval)
+        except asyncio.CancelledError:
+            logger.info("[FrameHapticBuffer] Streaming abgebrochen -> Not-Aus.")
+            await self.controller.stop(context="FAILSAFE_BUFFER_CANCELLED")
+        except Exception as e:
+            logger.error(f"[FrameHapticBuffer] Fehler bei Pufferverarbeitung: {e}")
+            await self.controller.stop(context="FAILSAFE_BUFFER_ERROR")
+        finally:
+            self._is_streaming = False
+
+    async def on_client_disconnected(self, reason: str = "Client getrennt") -> None:
+        """Fail-Safe bei Verbindungsabbruch: Puffer sofort leeren und Not-Aus an Toys."""
+        logger.warning(f"🚨 [FrameHapticBuffer] Client-Verbindungsabbruch ({reason}) -> Puffer leeren & Not-Aus!")
+        self._is_streaming = False
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+            except Exception:
+                break
+        if self._worker_task and not self._worker_task.done():
+            self._worker_task.cancel()
+        await self.controller.stop(context=f"FAILSAFE_CLIENT_DISCONNECT: {reason}")
+
+
+# ==============================================================================
 # Globale Singleton-Instanzen
 # ==============================================================================
 
 journal_manager = HapticJournalManager()
 haptic_controller = LovenseBLEController(journal_manager=journal_manager)
+frame_buffer = FrameHapticBuffer(controller=haptic_controller)
+
