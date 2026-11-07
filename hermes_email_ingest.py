@@ -41,7 +41,7 @@ HERMES_EMAIL_CREDS = HERMES_DIR / "email_creds.json"
 GMAIL_CREDS_FILE = Path(os.path.expanduser("~/.config/google/gmail_creds.json"))
 HERMES_ENV_FILE = HERMES_DIR / ".env"
 
-PAPERLESS_URL = os.getenv("PAPERLESS_URL", "http://192.168.188.96:8000")
+PAPERLESS_URL = os.getenv("PAPERLESS_URL", "http://100.127.247.117:8000")
 PAPERLESS_TOKEN = os.getenv("PAPERLESS_TOKEN", "428107bcaa486337ba98b06547d0a843b3007036")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 DEFAULT_MODEL = os.getenv("HERMES_EMAIL_MODEL", "qwen2.5:7b")
