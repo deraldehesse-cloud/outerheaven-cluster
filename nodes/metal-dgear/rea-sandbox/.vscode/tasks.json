@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Reverse Engineer: Analyze Dropzone APKs",
+      "type": "shell",
+      "command": "/mnt/storage-fast/scripts/process-catlord-apks.sh",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true,
+        "focus": true
+      }
+    }
+  ]
+}

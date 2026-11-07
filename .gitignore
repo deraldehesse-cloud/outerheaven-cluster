@@ -44,6 +44,8 @@ credentials/
 !services/megan-studio/workflows/templates/*.json
 !mission-control/workflows/archetypes/*.json
 !mission-control/data/canonical_vault.json
+!nodes/**/.vscode/*.json
+
 
 # Generierte Medien und Modelle
 output/
