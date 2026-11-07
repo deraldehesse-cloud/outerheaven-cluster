@@ -19,6 +19,7 @@ from pathlib import Path
 from email.message import EmailMessage
 from unittest.mock import patch, MagicMock
 
+import sqlite3
 import hermes_email_ingest
 import hermes_web_ui
 
@@ -184,6 +185,23 @@ class TestHermesEmailIngest(unittest.TestCase):
             action_resp = hermes_web_ui.take_email_review_action(item_id, req)
             self.assertEqual(action_resp["status"], "success")
             self.assertEqual(action_resp["id"], item_id)
+
+
+    def test_pending_reviews_view(self):
+        """Testet die SQLite-View pending_reviews für direkte CLI- und SQL-Abfragen."""
+        hermes_email_ingest.add_review_item(
+            sender="service@vodafone.de",
+            subject="Ihre Rechnung",
+            received_at="2026-11-07T12:00:00Z",
+            summary="Monatsrechnung",
+            category="REVIEW",
+            confidence=0.9,
+            db_path=self.db_path
+        )
+        with sqlite3.connect(str(self.db_path)) as conn:
+            cursor = conn.cursor()
+            count = cursor.execute("SELECT count(*) FROM pending_reviews;").fetchone()[0]
+            self.assertEqual(count, 1)
 
 
 if __name__ == "__main__":

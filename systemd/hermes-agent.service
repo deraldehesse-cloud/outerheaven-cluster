@@ -9,10 +9,15 @@ WorkingDirectory=/home/fox/scripts
 ExecStart=/home/fox/.hermes/.venv/bin/python /home/fox/scripts/hermes_web_ui.py
 Restart=always
 RestartSec=5
+EnvironmentFile=-/home/fox/.hermes/.env
+EnvironmentFile=-/home/fox/scripts/.env
 Environment="PATH=/home/fox/.hermes/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 Environment="PORT=8081"
-Environment="OLLAMA_URL=http://100.116.38.29:11434"
+Environment="OLLAMA_URL=http://127.0.0.1:11434"
+Environment="OLLAMA_MODEL=llama3.2:3b"
+Environment="PAPERLESS_URL=http://100.127.247.117:8000"
+Environment="PAPERLESS_TOKEN=428107bcaa486337ba98b06547d0a843b3007036"
 KillMode=process
 StandardOutput=journal
 StandardError=journal

@@ -36,7 +36,7 @@ except ImportError:
 
 app = FastAPI(title="Hermes Agent Kontrollzentrum")
 PORT = int(os.getenv("PORT", "8081"))
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://100.116.38.29:11434")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 
 # Pfade zur persistenten Konfiguration
 SKILLS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills_registry.json")

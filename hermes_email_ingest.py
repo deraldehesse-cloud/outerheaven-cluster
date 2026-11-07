@@ -41,10 +41,27 @@ HERMES_EMAIL_CREDS = HERMES_DIR / "email_creds.json"
 GMAIL_CREDS_FILE = Path(os.path.expanduser("~/.config/google/gmail_creds.json"))
 HERMES_ENV_FILE = HERMES_DIR / ".env"
 
+def _load_env_defaults():
+    if HERMES_ENV_FILE.is_file():
+        try:
+            with open(HERMES_ENV_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip('"').strip("'")
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+_load_env_defaults()
+
 PAPERLESS_URL = os.getenv("PAPERLESS_URL", "http://100.127.247.117:8000")
 PAPERLESS_TOKEN = os.getenv("PAPERLESS_TOKEN", "428107bcaa486337ba98b06547d0a843b3007036")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-DEFAULT_MODEL = os.getenv("HERMES_EMAIL_MODEL", "qwen2.5:7b")
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", os.getenv("HERMES_EMAIL_MODEL", "llama3.2:3b"))
 
 
 def get_db_path() -> Path:
@@ -103,6 +120,10 @@ def init_ingest_db(db_path: Optional[Path] = None) -> Path:
                 details TEXT,
                 created_at TEXT NOT NULL
             )
+        """)
+        cursor.execute("""
+            CREATE VIEW IF NOT EXISTS pending_reviews AS
+            SELECT * FROM email_inbox_reviews WHERE status = 'pending';
         """)
         conn.commit()
     return path
