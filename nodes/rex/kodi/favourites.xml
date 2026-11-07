@@ -1,0 +1,8 @@
+<favourites>
+    <favourite name="Joyn Live TV" thumb="">System.Exec(/home/metal-rex/kodi_web_launchers/launch_joyn.sh)</favourite>
+    <favourite name="Zattoo Live TV" thumb="">System.Exec(/home/metal-rex/kodi_web_launchers/launch_zattoo.sh)</favourite>
+    <favourite name="ARD Mediathek" thumb="">System.Exec(/home/metal-rex/kodi_web_launchers/launch_ard.sh)</favourite>
+    <favourite name="ZDF Mediathek" thumb="">System.Exec(/home/metal-rex/kodi_web_launchers/launch_zdf.sh)</favourite>
+    <favourite name="YouTube TV" thumb="">System.Exec(/home/metal-rex/kodi_web_launchers/launch_youtube.sh)</favourite>
+    <favourite name="Deezer" thumb="">System.Exec(/home/metal-rex/kodi_web_launchers/launch_deezer.sh)</favourite>
+</favourites>

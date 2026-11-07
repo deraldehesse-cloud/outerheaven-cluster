@@ -1,0 +1,7 @@
+<advancedsettings>
+  <services>
+    <esallinterfaces>true</esallinterfaces>
+    <webserver>true</webserver>
+    <webserverport>8080</webserverport>
+  </services>
+</advancedsettings>

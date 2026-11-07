@@ -1,0 +1,14 @@
+[Unit]
+Description=NFS Mount fuer NAS Serien (deraldehesse)
+Documentation=man:fstab(5)
+After=network-online.target
+Wants=network-online.target
+
+[Mount]
+What=100.127.247.117:/mnt/storage_sdd1/Serien
+Where=/mnt/nas_serien
+Type=nfs
+Options=defaults,_netdev,nofail,x-systemd.automount,x-systemd.device-timeout=5s,timeo=14,proto=tcp
+
+[Install]
+WantedBy=multi-user.target
