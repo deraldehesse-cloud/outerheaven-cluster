@@ -72,15 +72,15 @@ for apk in "${APKS[@]}"; do
             ! -path "*/androidx/*" ! -path "*/android/*" ! -path "*/kotlin/*" ! -path "*/kotlinx/*" ! -path "*/com/google/*" \
             \( -iname "*crypt*" -o -iname "*cipher*" -o -iname "*token*" -o -iname "*auth*" -o -iname "*secret*" -o -iname "*hash*" \) 2>/dev/null | head -n 20 || true)
 
-        # Wichtigste Kandidaten für Code-Snippets (max 3 Dateien, je bis zu 60 Zeilen)
-        candidate_files=$(echo -e "${save_files}\n${crypto_files}\n${net_files}" | grep -v '^$' | head -n 3 || true)
+        # Wichtigste Kandidaten für Code-Snippets (max 2 Dateien, je bis zu 45 bereinigte Zeilen)
+        candidate_files=$(echo -e "${save_files}\n${crypto_files}\n${net_files}" | grep -v '^$' | head -n 2 || true)
         while IFS= read -r cfile; do
             if [ -f "$cfile" ]; then
                 rel_path="${cfile#$out_dir/}"
                 code_snippets+=$'\n\n'
                 code_snippets+="### Datei: $rel_path"$'\n'
                 code_snippets+='```java'$'\n'
-                code_snippets+=$(head -n 60 "$cfile")
+                code_snippets+=$(grep -v '@kotlin.Metadata' "$cfile" | head -n 45)
                 code_snippets+=$'\n```'
             fi
         done <<< "$candidate_files"
@@ -127,17 +127,16 @@ Analysiere die folgenden dekompilierten Klassen der APK '${pkg_name}':
 
 ${code_snippets}
 
-Erstelle eine präzise Markdown-Zusammenfassung:
-1. **Savegame / Speicherlogik:** Wo/wie werden Daten abgelegt?
-2. **Netzwerk & Endpunkte:** Gibt es API-Calls oder Server-Kommunikation?
-3. **Krypto / Schutz:** Werden Daten verschlüsselt?
-4. **Modding-Fazit:** Einschätzung zur Manipulierbarkeit."
+Fasse in 3 prägnanten Abschnitten auf Deutsch zusammen:
+1. Spielvariablen & Datenpersistenz (Score, State, Speicherung)
+2. Netzwerk / Telemetrie / Krypto (falls vorhanden)
+3. Modding-Bewertung (Schwierigkeit und Angriffspunkte)"
 
     # JSON-Payload zwingend über jq erzeugen
     json_payload=$(jq -n \
         --arg model "$MODEL" \
         --arg prompt "$prompt_text" \
-        '{model: $model, prompt: $prompt, stream: false, options: {num_predict: 280, temperature: 0.2}}')
+        '{model: $model, prompt: $prompt, stream: false, options: {num_predict: 180, temperature: 0.2}}')
 
     # REST-Call mit 60 Sekunden Timeout
     ollama_output=""
