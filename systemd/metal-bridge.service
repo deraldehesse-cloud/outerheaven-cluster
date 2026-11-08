@@ -1,0 +1,18 @@
+[Unit]
+Description=OuterHeaven Metal-Bridge REST Service
+After=network.target ollama.service code-server.service
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/mnt/storage-fast/outerheaven-cluster-repo/services/metal-bridge
+ExecStart=/mnt/storage-fast/outerheaven-cluster-repo/services/metal-bridge/.venv/bin/uvicorn server:app --host 0.0.0.0 --port 8444
+Restart=always
+RestartSec=3
+Environment="PYTHONUNBUFFERED=1"
+Environment="PATH=/mnt/storage-fast/outerheaven-cluster-repo/services/metal-bridge/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

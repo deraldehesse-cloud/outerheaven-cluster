@@ -10,6 +10,7 @@ APPS=(
   "PaperworkScanner|/mnt/storage-fast/build-workspace/PaperworkScanner/app/build/outputs/apk/debug/app-debug.apk"
   "MeganApp|/mnt/storage-fast/build-workspace/OpenUp/app/build/outputs/apk/debug/app-debug.apk"
   "VoiceRoadmap|/mnt/storage-fast/outerheaven-cluster-repo/apps/new-horizon-voice-app/app/build/outputs/apk/debug/app-debug.apk"
+  "WebIdeCompanion|/mnt/storage-fast/outerheaven-cluster-repo/web-ide-app/app/build/outputs/apk/debug/app-debug.apk"
 )
 
 echo "=========================================================="
@@ -70,6 +71,8 @@ for entry in "${APPS[@]}"; do
             ln -sf "$TARGET_APK" "$LOCAL_APK_DIR/megan-app.apk"
         elif [ "$APP_NAME" == "VoiceRoadmap" ]; then
             ln -sf "$TARGET_APK" "$LOCAL_APK_DIR/new-horizon.apk"
+        elif [ "$APP_NAME" == "WebIdeCompanion" ]; then
+            ln -sf "$TARGET_APK" "$LOCAL_APK_DIR/web-ide-app.apk"
         fi
 
         echo "    [+] Neue Version erzeugt: ${APP_NAME}_v${NEW_NUM}.apk ($SIZE)"
