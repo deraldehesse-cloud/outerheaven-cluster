@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.outerheaven.webidecompanion.data.api.MetalBridgeApi
 import com.outerheaven.webidecompanion.data.model.*
+import retrofit2.HttpException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -78,8 +79,11 @@ class MainViewModel(
     fun refreshAll() {
         loadStatus()
         loadDropzone()
-        loadFindings(_selectedPackage.value)
         loadSandboxData()
+        val currentPkg = _selectedPackage.value
+        if (currentPkg != null) {
+            loadFindings(currentPkg)
+        }
     }
 
     fun loadStatus() {
@@ -114,18 +118,30 @@ class MainViewModel(
     }
 
     fun loadFindings(pkg: String? = null) {
+        if (pkg != null) {
+            _selectedPackage.value = pkg
+        }
         viewModelScope.launch {
             _findingsState.value = UiState.Loading
             try {
                 val res = api.getFindings(pkg)
                 _findingsState.value = UiState.Success(res)
-                if (pkg != null) {
-                    _selectedPackage.value = pkg
-                } else if (res.packageName.isNotEmpty()) {
+                if (_selectedPackage.value == null && res.packageName.isNotEmpty()) {
                     _selectedPackage.value = res.packageName
                 }
+            } catch (e: HttpException) {
+                if (e.code() == 404) {
+                    _findingsState.value = UiState.Error("NOT_FOUND")
+                } else {
+                    _findingsState.value = UiState.Error(e.localizedMessage ?: "Fehler beim Laden (${e.code()})")
+                }
             } catch (e: Exception) {
-                _findingsState.value = UiState.Error(e.localizedMessage ?: "Findings nicht gefunden")
+                val msg = e.localizedMessage ?: "Findings nicht gefunden"
+                if (msg.contains("404")) {
+                    _findingsState.value = UiState.Error("NOT_FOUND")
+                } else {
+                    _findingsState.value = UiState.Error(msg)
+                }
             }
         }
     }
@@ -195,8 +211,23 @@ class MainViewModel(
             try {
                 val res = api.getSandboxOutputs()
                 _sandboxOutputsState.value = UiState.Success(res)
+
+                // Beim ersten Laden bevorzugt das neueste Paket auswählen, das has_findings == true besitzt
+                if (_selectedPackage.value == null) {
+                    val candidateFolders = res.folders.filter { it.name != "catlord" }
+                    val preferredPkg = candidateFolders.firstOrNull { it.has_findings }?.name
+                        ?: candidateFolders.firstOrNull()?.name
+                    if (preferredPkg != null) {
+                        selectPackage(preferredPkg)
+                    } else {
+                        loadFindings(null)
+                    }
+                }
             } catch (e: Exception) {
                 _sandboxOutputsState.value = UiState.Error(e.localizedMessage ?: "Outputs nicht abrufbar")
+                if (_selectedPackage.value == null) {
+                    loadFindings(null)
+                }
             }
         }
     }
