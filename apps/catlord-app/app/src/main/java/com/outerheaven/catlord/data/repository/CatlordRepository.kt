@@ -35,7 +35,7 @@ class CatlordRepository private constructor(context: Context) {
 
     suspend fun saveNote(title: String, category: String, content: String): CatlordVoiceNote = withContext(Dispatchers.IO) {
         val note = CatlordVoiceNote(
-            title = title.ifBlank { "Idee ${category.capitalize()}" },
+            title = title.ifBlank { "Idee ${category.replaceFirstChar { it.uppercase() }}" },
             category = category,
             content = content,
             timestamp = System.currentTimeMillis(),

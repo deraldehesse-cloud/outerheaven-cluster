@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -41,6 +42,19 @@ fun MainScreen(
                             fontWeight = FontWeight.Bold,
                             color = NeonCyan
                         )
+                        Surface(
+                            color = AmberGold.copy(alpha = 0.2f),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, AmberGold)
+                        ) {
+                            Text(
+                                text = "v1.0.0",
+                                color = AmberGold,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
                 },
                 actions = {
@@ -101,7 +115,7 @@ fun MainScreen(
                 NavigationBarItem(
                     selected = currentScreen == AppScreen.LORE_VIEWER,
                     onClick = { viewModel.setScreen(AppScreen.LORE_VIEWER) },
-                    icon = { Icon(Icons.Default.MenuBook, contentDescription = "Lore & Docs") },
+                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Lore & Docs") },
                     label = { Text("Lore & Docs") },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = DarkBackground,

@@ -57,7 +57,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedCategory = MutableStateFlow("Story")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
-    val categories = listOf("Story", "Gameplay", "Elliot", "Käch", "Gert / Welt", "Allgemein")
+    val categories = listOf("Story", "Gameplay", "Elliot", "Käch", "Loco", "Gert / Baustelle")
 
     private val _noteTitle = MutableStateFlow("")
     val noteTitle: StateFlow<String> = _noteTitle.asStateFlow()

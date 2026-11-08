@@ -778,25 +778,26 @@ def save_catlord_voice_note(req: CatlordVoiceNoteRequest):
     timestamp_slug = now.strftime("%Y%m%d_%H%M%S")
     human_date = now.strftime("%Y-%m-%d %H:%M:%S")
 
-    category = (req.category or "idea").strip().lower()
+    raw_category = (req.category or "idea").strip()
+    slug_category = re.sub(r'[^a-zA-Z0-9_\-]+', '_', raw_category.lower()).strip('_') or "idea"
     raw_title = (req.title or "").strip()
 
     if not raw_title:
         first_line = req.content.strip().splitlines()[0]
         words = first_line.split()[:5]
-        raw_title = " ".join(words) if words else f"Notiz {category.capitalize()}"
+        raw_title = " ".join(words) if words else f"Notiz {slug_category.capitalize()}"
         if len(raw_title) > 40:
             raw_title = raw_title[:40].rstrip()
 
     slug_title = re.sub(r'[^a-zA-Z0-9_\-]+', '_', raw_title.strip()).strip('_')
     if not slug_title:
         slug_title = "note"
-    filename = f"{timestamp_slug}_{category}_{slug_title}.md"
+    filename = f"{timestamp_slug}_{slug_category}_{slug_title}.md"
 
     md_content = f"""# {raw_title}
 
 - **Datum:** {human_date}
-- **Kategorie:** {category}
+- **Kategorie:** {raw_category}
 - **Quelle:** Catlord Studio App
 
 ## Notiz
@@ -836,7 +837,7 @@ def save_catlord_voice_note(req: CatlordVoiceNoteRequest):
         "status": "success",
         "filename": filename,
         "title": raw_title,
-        "category": category,
+        "category": raw_category,
         "timestamp": human_date,
         "local_path": str(local_path),
         "nfs_copied": nfs_copied,
