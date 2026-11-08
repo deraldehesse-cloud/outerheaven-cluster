@@ -33,7 +33,16 @@ interface CatlordApiService {
     suspend fun getMediaStats(): MediaStatsResponse
 
     @GET("api/findings/latest")
-    suspend fun getLatestFindings(): FindingsResponse
+    suspend fun getLatestFindings(@Query("package") pkg: String? = null): FindingsResponse
+
+    @GET("api/dropzone")
+    suspend fun getDropzone(): DropzoneResponse
+
+    @POST("api/sandbox/decompile")
+    suspend fun decompileApk(@Body req: DecompileRequest): DecompileResponse
+
+    @POST("api/catlord/ask-deepseek")
+    suspend fun askDeepSeek(@Body req: AskDeepSeekRequest): AskDeepSeekResponse
 
     companion object {
         const val DEFAULT_BASE_URL = "http://100.96.88.84:8444/"
@@ -44,8 +53,9 @@ interface CatlordApiService {
             }
 
             val client = OkHttpClient.Builder()
-                .connectTimeout(5, TimeUnit.SECONDS)
-                .readTimeout(20, TimeUnit.SECONDS)
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(180, TimeUnit.SECONDS)
+                .writeTimeout(60, TimeUnit.SECONDS)
                 .addInterceptor(logging)
                 .build()
 

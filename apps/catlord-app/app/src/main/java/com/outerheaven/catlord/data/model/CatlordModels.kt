@@ -100,6 +100,8 @@ data class MediaStatsResponse(
 )
 
 data class ClusterStatusResponse(
+    @SerializedName("node") val node: String? = null,
+    @SerializedName("timestamp") val timestamp: String? = null,
     @SerializedName("hostname") val hostname: String? = null,
     @SerializedName("status") val status: String? = null,
     @SerializedName("uptime_seconds") val uptimeSeconds: Double? = null
@@ -109,5 +111,50 @@ data class FindingsResponse(
     @SerializedName("package") val pkg: String? = null,
     @SerializedName("filename") val filename: String? = null,
     @SerializedName("content") val content: String? = null,
-    @SerializedName("modified_at") val modifiedAt: String? = null
+    @SerializedName("file_path") val filePath: String? = null,
+    @SerializedName("modified_at") val modifiedAt: String? = null,
+    @SerializedName("available_packages") val availablePackages: List<String> = emptyList()
+)
+
+data class DropzoneFile(
+    @SerializedName("name") val name: String = "",
+    @SerializedName("size_bytes") val sizeBytes: Long = 0L,
+    @SerializedName("size_formatted") val sizeFormatted: String = "",
+    @SerializedName("modified_at") val modifiedAt: String = "",
+    @SerializedName("is_apk") val isApk: Boolean = true
+)
+
+data class DropzoneResponse(
+    @SerializedName("dropzone_dir") val dropzoneDir: String = "",
+    @SerializedName("count") val count: Int = 0,
+    @SerializedName("apk_count") val apkCount: Int = 0,
+    @SerializedName("files") val files: List<DropzoneFile> = emptyList()
+)
+
+data class DecompileRequest(
+    @SerializedName("apk_name") val apkName: String,
+    @SerializedName("target_subfolder") val targetSubfolder: String? = null,
+    @SerializedName("filter_keyword") val filterKeyword: String? = null
+)
+
+data class DecompileResponse(
+    @SerializedName("status") val status: String = "",
+    @SerializedName("message") val message: String = ""
+)
+
+data class AskDeepSeekRequest(
+    @SerializedName("prompt") val prompt: String,
+    @SerializedName("package") val pkg: String? = null,
+    @SerializedName("save_to_findings") val saveToFindings: Boolean = true
+)
+
+data class AskDeepSeekResponse(
+    @SerializedName("status") val status: String = "",
+    @SerializedName("package") val pkg: String? = null,
+    @SerializedName("prompt") val prompt: String = "",
+    @SerializedName("response") val response: String = "",
+    @SerializedName("saved_to_findings") val savedToFindings: Boolean = false,
+    @SerializedName("file_name") val fileName: String? = null,
+    @SerializedName("file_path") val filePath: String? = null,
+    @SerializedName("timestamp") val timestamp: String = ""
 )

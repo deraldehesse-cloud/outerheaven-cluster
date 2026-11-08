@@ -48,7 +48,7 @@ fun MainScreen(
                             border = androidx.compose.foundation.BorderStroke(1.dp, AmberGold)
                         ) {
                             Text(
-                                text = "v1.0.0",
+                                text = "v1.0.1",
                                 color = AmberGold,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,

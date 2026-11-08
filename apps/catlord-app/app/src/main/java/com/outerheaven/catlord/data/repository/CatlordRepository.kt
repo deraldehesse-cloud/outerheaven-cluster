@@ -100,7 +100,7 @@ class CatlordRepository private constructor(context: Context) {
     suspend fun checkConnection(): Boolean = withContext(Dispatchers.IO) {
         try {
             val status = api.getStatus()
-            val ok = status.status == "ok" || status.hostname != null
+            val ok = !status.node.isNullOrBlank() || status.status == "ok" || !status.hostname.isNullOrBlank() || !status.timestamp.isNullOrBlank()
             _isConnected.value = ok
             ok
         } catch (e: Exception) {
@@ -136,9 +136,36 @@ class CatlordRepository private constructor(context: Context) {
         }
     }
 
-    suspend fun loadLatestFindings(): Result<FindingsResponse> = withContext(Dispatchers.IO) {
+    suspend fun loadLatestFindings(pkg: String? = null): Result<FindingsResponse> = withContext(Dispatchers.IO) {
         try {
-            val res = api.getLatestFindings()
+            val res = api.getLatestFindings(pkg)
+            Result.success(res)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun loadDropzone(): Result<DropzoneResponse> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.getDropzone()
+            Result.success(res)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun triggerDecompile(apkName: String, filterKeyword: String? = null, targetSubfolder: String? = null): Result<DecompileResponse> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.decompileApk(DecompileRequest(apkName = apkName, filterKeyword = filterKeyword, targetSubfolder = targetSubfolder))
+            Result.success(res)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun askDeepSeek(prompt: String, pkg: String? = null, saveToFindings: Boolean = true): Result<AskDeepSeekResponse> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.askDeepSeek(AskDeepSeekRequest(prompt = prompt, pkg = pkg, saveToFindings = saveToFindings))
             Result.success(res)
         } catch (e: Exception) {
             Result.failure(e)

@@ -39,6 +39,7 @@ CATLORD_REPO_DIR = Path("/mnt/storage-fast/outerheaven-cluster-repo/projects/cat
 if not CATLORD_REPO_DIR.exists():
     CATLORD_REPO_DIR = Path("/home/bigboss/outerheaven-cluster-repo/projects/catlord")
 CATLORD_VOICE_NOTES_DIR = CATLORD_REPO_DIR / "voice-notes"
+CATLORD_REA_FINDINGS_DIR = CATLORD_REPO_DIR / "rea-findings"
 CATLORD_STORAGE_NOTE_DIR = Path("/mnt/storage-beta/projects/catlord-media/gdrive-sync/Note ")
 CATLORD_MEDIA_DIR = Path("/mnt/storage-beta/projects/catlord-media")
 
@@ -71,6 +72,12 @@ class CatlordVoiceNoteRequest(BaseModel):
     title: Optional[str] = None
     category: Optional[str] = "idea"
     content: str
+
+
+class CatlordAskDeepSeekRequest(BaseModel):
+    prompt: str
+    package: Optional[str] = None
+    save_to_findings: Optional[bool] = True
 
 
 # ==========================================
@@ -290,6 +297,10 @@ def root():
             "/api/sandbox/jobs",
             "/api/sandbox/outputs",
             "/api/sandbox/container/restart",
+            "/api/catlord/ask-deepseek",
+            "/api/catlord/voice-note",
+            "/api/catlord/docs",
+            "/api/catlord/media-stats",
         ]
     }
 
@@ -763,6 +774,135 @@ def get_sandbox_outputs():
 # ==========================================
 # 🐾 Catlord Studio Endpunkte
 # ==========================================
+
+@app.post("/api/catlord/ask-deepseek")
+def ask_deepseek(req: CatlordAskDeepSeekRequest):
+    """
+    Sendet einen Analyse- oder Code-Prompt an DeepSeek (Ollama) auf metal-dgear,
+    optional angereichert mit Kontext aus dekompilierten Paketen oder Catlord-Docs.
+    """
+    if not req.prompt or not req.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt darf nicht leer sein.")
+
+    prompt_clean = req.prompt.strip()
+    pkg_name = req.package.strip() if req.package else None
+
+    # Kontext sammeln
+    context_blocks = []
+    if pkg_name:
+        # 1. Aus /mnt/storage-fast/rea-sandbox/output/catlord/<package>/
+        pkg_dir = OUTPUT_BASE_DIR / pkg_name
+        if pkg_dir.exists():
+            for fname in ["llm_analysis_context.md", "llm_findings.md"]:
+                fpath = pkg_dir / fname
+                if fpath.exists():
+                    try:
+                        text = fpath.read_text(encoding="utf-8", errors="replace")
+                        if text.strip():
+                            context_blocks.append(f"### Bestehender Kontext ({fname}) aus REA-Output für '{pkg_name}':\n{text[:4000]}")
+                            break
+                    except Exception:
+                        pass
+
+        # 2. Falls kein Output gefunden, in projects/catlord/rea-findings/ suchen
+        if not context_blocks and CATLORD_REPO_DIR.exists():
+            rf_dir = CATLORD_REPO_DIR / "rea-findings"
+            if rf_dir.exists():
+                for f in rf_dir.glob("*.md"):
+                    if pkg_name.lower() in f.name.lower():
+                        try:
+                            text = f.read_text(encoding="utf-8", errors="replace")
+                            if text.strip():
+                                context_blocks.append(f"### Vorherige Findings aus {f.name}:\n{text[:3000]}")
+                                break
+                        except Exception:
+                            pass
+
+    # Prompt für DeepSeek formulieren
+    context_str = ""
+    if context_blocks:
+        context_str = "\n\n" + "\n\n".join(context_blocks) + "\n\n"
+
+    system_and_user_prompt = f"""Du bist ein Senior Android Reverse-Engineering und Software-Architektur Experte im OuterHeaven Cluster.
+Aufgabe / Frage: {prompt_clean}
+{context_str}
+Antworte technisch präzise, fundiert und auf Deutsch."""
+
+    payload = {
+        "model": DEFAULT_OLLAMA_MODEL,
+        "prompt": system_and_user_prompt,
+        "stream": False,
+        "options": {
+            "num_ctx": 8192,
+            "num_predict": 1024,
+            "temperature": 0.2
+        }
+    }
+
+    try:
+        ollama_res = requests.post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            json=payload,
+            timeout=300
+        )
+        if ollama_res.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Ollama meldet Status {ollama_res.status_code}: {ollama_res.text}")
+
+        data = ollama_res.json()
+        response_text = data.get("response", "").strip()
+        if not response_text:
+            response_text = "Keine Antwort von DeepSeek generiert."
+    except requests.exceptions.Timeout:
+        raise HTTPException(status_code=504, detail="Timeout (300s) bei der Antwortgenerierung durch DeepSeek auf metal-dgear.")
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Fehler bei Verbindung zu Ollama: {str(e)}")
+
+    saved_file_name = None
+    saved_path_str = None
+
+    if req.save_to_findings:
+        now = datetime.now()
+        ts_slug = now.strftime("%Y%m%d_%H%M%S")
+        slug_pkg = re.sub(r'[^a-zA-Z0-9_\-]+', '_', (pkg_name or "general").lower()).strip('_')
+        saved_file_name = f"{ts_slug}_{slug_pkg}_deepseek.md"
+
+        findings_md = f"""# DeepSeek Analyse: {pkg_name or 'Allgemein'}
+
+- **Modell:** `{DEFAULT_OLLAMA_MODEL}`
+- **Paket:** `{pkg_name or 'Allgemein'}`
+- **Prompt:** {prompt_clean}
+- **Zeitpunkt:** {now.strftime("%Y-%m-%d %H:%M:%S")}
+
+---
+
+{response_text}
+"""
+        try:
+            rf_dir = CATLORD_REPO_DIR / "rea-findings"
+            rf_dir.mkdir(parents=True, exist_ok=True)
+            saved_file = rf_dir / saved_file_name
+            saved_file.write_text(findings_md, encoding="utf-8")
+            saved_path_str = str(saved_file)
+
+            # Falls ein Paketordner in OUTPUT_BASE_DIR existiert, dort auch llm_findings.md aktualisieren
+            if pkg_name:
+                pkg_dir = OUTPUT_BASE_DIR / pkg_name
+                if pkg_dir.exists():
+                    (pkg_dir / "llm_findings.md").write_text(findings_md, encoding="utf-8")
+        except Exception as se:
+            print(f"[Catlord] Fehler beim Speichern der Findings: {se}")
+
+    return {
+        "status": "success",
+        "package": pkg_name,
+        "prompt": prompt_clean,
+        "response": response_text,
+        "saved_to_findings": (saved_file_name is not None),
+        "file_name": saved_file_name,
+        "file_path": saved_path_str,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
 
 @app.post("/api/catlord/voice-note")
 def save_catlord_voice_note(req: CatlordVoiceNoteRequest):

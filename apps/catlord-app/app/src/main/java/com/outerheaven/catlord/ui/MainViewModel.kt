@@ -19,6 +19,11 @@ enum class AppScreen {
     REA_MEDIA
 }
 
+enum class SpeechTarget {
+    NOTE,
+    DEEPSEEK
+}
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = CatlordRepository.getInstance(application)
@@ -94,22 +99,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isLoadingReaMedia = MutableStateFlow(false)
     val isLoadingReaMedia: StateFlow<Boolean> = _isLoadingReaMedia.asStateFlow()
 
-    // Speech Recognition Helper
+    val defaultPackages = listOf("Catlord-Test", "InnocentWitches", "QueensBrothel", "VibeMate", "megan-app")
+    private val _selectedPackage = MutableStateFlow("Catlord-Test")
+    val selectedPackage: StateFlow<String> = _selectedPackage.asStateFlow()
+
+    private val _availablePackages = MutableStateFlow<List<String>>(defaultPackages)
+    val availablePackages: StateFlow<List<String>> = _availablePackages.asStateFlow()
+
+    private val _dropzoneApks = MutableStateFlow<List<DropzoneFile>>(emptyList())
+    val dropzoneApks: StateFlow<List<DropzoneFile>> = _dropzoneApks.asStateFlow()
+
+    private val _selectedApkToDecompile = MutableStateFlow<String?>(null)
+    val selectedApkToDecompile: StateFlow<String?> = _selectedApkToDecompile.asStateFlow()
+
+    private val _filterKeyword = MutableStateFlow("")
+    val filterKeyword: StateFlow<String> = _filterKeyword.asStateFlow()
+
+    private val _isDecompiling = MutableStateFlow(false)
+    val isDecompiling: StateFlow<Boolean> = _isDecompiling.asStateFlow()
+
+    private val _decompileMessage = MutableStateFlow<String?>(null)
+    val decompileMessage: StateFlow<String?> = _decompileMessage.asStateFlow()
+
+    // DeepSeek Agent State
+    private val _deepSeekPrompt = MutableStateFlow("")
+    val deepSeekPrompt: StateFlow<String> = _deepSeekPrompt.asStateFlow()
+
+    private val _isAskingDeepSeek = MutableStateFlow(false)
+    val isAskingDeepSeek: StateFlow<Boolean> = _isAskingDeepSeek.asStateFlow()
+
+    private val _deepSeekResponse = MutableStateFlow<AskDeepSeekResponse?>(null)
+    val deepSeekResponse: StateFlow<AskDeepSeekResponse?> = _deepSeekResponse.asStateFlow()
+
+    // Speech Recognition Helper & Target
     private var speechHelper: SpeechRecognitionHelper? = null
+    private var currentSpeechTarget: SpeechTarget = SpeechTarget.NOTE
 
     init {
         speechHelper = SpeechRecognitionHelper(
             context = application,
             onStateChanged = { state -> _speechState.value = state },
             onPartialResult = { partial ->
-                // Bei Teilergebnis an aktuellen Inhalt anhängen oder aktualisieren
                 _statusMessage.value = "Höre zu: $partial"
             },
             onFinalResult = { final ->
                 if (final.isNotBlank()) {
-                    val current = _noteContent.value
-                    _noteContent.value = if (current.isBlank()) final else "$current\n$final"
-                    _statusMessage.value = "Erkannt: $final"
+                    if (currentSpeechTarget == SpeechTarget.NOTE) {
+                        val current = _noteContent.value
+                        _noteContent.value = if (current.isBlank()) final else "$current\n$final"
+                        _statusMessage.value = "Notiz erkannt: $final"
+                    } else {
+                        val current = _deepSeekPrompt.value
+                        _deepSeekPrompt.value = if (current.isBlank()) final else "$current $final"
+                        _statusMessage.value = "Prompt erkannt: $final"
+                    }
                 }
             }
         )
@@ -137,6 +180,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleSpeechRecognition() {
+        currentSpeechTarget = SpeechTarget.NOTE
+        when (_speechState.value) {
+            is SpeechState.Listening -> {
+                speechHelper?.stopListening()
+            }
+            else -> {
+                speechHelper?.startListening("de-DE")
+            }
+        }
+    }
+
+    fun toggleDeepSeekSpeech() {
+        currentSpeechTarget = SpeechTarget.DEEPSEEK
         when (_speechState.value) {
             is SpeechState.Listening -> {
                 speechHelper?.stopListening()
@@ -225,6 +281,97 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // REA & Media Functions
+    fun selectPackage(pkg: String) {
+        _selectedPackage.value = pkg
+        loadLatestFindingsForPackage(pkg)
+    }
+
+    fun selectApkToDecompile(apk: String?) {
+        _selectedApkToDecompile.value = apk
+    }
+
+    fun setFilterKeyword(kw: String) {
+        _filterKeyword.value = kw
+    }
+
+    fun setDeepSeekPrompt(prompt: String) {
+        _deepSeekPrompt.value = prompt
+    }
+
+    fun clearDeepSeekResponse() {
+        _deepSeekResponse.value = null
+    }
+
+    fun loadDropzone() {
+        viewModelScope.launch {
+            val res = repository.loadDropzone()
+            res.onSuccess { dz ->
+                _dropzoneApks.value = dz.files.filter { it.isApk }
+                if (_selectedApkToDecompile.value == null && _dropzoneApks.value.isNotEmpty()) {
+                    _selectedApkToDecompile.value = _dropzoneApks.value.first().name
+                }
+            }
+        }
+    }
+
+    fun loadLatestFindingsForPackage(pkg: String) {
+        viewModelScope.launch {
+            _isLoadingReaMedia.value = true
+            val findingsRes = repository.loadLatestFindings(pkg)
+            findingsRes.onSuccess { findings ->
+                _latestFindings.value = findings
+                if (findings.availablePackages.isNotEmpty()) {
+                    val merged = (defaultPackages + findings.availablePackages).distinct()
+                    _availablePackages.value = merged
+                }
+            }.onFailure { err ->
+                _statusMessage.value = "Findings für '$pkg' konnten nicht geladen werden: ${err.message}"
+            }
+            _isLoadingReaMedia.value = false
+        }
+    }
+
+    fun triggerDecompile() {
+        val apk = _selectedApkToDecompile.value ?: return
+        val kw = _filterKeyword.value.trim().ifBlank { null }
+        viewModelScope.launch {
+            _isDecompiling.value = true
+            _decompileMessage.value = "Dekompiliere $apk in Sandbox..."
+            val res = repository.triggerDecompile(apkName = apk, filterKeyword = kw)
+            res.onSuccess { resp ->
+                _decompileMessage.value = resp.message.ifBlank { "Dekompilierung gestartet!" }
+                _statusMessage.value = "Dekompilierung für $apk gestartet"
+                loadMediaAndFindings()
+            }.onFailure { err ->
+                _decompileMessage.value = "Fehler: ${err.message}"
+                _statusMessage.value = "Dekompilierung fehlgeschlagen: ${err.message}"
+            }
+            _isDecompiling.value = false
+        }
+    }
+
+    fun askDeepSeek() {
+        val prompt = _deepSeekPrompt.value.trim()
+        if (prompt.isBlank()) {
+            _statusMessage.value = "Bitte einen Prompt für DeepSeek eingeben."
+            return
+        }
+        val pkg = _selectedPackage.value.ifBlank { null }
+        viewModelScope.launch {
+            _isAskingDeepSeek.value = true
+            _statusMessage.value = "DeepSeek analysiert..."
+            val res = repository.askDeepSeek(prompt = prompt, pkg = pkg, saveToFindings = true)
+            res.onSuccess { resp ->
+                _deepSeekResponse.value = resp
+                _statusMessage.value = "DeepSeek Analyse abgeschlossen!"
+                loadLatestFindingsForPackage(_selectedPackage.value)
+            }.onFailure { err ->
+                _statusMessage.value = "DeepSeek Fehler: ${err.message}"
+            }
+            _isAskingDeepSeek.value = false
+        }
+    }
+
     fun loadMediaAndFindings() {
         viewModelScope.launch {
             _isLoadingReaMedia.value = true
@@ -233,10 +380,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _mediaStats.value = stats
             }
 
-            val findingsRes = repository.loadLatestFindings()
+            val findingsRes = repository.loadLatestFindings(_selectedPackage.value)
             findingsRes.onSuccess { findings ->
                 _latestFindings.value = findings
+                if (findings.availablePackages.isNotEmpty()) {
+                    val merged = (defaultPackages + findings.availablePackages).distinct()
+                    _availablePackages.value = merged
+                }
             }
+
+            loadDropzone()
             _isLoadingReaMedia.value = false
         }
     }
