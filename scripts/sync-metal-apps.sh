@@ -1,22 +1,86 @@
 #!/bin/bash
-echo "=== Synchronisiere aktuelle Apps von metal-dgear ==="
-mkdir -p /home/bigboss/Desktop/APKs
+set -e
 
-# APKs von metal-dgear abholen
-scp metal-dgear:/mnt/storage-fast/build-workspace/PaperworkScanner/app/build/outputs/apk/debug/app-debug.apk /home/bigboss/Desktop/APKs/paperwork-scanner.apk 2>/dev/null || echo "PaperworkScanner APK nicht gefunden."
-scp metal-dgear:/mnt/storage-fast/build-workspace/OpenUp/app/build/outputs/apk/debug/app-debug.apk /home/bigboss/Desktop/APKs/megan-app.apk 2>/dev/null || echo "Megan APK nicht gefunden."
-scp metal-dgear:/mnt/storage-fast/build-workspace/HermesAgentApp/app/build/outputs/apk/debug/app-debug.apk /home/bigboss/Desktop/APKs/hermes-app.apk 2>/dev/null || true
-scp metal-dgear:/mnt/storage-fast/outerheaven-cluster-repo/apps/new-horizon-voice-app/app/build/outputs/apk/debug/app-debug.apk /home/bigboss/Desktop/APKs/VoiceRoadmap.apk 2>/dev/null || echo "VoiceRoadmap APK nicht gefunden."
+LOCAL_APK_DIR="$HOME/Desktop/APKs"
+TMP_DIR="/tmp/metal_apk_sync"
+mkdir -p "$LOCAL_APK_DIR" "$TMP_DIR"
 
-# Symlinks auf Desktop & APKs-Ordner für nahtlose Kompatibilität
-ln -sf /home/bigboss/Desktop/APKs/paperwork-scanner.apk /home/bigboss/Desktop/APKs/paperless-app.apk 2>/dev/null || true
-ln -sf /home/bigboss/Desktop/APKs/paperwork-scanner.apk /home/bigboss/Desktop/paperless-app.apk 2>/dev/null || true
-ln -sf /home/bigboss/Desktop/APKs/megan-app.apk /home/bigboss/Desktop/megan-app.apk 2>/dev/null || true
-ln -sf /home/bigboss/Desktop/APKs/hermes-app.apk /home/bigboss/Desktop/hermes-app.apk 2>/dev/null || true
-ln -sf /home/bigboss/Desktop/APKs/VoiceRoadmap.apk /home/bigboss/Desktop/APKs/new-horizon.apk 2>/dev/null || true
-ln -sf /home/bigboss/Desktop/APKs/VoiceRoadmap.apk /home/bigboss/Desktop/VoiceRoadmap.apk 2>/dev/null || true
-ln -sf /home/bigboss/Desktop/APKs/VoiceRoadmap.apk /home/bigboss/Desktop/new-horizon.apk 2>/dev/null || true
+# Definition der Apps: "Anzeigename|Remote-Pfad"
+APPS=(
+  "PaperworkScanner|/mnt/storage-fast/build-workspace/PaperworkScanner/app/build/outputs/apk/debug/app-debug.apk"
+  "MeganApp|/mnt/storage-fast/build-workspace/OpenUp/app/build/outputs/apk/debug/app-debug.apk"
+  "VoiceRoadmap|/mnt/storage-fast/outerheaven-cluster-repo/apps/new-horizon-voice-app/app/build/outputs/apk/debug/app-debug.apk"
+)
 
-echo "=== Sync abgeschlossen! ==="
-echo "Die aktuellen Apps liegen nun in deinem Desktop-Ordner 'APKs'."
+echo "=========================================================="
+echo "       Synchronisiere Android-Apps von metal-dgear        "
+echo "=========================================================="
+
+for entry in "${APPS[@]}"; do
+    IFS="|" read -r APP_NAME REMOTE_PATH <<< "$entry"
+    TMP_APK="$TMP_DIR/${APP_NAME}_incoming.apk"
+
+    echo ""
+    echo ">>> Prüfe: $APP_NAME ..."
+
+    # 1. Temporär herunterladen
+    if ! scp -q "metal-dgear:$REMOTE_PATH" "$TMP_APK" 2>/dev/null; then
+        echo "    [-] Nicht gefunden oder Build fehlt: $REMOTE_PATH"
+        continue
+    fi
+
+    SIZE=$(du -h "$TMP_APK" | cut -f1)
+
+    # 2. Prüfen, ob bereits eine Version existiert und ob sich die Datei geändert hat
+    LATEST_SYMLINK="$LOCAL_APK_DIR/${APP_NAME}.apk"
+    NEW_HASH=$(sha256sum "$TMP_APK" | awk '{print $1}')
+    CURRENT_HASH=""
+
+    if [ -f "$LATEST_SYMLINK" ]; then
+        CURRENT_HASH=$(sha256sum "$LATEST_SYMLINK" | awk '{print $1}')
+    fi
+
+    if [ "$NEW_HASH" == "$CURRENT_HASH" ] && [ -n "$CURRENT_HASH" ]; then
+        CURRENT_FILE=$(readlink -f "$LATEST_SYMLINK")
+        VERSION_TAG=$(basename "$CURRENT_FILE" .apk)
+        echo "    [=] Keine Änderung: Bereits auf aktuellem Stand ($VERSION_TAG, $SIZE)."
+        rm -f "$TMP_APK"
+    else
+        # 3. Höchste vorhandene Versionsnummer ermitteln
+        LAST_NUM=0
+        for f in "$LOCAL_APK_DIR/${APP_NAME}_v"*.apk; do
+            if [ -f "$f" ]; then
+                NUM=$(basename "$f" | sed -n "s/^${APP_NAME}_v\([0-9]*\)\.apk$/\1/p")
+                if [[ "$NUM" =~ ^[0-9]+$ ]] && [ "$NUM" -gt "$LAST_NUM" ]; then
+                    LAST_NUM=$NUM
+                fi
+            fi
+        done
+
+        NEW_NUM=$((LAST_NUM + 1))
+        TARGET_APK="$LOCAL_APK_DIR/${APP_NAME}_v${NEW_NUM}.apk"
+
+        mv "$TMP_APK" "$TARGET_APK"
+        ln -sf "$TARGET_APK" "$LATEST_SYMLINK"
+
+        # Symlinks für Abwärtskompatibilität pflegen
+        if [ "$APP_NAME" == "PaperworkScanner" ]; then
+            ln -sf "$TARGET_APK" "$LOCAL_APK_DIR/paperless-app.apk"
+        elif [ "$APP_NAME" == "MeganApp" ]; then
+            ln -sf "$TARGET_APK" "$LOCAL_APK_DIR/megan-app.apk"
+        elif [ "$APP_NAME" == "VoiceRoadmap" ]; then
+            ln -sf "$TARGET_APK" "$LOCAL_APK_DIR/new-horizon.apk"
+        fi
+
+        echo "    [+] Neue Version erzeugt: ${APP_NAME}_v${NEW_NUM}.apk ($SIZE)"
+    fi
+done
+
+rm -rf "$TMP_DIR"
+echo ""
+echo "=========================================================="
+echo "Sync abgeschlossen! Aktuelle Dateien in ~/Desktop/APKs/:"
+echo "=========================================================="
+ls -l "$LOCAL_APK_DIR"/*.apk
+echo ""
 read -p "Drücke Enter zum Schließen..."
