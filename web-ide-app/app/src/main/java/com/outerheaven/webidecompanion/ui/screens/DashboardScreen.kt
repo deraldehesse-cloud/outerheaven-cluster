@@ -2,6 +2,7 @@ package com.outerheaven.webidecompanion.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -34,7 +35,6 @@ fun DashboardScreen(
     modifier: Modifier = Modifier
 ) {
     val statusState by viewModel.statusState.collectAsState()
-    val triggerState by viewModel.triggerState.collectAsState()
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
@@ -77,137 +77,6 @@ fun DashboardScreen(
                     contentDescription = "Aktualisieren",
                     tint = AccentCyan
                 )
-            }
-        }
-
-        // Pipeline Trigger Card (Prominent 1-Klick Aktion)
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.dp, AccentCyanDim.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayCircleFilled,
-                            contentDescription = null,
-                            tint = AccentCyan
-                        )
-                        Text(
-                            text = "Catlord REA-Pipeline",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = TextPrimary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    val isRunning = when (val s = statusState) {
-                        is UiState.Success -> s.data.pipeline.is_running
-                        else -> false
-                    }
-
-                    Surface(
-                        color = if (isRunning) AccentOrange.copy(alpha = 0.2f) else AccentGreen.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Text(
-                            text = if (isRunning) "LÄUFT AKTIV" else "BEREIT",
-                            color = if (isRunning) AccentOrange else AccentGreen,
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                Text(
-                    text = "Startet Dekompilierung (JADX) und LLM-Auswertung (DeepSeek 6.7b) für alle APKs im Dropzone-Ordner.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
-
-                val isTriggering = triggerState is UiState.Loading
-                val isPipelineRunning = when (val s = statusState) {
-                    is UiState.Success -> s.data.pipeline.is_running
-                    else -> false
-                }
-
-                Button(
-                    onClick = { viewModel.triggerPipeline() },
-                    enabled = !isTriggering && !isPipelineRunning,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentCyan,
-                        contentColor = DarkBackground,
-                        disabledContainerColor = DarkSurfaceVariant,
-                        disabledContentColor = TextMuted
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    if (isTriggering || isPipelineRunning) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = AccentCyan,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = if (isPipelineRunning) "Pipeline wird ausgeführt..." else "Wird gestartet...",
-                            fontWeight = FontWeight.Bold
-                        )
-                    } else {
-                        Icon(imageVector = Icons.Default.Bolt, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "PIPELINE JETZT STARTEN", fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                // Feedback Message bei Trigger
-                when (val t = triggerState) {
-                    is UiState.Success -> {
-                        Surface(
-                            color = AccentGreen.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "✓ ${t.data.message}",
-                                color = AccentGreen,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-                    }
-                    is UiState.Error -> {
-                        Surface(
-                            color = AccentRed.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "✕ ${t.message}",
-                                color = AccentRed,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-                    }
-                    else -> {}
-                }
             }
         }
 
@@ -263,7 +132,7 @@ fun DashboardScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(brush = androidx.compose.ui.graphics.SolidColor(AccentBlue.copy(alpha = 0.6f))),
+                    border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.6f)),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Icon(imageVector = Icons.Default.OpenInBrowser, contentDescription = null)

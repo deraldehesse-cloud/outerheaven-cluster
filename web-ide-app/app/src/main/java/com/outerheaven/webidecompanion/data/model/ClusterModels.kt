@@ -21,6 +21,7 @@ data class SandboxJob(
     val id: String = "",
     val apk_name: String = "",
     val target_dir: String = "",
+    val filter_keyword: String? = null,
     val status: String = "running",
     val start_time: String = "",
     val end_time: String? = null,
@@ -52,7 +53,8 @@ data class SandboxOutputsResponse(
 
 data class DecompileRequest(
     val apk_name: String,
-    val target_subfolder: String? = null
+    val target_subfolder: String? = null,
+    val filter_keyword: String? = null
 )
 
 data class DecompileResponse(

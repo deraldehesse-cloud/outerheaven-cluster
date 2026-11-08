@@ -55,6 +55,7 @@ app.add_middleware(
 class DecompileRequest(BaseModel):
     apk_name: str
     target_subfolder: Optional[str] = None
+    filter_keyword: Optional[str] = None
 
 
 # ==========================================
@@ -97,11 +98,12 @@ class SandboxJobManager:
         self.jobs: List[Dict[str, Any]] = []
         self._lock = threading.Lock()
 
-    def create_job(self, apk_name: str, target_dir: str) -> Dict[str, Any]:
+    def create_job(self, apk_name: str, target_dir: str, filter_keyword: Optional[str] = None) -> Dict[str, Any]:
         job = {
             "id": f"job_{int(time.time())}_{uuid.uuid4().hex[:6]}",
             "apk_name": apk_name,
             "target_dir": target_dir,
+            "filter_keyword": filter_keyword,
             "status": "running",
             "start_time": datetime.now(timezone.utc).isoformat(),
             "end_time": None,
@@ -558,10 +560,10 @@ def decompile_apk_in_sandbox(req: DecompileRequest, background_tasks: Background
     target_full_path.mkdir(parents=True, exist_ok=True)
 
     # Job registrieren
-    job = job_manager.create_job(apk_name=req.apk_name, target_dir=target_sub)
+    job = job_manager.create_job(apk_name=req.apk_name, target_dir=target_sub, filter_keyword=req.filter_keyword)
 
     # Asynchron im Hintergrund ausführen
-    def run_decompile_job(job_id: str, apk_filename: str, out_folder: str):
+    def run_decompile_job(job_id: str, apk_filename: str, out_folder: str, filter_kw: Optional[str]):
         cmd = [
             "docker", "exec", DOCKER_CONTAINER_NAME,
             "jadx",
@@ -573,6 +575,81 @@ def decompile_apk_in_sandbox(req: DecompileRequest, background_tasks: Background
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             tail = (res.stdout + "\n" + res.stderr)[-500:]
+            
+            # Gezielte Keyword-Suche falls angegeben
+            if res.returncode == 0 and filter_kw and filter_kw.strip():
+                kw = filter_kw.strip()
+                sources_dir = SANDBOX_OUTPUT_DIR / out_folder / "sources"
+                matched_files = []
+                code_snippets = ""
+                
+                if sources_dir.exists():
+                    try:
+                        grep_cmd = [
+                            "grep", "-rnwil",
+                            "--exclude-dir=androidx", "--exclude-dir=android",
+                            "--exclude-dir=kotlin", "--exclude-dir=kotlinx",
+                            "--exclude-dir=com/google", "--exclude-dir=org/intellij",
+                            kw, str(sources_dir)
+                        ]
+                        grep_res = subprocess.run(grep_cmd, capture_output=True, text=True, timeout=30)
+                        if grep_res.returncode == 0 and grep_res.stdout.strip():
+                            matched_files = [f for f in grep_res.stdout.strip().split("\n") if f]
+                    except Exception as ge:
+                        tail += f"\n[Grep Fehler: {str(ge)}]"
+
+                    if matched_files:
+                        tail += f"\n[Keyword '{kw}': {len(matched_files)} Klassen gefunden]"
+                        for cfile in matched_files[:3]:
+                            try:
+                                rel_path = Path(cfile).relative_to(SANDBOX_OUTPUT_DIR / out_folder)
+                                with open(cfile, "r", encoding="utf-8", errors="replace") as f:
+                                    lines = [line for line in f if "@kotlin.Metadata" not in line][:40]
+                                code_snippets += f"\n\n### Datei: {rel_path}\n```java\n{''.join(lines)}\n```"
+                            except Exception:
+                                pass
+
+                        prompt_text = f"""Du bist ein Senior Android Reverse-Engineering-Experte.
+Der Benutzer sucht gezielt nach dem Keyword / Aspekt '{kw}' in der APK '{pkg_name}'.
+Hier sind gefundene Klassenfragmente:
+
+{code_snippets}
+
+Fasse in 3 prägnanten Punkten auf Deutsch zusammen:
+1. Relevanz des Begriffs '{kw}' im dekompilierten Code
+2. Identifizierte Funktionen / Datenstrukturen / Netzwerk- & Krypto-Bezüge
+3. Handlungsempfehlung / Modding-Potenzial für diesen Aspekt"""
+
+                        try:
+                            payload = {
+                                "model": DEFAULT_OLLAMA_MODEL,
+                                "prompt": prompt_text,
+                                "stream": False,
+                                "options": {"num_predict": 200, "temperature": 0.2}
+                            }
+                            ores = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, timeout=60)
+                            if ores.status_code == 200:
+                                findings_text = ores.json().get("response", "")
+                                if findings_text:
+                                    findings_path = SANDBOX_OUTPUT_DIR / out_folder / "llm_findings.md"
+                                    findings_content = f"""# LLM Analyse: {pkg_name} (Filter: {kw})
+
+- **Modell:** `{DEFAULT_OLLAMA_MODEL}`
+- **Suchbegriff:** `{kw}`
+- **Gefundene Treffer:** {len(matched_files)} Klassen
+- **Zeitpunkt:** {datetime.now(timezone.utc).isoformat()}
+
+---
+
+{findings_text}
+"""
+                                    findings_path.write_text(findings_content, encoding="utf-8")
+                                    tail += f"\n[DeepSeek Analyse für '{kw}' in llm_findings.md gespeichert]"
+                        except Exception as oe:
+                            tail += f"\n[Ollama Fehler: {str(oe)}]"
+                    else:
+                        tail += f"\n[Keyword '{kw}': Keine Klassen gefunden]"
+
             if res.returncode == 0:
                 job_manager.update_job(job_id, status="completed", exit_code=0, log_tail=tail)
             else:
@@ -582,14 +659,14 @@ def decompile_apk_in_sandbox(req: DecompileRequest, background_tasks: Background
 
     thread = threading.Thread(
         target=run_decompile_job,
-        args=(job["id"], req.apk_name, target_sub),
+        args=(job["id"], req.apk_name, target_sub, req.filter_keyword),
         daemon=True
     )
     thread.start()
 
     return {
         "status": "started",
-        "message": f"Dekompilierung für '{req.apk_name}' gestartet.",
+        "message": f"Dekompilierung für '{req.apk_name}' gestartet (Filter: '{req.filter_keyword or 'Standard'}').",
         "job": job
     }
 

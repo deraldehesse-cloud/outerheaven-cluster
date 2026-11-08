@@ -215,11 +215,12 @@ class MainViewModel(
         }
     }
 
-    fun decompileApk(apkName: String) {
+    fun decompileApk(apkName: String, filterKeyword: String? = null) {
         viewModelScope.launch {
             _decompileState.value = UiState.Loading
             try {
-                val res = api.decompileApk(DecompileRequest(apk_name = apkName))
+                val kw = if (filterKeyword.isNullOrBlank()) null else filterKeyword.trim()
+                val res = api.decompileApk(DecompileRequest(apk_name = apkName, filter_keyword = kw))
                 _decompileState.value = UiState.Success(res)
                 loadSandboxJobs()
             } catch (e: Exception) {

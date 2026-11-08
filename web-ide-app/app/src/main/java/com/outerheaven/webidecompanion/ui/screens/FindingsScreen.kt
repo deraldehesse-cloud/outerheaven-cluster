@@ -39,8 +39,8 @@ fun FindingsScreen(
         modifier = modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // Header
         Row(
@@ -111,45 +111,7 @@ fun FindingsScreen(
                     }
                 }
 
-                // Metadata Card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = DarkSurface)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Description,
-                                contentDescription = null,
-                                tint = AccentCyan,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = "${findings.packageName} • ${findings.filename}",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = TextPrimary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        Text(
-                            text = findings.modified_at.take(19).replace("T", " "),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = TextMuted
-                        )
-                    }
-                }
-
-                // Content Viewer
+                // Content Viewer (maximiert auf den gesamten restlichen Screen)
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()

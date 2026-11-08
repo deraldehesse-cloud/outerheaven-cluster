@@ -1,5 +1,6 @@
 package com.outerheaven.webidecompanion.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -40,6 +41,7 @@ fun SandboxScreen(
     val scrollState = rememberScrollState()
     val apkScrollState = rememberScrollState()
     var selectedApkToDecompile by remember { mutableStateOf<String?>(null) }
+    var filterKeyword by remember { mutableStateOf("") }
 
     Column(
         modifier = modifier
@@ -172,9 +174,7 @@ fun SandboxScreen(
                     enabled = !isRestarting,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentOrange),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(AccentOrange.copy(alpha = 0.6f))
-                    ),
+                    border = BorderStroke(1.dp, AccentOrange.copy(alpha = 0.6f)),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     if (isRestarting) {
@@ -228,6 +228,46 @@ fun SandboxScreen(
                     color = TextSecondary
                 )
 
+                // Gezielte Code-Suche / Element-Filter
+                OutlinedTextField(
+                    value = filterKeyword,
+                    onValueChange = { filterKeyword = it },
+                    label = { Text("Gezielte Code-Suche / Element-Filter") },
+                    placeholder = { Text("z.B. save, crypto, camera, vibe") },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = AccentGreen
+                        )
+                    },
+                    trailingIcon = {
+                        if (filterKeyword.isNotEmpty()) {
+                            IconButton(onClick = { filterKeyword = "" }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Filter leeren",
+                                    tint = TextSecondary
+                                )
+                            }
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AccentGreen,
+                        unfocusedBorderColor = DarkBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        cursorColor = AccentGreen,
+                        focusedLabelColor = AccentGreen,
+                        unfocusedLabelColor = TextSecondary,
+                        focusedPlaceholderColor = TextMuted,
+                        unfocusedPlaceholderColor = TextMuted
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
                 // Horizontale APK-Auswahl
                 when (val dz = dropzoneState) {
                     is UiState.Success -> {
@@ -274,7 +314,7 @@ fun SandboxScreen(
                 Button(
                     onClick = {
                         selectedApkToDecompile?.let { apk ->
-                            viewModel.decompileApk(apk)
+                            viewModel.decompileApk(apk, filterKeyword)
                         }
                     },
                     enabled = selectedApkToDecompile != null && !isDecompiling,
