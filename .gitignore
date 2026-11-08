@@ -4,11 +4,17 @@
 
 # Private Projekte, Notizen und Prompts
 projekte/
-projects/
+projects/*
+!projects/catlord/
+!projects/catlord/**
 prompts/
+!projects/catlord/prompts/
+!projects/catlord/prompts/**
 chat_logs/
 *.md
 !README.md
+!projects/catlord/**/*.md
+!projects/catlord/*.md
 !shared_brain/**/*.md
 !shared_brain/*.md
 !scripts/SKILL_*.md

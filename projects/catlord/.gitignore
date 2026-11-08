@@ -1,0 +1,55 @@
+# ==============================================================================
+# Catlord Project - Git Ignore Policy
+# ==============================================================================
+
+# Medien-Symlink zum Cluster-Storage ausschließen
+media
+media/
+
+# Schwere Video-, Audio- und Bildmedien
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.gif
+*.bmp
+*.tiff
+*.wav
+*.ogg
+*.mp3
+*.m4a
+*.flac
+
+# Dokumenten-, Design- und Archiv-Binaries
+*.pdf
+*.docx
+*.doc
+*.kra
+*.psd
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+*.apk
+*.aab
+
+# Model- und Checkpoint-Binaries
+*.safetensors
+*.ckpt
+*.pt
+*.bin
+*.onnx
+
+# Build- & Cache-Dateien
+output/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
