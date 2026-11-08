@@ -286,12 +286,14 @@ except ImportError:
 ACTIVE_WS_CLIENTS: set = set()
 MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
 
-async def broadcast_ws(payload: Dict[str, Any]) -> None:
-    """Send JSON payload to all connected WebSocket clients."""
+async def broadcast_ws(payload: Dict[str, Any], exclude: Optional[web.WebSocketResponse] = None) -> None:
+    """Send JSON payload to all connected WebSocket clients, optionally excluding one."""
     if not ACTIVE_WS_CLIENTS:
         return
     dead = set()
     for ws in list(ACTIVE_WS_CLIENTS):
+        if exclude is not None and ws is exclude:
+            continue
         try:
             if not ws.closed:
                 await ws.send_json(payload)
@@ -737,16 +739,21 @@ def detect_user_photo_intent(text: str) -> bool:
 
 LAST_RENDERED_PROMPT: Optional[str] = None
 
-def trigger_async_photo_render(prompt: str, workflow: str = "megan_erotic_chat", steps: Optional[int] = None, cfg: Optional[float] = None) -> asyncio.Task:
+def trigger_async_photo_render(prompt: str, workflow: str = "megan_erotic_chat", steps: Optional[int] = 18, cfg: Optional[float] = 5.5) -> asyncio.Task:
     """Startet einen autonomen ComfyUI Bild-Render asynchron im Hintergrund."""
     global LAST_RENDERED_PROMPT
     LAST_RENDERED_PROMPT = prompt
-    logger.info(f"[Auto-Render] Triggere ComfyUI Render mit Prompt: '{prompt[:60]}...' (Workflow: {workflow}, steps={steps}, cfg={cfg})")
-    params: Dict[str, Any] = {"prompt": prompt, "workflow": workflow}
-    if steps:
-        params["steps"] = int(steps)
-    if cfg:
-        params["cfg"] = float(cfg)
+    effective_steps = int(steps or 18)
+    effective_cfg = float(cfg or 5.5)
+    logger.info(f"[Auto-Render] Triggere ComfyUI Render mit Prompt: '{prompt[:60]}...' (Workflow: {workflow}, steps={effective_steps}, cfg={effective_cfg})")
+    params: Dict[str, Any] = {
+        "prompt": prompt,
+        "workflow": workflow,
+        "steps": effective_steps,
+        "cfg": effective_cfg,
+        "sampler_name": "euler_ancestral",
+        "scheduler": "karras"
+    }
     return asyncio.create_task(
         asyncio.to_thread(
             execute_autonomous_tool,
@@ -1623,7 +1630,9 @@ def clean_text_for_tts(text: str) -> str:
     text = re.sub(r'www\.\S+', '', text)
     text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
     text = re.sub(r'\[.*?\]', '', text)
-    text = re.sub(r'\*[^*]+\*', '', text)
+    # Strikte Bereinigung aller Sternchen- und Rollenspielblöcke auch über Zeilenumbrüche
+    text = re.sub(r'\*[^*]*\*', '', text, flags=re.DOTALL)
+    text = re.sub(r'_[^_]*_', '', text, flags=re.DOTALL)
     text = text.replace('*', '')
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     text = re.sub(r'<[^>]+>', '', text)
@@ -1637,6 +1646,9 @@ def clean_text_for_tts(text: str) -> str:
 async def generate_piper_tts(text: str) -> Optional[str]:
     cleaned = clean_text_for_tts(text)
     if not cleaned:
+        return None
+    # Nur sprechen, wenn echte Dialogworte (Buchstaben oder Zahlen) vorhanden sind
+    if not re.search(r'[a-zA-ZäöüÄÖÜß0-9]', cleaned):
         return None
 
     # Phoneme pronunciation table if available
@@ -1879,7 +1891,7 @@ async def handle_chat(request: web.Request) -> web.Response:
         return web.json_response({"error": "Message required"}, status=400)
 
     # 1. Save user message to central SQLite DB
-    user_msg_id = body.get("id") or f"user_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+    user_msg_id = body.get("client_id") or body.get("id") or f"user_{int(time.time()*1000)}_{secrets.token_hex(3)}"
     user_ts = int(time.time() * 1000)
     save_chat_message(
         msg_id=user_msg_id,
@@ -1894,45 +1906,20 @@ async def handle_chat(request: web.Request) -> web.Response:
     if intent_context:
         system_instruction += f"\n\n{intent_context}"
 
-    # Load recent context from central SQLite
+    # Load recent context from central SQLite and build clean message sequence
     recent_msgs = load_chat_messages(limit=10)
-    messages = [{"role": "system", "content": system_instruction}]
+    messages = [{"role": "system", "content": system_instruction + '\n\n[SPRACHREGEL]: Du denkst und antwortest ausnahmslos auf direktem, lebendigem Deutsch als Megan. Keinerlei englische Phrasen!'}]
 
-    # Hänge unmittelbar vor die letzte User-Message eine explizite System-Direktive an
-    last_user_idx = None
-    for idx, m in enumerate(recent_msgs):
-        if m.get("sender") == "USER":
-            last_user_idx = idx
-
-    for idx, m in enumerate(recent_msgs):
-        if idx == last_user_idx:
-            messages.append({
-                "role": "system",
-                "content": "[SPRACHREGEL: Antworte ausnahmslos auf Deutsch! Verwende kein einziges englisches Wort.]"
-            })
+    for m in recent_msgs:
+        if m.get("id") == user_msg_id:
+            continue
         r = "user" if m.get("sender") == "USER" else "assistant"
         c = str(m.get("text", "")).strip()
-        if c:
+        if c and not is_system_telemetry_message(c):
             messages.append({"role": r, "content": c})
 
-    if last_user_idx is None:
-        messages.append({
-            "role": "system",
-            "content": "[SPRACHREGEL: Antworte ausnahmslos auf Deutsch! Verwende kein einziges englisches Wort.]"
-        })
-        messages.append({"role": "user", "content": user_msg})
-
-    if intent_context:
-        messages.append({
-            "role": "system",
-            "content": "[AKTUELLE TASK-PFLICHT]: Antworte direkt auf Deutsch und bestätige dem Boss verbindlich und charmant die soeben angelegte Aufgabe (inkl. Titel, Aufgabentyp und Zuweisung an Hermes)!"
-        })
-
-    # Vor dem Absenden an Ollama MUSS am Ende des messages-Arrays ausnahmslos die System-Anweisung stehen
-    messages.append({
-        "role": "system",
-        "content": "[SPRACHREGEL: Antworte in jedem Fall ausnahmslos auf direktem, lebendigem Deutsch. Kein englisches Wort!]"
-    })
+    # The current user message MUST be the last message in the list
+    messages.append({"role": "user", "content": user_msg})
 
     payload = {
         "model": MEGAN_MODEL,
@@ -1959,11 +1946,11 @@ async def handle_chat(request: web.Request) -> web.Response:
                 # 2. Extract image prompt & strip [IMAGE_TRIGGER: ...] and [RETRY_SAFE_RENDER] from clean_text
                 extracted_prompt, has_retry_tag, clean_text = extract_megan_image_prompt(clean_text)
 
-                # Piper TTS Audio Generation
+                # Piper TTS Audio Generation (nur gesprochene Dialogworte)
                 audio_id = await generate_piper_tts(clean_text)
                 audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
 
-                # 2b. Black-Frame Auto-Recovery vs. Normal Photo Trigger
+                # 2b. Black-Frame Auto-Recovery vs. Normal Photo Trigger (VRAM Schutz: erst nach LLM-Ende)
                 user_reported_black_frame = detect_black_frame_feedback(user_msg)
                 is_recovery = has_retry_tag or user_reported_black_frame
                 if is_recovery:
@@ -1973,9 +1960,15 @@ async def handle_chat(request: web.Request) -> web.Response:
                     user_wants_photo = detect_user_photo_intent(user_msg)
                     megan_claims_photo = detect_megan_photo_claim(clean_text)
                     if extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
-                        render_prompt = extracted_prompt or (f"{user_msg}, {clean_text}" if (user_wants_photo and megan_claims_photo) else (clean_text if megan_claims_photo and not user_wants_photo else user_msg))
+                        render_prompt = extracted_prompt or (clean_text if megan_claims_photo else user_msg)
+                        broadcast_ws_sync({
+                            "type": "image_pending",
+                            "workflow": "megan_erotic_chat",
+                            "prompt": render_prompt,
+                            "timestamp": int(time.time() * 1000)
+                        })
                         logger.info(f"[Auto-Render] Photo-Trigger (POST): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
-                        trigger_async_photo_render(render_prompt, "megan_erotic_chat")
+                        trigger_async_photo_render(render_prompt, "megan_erotic_chat", steps=18, cfg=5.5)
 
                 # 3. Save Megan's response to central SQLite DB
                 megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
@@ -2037,7 +2030,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
                 logger.info(f"WebSocket verarbeitet Chat-Nachricht: '{user_text}'")
 
-                user_msg_id = f"user_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+                user_msg_id = data.get("client_id") or data.get("id") or f"user_{int(time.time()*1000)}_{secrets.token_hex(3)}"
                 user_ts = int(time.time() * 1000)
                 try:
                     save_chat_message(
@@ -2075,42 +2068,19 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 except Exception as me:
                     logger.warning(f"Konnte Chat-Historie nicht laden: {me}")
 
-                messages = [{"role": "system", "content": system_prompt + '\n\n[WICHTIGE SPRACHREGEL]:\nDu sprichst und antwortest AUSSCHLIESSLICH auf Deutsch! Verwende niemals Englisch, keine englischen Floskeln wie "Sure", "Certainly" oder "Okay". Antworte direkt, authentisch und auf Deutsch als Megan.'}]
-                # Hänge unmittelbar vor die letzte User-Message eine explizite System-Direktive an
-                last_user_idx = None
-                for idx, m in enumerate(recent_msgs):
-                    if m.get("sender") == "USER":
-                        last_user_idx = idx
+                # Strikter System-Prompt an Position 0, gefolgt von Dialogverlauf
+                messages = [{"role": "system", "content": system_prompt + '\n\n[SPRACHREGEL]: Du denkst und antwortest ausnahmslos auf direktem, lebendigem Deutsch als Megan. Keinerlei englische Phrasen!'}]
 
-                for idx, m in enumerate(recent_msgs):
-                    if idx == last_user_idx:
-                        messages.append({
-                            "role": "system",
-                            "content": "[SPRACHREGEL: Antworte ausnahmslos auf Deutsch! Verwende kein einziges englisches Wort.]"
-                        })
+                for m in recent_msgs:
+                    if m.get("id") == user_msg_id:
+                        continue
                     r = "user" if m.get("sender") == "USER" else "assistant"
                     c = str(m.get("text", "")).strip()
-                    if c:
+                    if c and not is_system_telemetry_message(c):
                         messages.append({"role": r, "content": c})
 
-                if last_user_idx is None:
-                    messages.append({
-                        "role": "system",
-                        "content": "[SPRACHREGEL: Antworte ausnahmslos auf Deutsch! Verwende kein einziges englisches Wort.]"
-                    })
-                    messages.append({"role": "user", "content": user_text})
-
-                if intent_context:
-                    messages.append({
-                        "role": "system",
-                        "content": "[AKTUELLE TASK-PFLICHT]: Antworte direkt auf Deutsch und bestätige dem Boss verbindlich und charmant die soeben angelegte Aufgabe (inkl. Titel, Aufgabentyp und Zuweisung an Hermes)!"
-                    })
-
-                # Vor dem Absenden an Ollama MUSS am Ende des messages-Arrays ausnahmslos die System-Anweisung stehen
-                messages.append({
-                    "role": "system",
-                    "content": "[SPRACHREGEL: Antworte in jedem Fall ausnahmslos auf direktem, lebendigem Deutsch. Kein englisches Wort!]"
-                })
+                # Die aktuelle User-Nachricht MUSS die letzte Nachricht im Array sein
+                messages.append({"role": "user", "content": user_text})
 
                 payload = {
                     "model": MEGAN_MODEL,
@@ -2305,20 +2275,6 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
 
                 audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
 
-                # 3b. Black-Frame Auto-Recovery vs. Normal Photo Trigger
-                user_reported_black_frame = detect_black_frame_feedback(user_text)
-                is_recovery = has_retry_tag or user_reported_black_frame
-                if is_recovery:
-                    logger.info(f"[Auto-Recovery] Black-Frame Recovery ausgelöst (WS - Feedback: {user_reported_black_frame}, Tag: {has_retry_tag})")
-                    trigger_safe_recovery_render(extracted_prompt)
-                else:
-                    user_wants_photo = detect_user_photo_intent(user_text)
-                    megan_claims_photo = detect_megan_photo_claim(clean_text)
-                    if extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
-                        render_prompt = extracted_prompt or (f"{user_text}, {clean_text}" if (user_wants_photo and megan_claims_photo) else (clean_text if megan_claims_photo and not user_wants_photo else user_text))
-                        logger.info(f"[Auto-Render] Photo-Trigger (WS): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
-                        trigger_async_photo_render(render_prompt, "megan_erotic_chat")
-
                 megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
                 megan_ts = int(time.time() * 1000)
                 try:
@@ -2346,7 +2302,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     }
                     await ws.send_json(audio_payload)
                     await ws.send_json(voice_payload)
-                    await broadcast_ws(voice_payload)
+                    await broadcast_ws(voice_payload, exclude=ws)
 
                 done_payload = {
                     "type": "done",
@@ -2356,8 +2312,30 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     "audio_url": audio_url
                 }
                 await ws.send_json(done_payload)
-                await broadcast_ws(done_payload)
+                await broadcast_ws(done_payload, exclude=ws)
                 await ws.send_json({"type": "idle"})
+
+                # 4. Photo Trigger (VRAM-Schutz: Chat-Stream & Token-Übertragung ist 100% abgeschlossen)
+                user_reported_black_frame = detect_black_frame_feedback(user_text)
+                is_recovery = has_retry_tag or user_reported_black_frame
+                if is_recovery:
+                    logger.info(f"[Auto-Recovery] Black-Frame Recovery ausgelöst (WS - Feedback: {user_reported_black_frame}, Tag: {has_retry_tag})")
+                    trigger_safe_recovery_render(extracted_prompt)
+                else:
+                    user_wants_photo = detect_user_photo_intent(user_text)
+                    megan_claims_photo = detect_megan_photo_claim(clean_text)
+                    if extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
+                        render_prompt = extracted_prompt or (clean_text if megan_claims_photo else user_text)
+                        logger.info(f"[Auto-Render] Photo-Trigger (WS): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
+                        pending_payload = {
+                            "type": "image_pending",
+                            "workflow": "megan_erotic_chat",
+                            "prompt": render_prompt,
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        await ws.send_json(pending_payload)
+                        await broadcast_ws(pending_payload, exclude=ws)
+                        trigger_async_photo_render(render_prompt, "megan_erotic_chat", steps=18, cfg=5.5)
     finally:
         ACTIVE_WS_CLIENTS.discard(ws)
         logger.info(f"WebSocket Chat Client getrennt (Aktive Clients: {len(ACTIVE_WS_CLIENTS)})")

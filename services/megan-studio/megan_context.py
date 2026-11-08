@@ -31,6 +31,11 @@ import sqlite3
 
 BASE_DIR = Path(__file__).resolve().parent
 WORKFLOWS_DIR = BASE_DIR / "workflows"
+DATA_DIR = BASE_DIR / "data"
+APPEARANCE_DIR = DATA_DIR / "appearance_presets"
+SEXCHAT_DIR = Path("/mnt/storage-beta/projekte/projekt-sexchat")
+BOT_CONFIG_FILE = SEXCHAT_DIR / "bot_config.json"
+CANONICAL_CHARACTER_FILE = SEXCHAT_DIR / "character.json"
 
 
 # Mandatory Stop Sequences & Ollama Options to prevent hallucination / roleplay drift
@@ -88,6 +93,12 @@ def sanitize_megan_response(text: str) -> str:
     text = re.sub(r'<think>[\s\S]*?</think>', '', text, flags=re.DOTALL)
     text = re.sub(r'<think>[\s\S]*$', '', text, flags=re.DOTALL)
     text = re.sub(r'</?think>', '', text, flags=re.IGNORECASE)
+
+    # 1b. Geleakte System-Prompts und Prompt-Direktiven restlos verwerfen
+    text = re.sub(r'^(?:(?:Antwortet bitte mit[^\n]*|Bestätige dem Boss[^\n]*|Vermeidet jegliche Floskeln[^\n]*|\[AKTUELLE TASK-PFLICHT[^\n]*|\[SPRACHREGEL[^\n]*)[!\.\?🌸💕]*\s*)+', '', text, flags=re.IGNORECASE).strip()
+    text = re.sub(r'(?:Nun zu deinem Auftrag:\s*)?["\']?🔥?Hermes ist damit beschäftigt[^\n]*Catering[^\n]*\n*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'Der Auftrag wurde erfolgreich als [^\n]*Terminkalender[^\n]*\n*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b(?:Catering-Team|Konferenz-Catering|Catering-Veranstaltung)\b[^\n]*\n*', '', text, flags=re.IGNORECASE)
 
     # 2. Englische Einleitungs-Tokens und Phrasen restlos abfangen
     text = re.sub(
@@ -848,11 +859,122 @@ def find_script_path(script_name: str) -> Optional[Path]:
     return None
 
 
-MEGAN_BASE_PROMPT = (
-    "1girl, megan, solo, cute mischievous seductive expression, emerald green eyes, "
-    "fiery orange hair, soft natural skin texture, masterpiece, photorealistic, raw photo, "
-    "soft intimate studio lighting, rim lighting, 8k uhd, sensual alluring pose"
-)
+def get_active_appearance_config() -> Dict[str, Any]:
+    """
+    Loads active appearance configuration from:
+    1. DATA_DIR / appearance_presets / megan_active_appearance.json
+    2. BOT_CONFIG_FILE (appearance)
+    3. CANONICAL_CHARACTER_FILE (active_appearance_preset)
+    """
+    config = {
+        "hair_color": "copper orange hair",
+        "hair_style": "twintails",
+        "outfit": "casual, tight black cropped tank top, denim shorts"
+    }
+
+    # 1. Check megan_active_appearance.json
+    active_file = APPEARANCE_DIR / "megan_active_appearance.json"
+    if active_file.is_file():
+        try:
+            data = json.loads(active_file.read_text(encoding="utf-8"))
+            if data.get("hair_color"):
+                config["hair_color"] = data["hair_color"]
+            if data.get("hair_style"):
+                config["hair_style"] = data["hair_style"]
+            if data.get("outfit"):
+                config["outfit"] = data["outfit"]
+        except Exception as e:
+            logger.warning(f"Fehler beim Lesen von megan_active_appearance.json: {e}")
+
+    # 2. Check bot_config.json
+    if BOT_CONFIG_FILE.is_file():
+        try:
+            bdata = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
+            app = bdata.get("appearance", {})
+            if isinstance(app, dict):
+                if app.get("hair_color"):
+                    config["hair_color"] = app["hair_color"]
+                if app.get("hair_style"):
+                    config["hair_style"] = app["hair_style"]
+                if app.get("outfit"):
+                    config["outfit"] = app["outfit"]
+        except Exception as e:
+            logger.warning(f"Fehler beim Lesen von bot_config.json: {e}")
+
+    return config
+
+def sanitize_comfy_user_prompt(prompt: str) -> str:
+    """
+    Strips raw German conversational sentences, command phrases, and chat filler
+    from user prompt (e.g. 'erstelle mir ein Bild von dir!', 'zeig mir mal ein foto', etc.)
+    retaining only valid descriptive / Danbooru tags.
+    """
+    if not prompt:
+        return ""
+    p = prompt.strip()
+    german_command_patterns = [
+        r'\b(?:erstelle|erstell|generiere|generier|zeichne|zeichn|rendere|render|male|mach|schick|sende|zeig)\s+(?:mir\s+|uns\s+)?(?:mal\s+|kurz\s+|bitte\s+)?(?:ein\s+|einen\s+|mal\s+ein\s+|das\s+|dein\s+|ein\s+neues\s+)?(?:foto|bild|selfie|schnappschuss|pic|zeichnung|portrait)(?:\s+von\s+(?:dir|euch))?[!\.\?]*',
+        r'\b(?:kannst\s+du\s+(?:mir\s+)?|hast\s+du\s+(?:mal\s+)?|schickst\s+du\s+(?:mir\s+)?)?(?:ein\s+)?(?:foto|bild|selfie)\s+(?:von\s+dir\s+)?(?:schicken|senden|machen|zeigen)[!\.\?]*',
+        r'\b(?:ich\s+möchte|ich\s+will|hätte\s+gerne)\s+(?:ein\s+|mal\s+ein\s+)?(?:bild|foto|selfie)[!\.\?]*',
+        r'\b(?:von\s+dir|vom\s+dir|von\s+megan|von\s+euch)\b',
+        r'\b(?:bitte|danke|hallo|hi|hey|süße|süßer|liebling|boss)\b'
+    ]
+    for pat in german_command_patterns:
+        p = re.sub(pat, '', p, flags=re.IGNORECASE)
+
+    p = re.sub(r'^[,\.\:\-\s]+', '', p).strip()
+    p = re.sub(r'[,\.\:\-\s]+$', '', p).strip()
+
+    # If the remaining string is full German conversational sentence words, filter out non-tags
+    if re.search(r'\b(ich|du|wir|ihr|sie|es|ein|eine|einen|einer|einem|eines|von|nach|zu|bei|mit|für|über|unter|vor|hinter)\b', p, re.IGNORECASE):
+        tags = [t.strip() for t in p.split(',') if t.strip()]
+        valid_tags = [t for t in tags if not re.search(r'\b(ich|du|er|sie|es|ein|eine|von|dir|mir|bitte|mach|zeig)\b', t, re.IGNORECASE)]
+        p = ", ".join(valid_tags)
+
+    return p.strip(', ')
+
+def build_megan_comfy_positive_prompt(raw_prompt: Optional[str] = None) -> str:
+    app_cfg = get_active_appearance_config()
+    hair_color = app_cfg.get("hair_color") or "orange hair"
+    hair_style = app_cfg.get("hair_style") or "twintails"
+    outfit = app_cfg.get("outfit") or "casual, tight black cropped tank top, denim shorts"
+
+    hair_color_map = {
+        "copper_orange": "copper orange hair, fiery orange hair",
+        "platinum_blonde": "platinum blonde hair",
+        "raven_black": "raven black hair, dark hair"
+    }
+    hair_color_tag = hair_color_map.get(hair_color, hair_color)
+
+    hair_style_map = {
+        "twintails": "twintails",
+        "long_loose": "long loose hair",
+        "messy_bun": "messy bun, hair bun"
+    }
+    hair_style_tag = hair_style_map.get(hair_style, hair_style)
+
+    outfit_map = {
+        "casual": "casual, tight black cropped tank top, denim shorts",
+        "lingerie": "sexy black lace lingerie set, sheer bralette, lace panties",
+        "tactical": "tactical crop top, tactical harness, cargo pants",
+        "cyberpunk": "cyberpunk glowing jacket, neon accents, futuristic crop top"
+    }
+    outfit_tag = outfit_map.get(outfit, outfit)
+
+    base = (
+        f"1girl, megan, solo, cute mischievous seductive expression, emerald green eyes, "
+        f"{hair_color_tag}, {hair_style_tag}, {outfit_tag}, "
+        f"subtle silver belly button piercing, delicate small geometric tattoo on ribcage, "
+        f"soft natural skin texture, masterpiece, photorealistic, raw photo, "
+        f"soft intimate studio lighting, rim lighting, 8k uhd, sensual alluring pose"
+    )
+
+    clean_user = sanitize_comfy_user_prompt(raw_prompt or "")
+    if clean_user and clean_user.lower() not in ["megan_erotic_chat", "megan", "1girl"]:
+        return f"{base}, {clean_user}"
+    return base
+
+MEGAN_BASE_PROMPT = build_megan_comfy_positive_prompt()
 
 CATLORD_BASE_PROMPT = (
     "catlord comic style, graphic novel illustration, ink contours, vibrant saturated colors, "
@@ -995,15 +1117,18 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
                 g.set_positive_prompt(pos_txt)
                 g.set_negative_prompt(CATLORD_NEGATIVE_PROMPT)
             else:
-                pos_txt = f"{MEGAN_BASE_PROMPT}, {raw_prompt}" if (raw_prompt and raw_prompt != MEGAN_BASE_PROMPT) else MEGAN_BASE_PROMPT
+                pos_txt = build_megan_comfy_positive_prompt(raw_prompt)
                 g.set_positive_prompt(pos_txt)
 
-            s_name = params.get("sampler_name") or params.get("sampler")
+            s_name = params.get("sampler_name") or params.get("sampler") or "euler_ancestral"
+            sched = params.get("scheduler") or "karras"
+            steps_v = int(params.get("steps") or 18)
+            cfg_v = float(params.get("cfg") or 5.5)
             g.set_sampler_params(
-                steps=params.get("steps"),
-                cfg=params.get("cfg"),
+                steps=steps_v,
+                cfg=cfg_v,
                 sampler_name=s_name,
-                scheduler=params.get("scheduler"),
+                scheduler=sched,
                 denoise=params.get("denoise"),
                 seed=seed
             )
@@ -1026,20 +1151,20 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
 
     # 3. Option: Standard-Workflow-Datei
     elif wf_name == "megan_erotic_chat":
-        base_prompt = MEGAN_BASE_PROMPT
-        if raw_prompt and raw_prompt != base_prompt:
-            positive = f"{base_prompt}, {raw_prompt}"
-        else:
-            positive = base_prompt
+        positive = build_megan_comfy_positive_prompt(raw_prompt)
 
         if "3" in wf_data and "inputs" in wf_data["3"]:
             wf_data["3"]["inputs"]["text"] = positive
         if "5" in wf_data and "inputs" in wf_data["5"]:
             wf_data["5"]["inputs"]["seed"] = seed
-            if "steps" in params and params["steps"]:
-                wf_data["5"]["inputs"]["steps"] = int(params["steps"])
-            if "cfg" in params and params["cfg"]:
-                wf_data["5"]["inputs"]["cfg"] = float(params["cfg"])
+            steps_v = int(params.get("steps") or 18)
+            cfg_v = float(params.get("cfg") or 5.5)
+            wf_data["5"]["inputs"]["steps"] = steps_v
+            wf_data["5"]["inputs"]["cfg"] = cfg_v
+            if "sampler_name" in wf_data["5"]["inputs"]:
+                wf_data["5"]["inputs"]["sampler_name"] = str(params.get("sampler_name") or "euler_ancestral")
+            if "scheduler" in wf_data["5"]["inputs"]:
+                wf_data["5"]["inputs"]["scheduler"] = str(params.get("scheduler") or "karras")
         if "8" in wf_data and "inputs" in wf_data["8"] and params.get("lora"):
             wf_data["8"]["inputs"]["lora_name"] = str(params["lora"])
 
