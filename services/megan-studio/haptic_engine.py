@@ -34,25 +34,199 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Generator, AsyncGenerator
 
-from bleak import BleakScanner, BleakClient
-from bleak.backends.device import BLEDevice
-from bleak.backends.scanner import AdvertisementData
-from bleak.backends.characteristic import BleakGATTCharacteristic
-from bleak.exc import BleakError, BleakBluetoothNotAvailableError
+# Versuche bleak / dbus_fast zu importieren mit virtuellem Umgebungs-Fallback
+try:
+    from bleak import BleakScanner, BleakClient
+    from bleak.backends.device import BLEDevice
+    from bleak.backends.scanner import AdvertisementData
+    from bleak.backends.characteristic import BleakGATTCharacteristic
+    from bleak.exc import BleakError, BleakBluetoothNotAvailableError
+except ImportError:
+    venv_candidates = [
+        "/home/bigboss/antigravity-env/lib/python3.14/site-packages",
+        "/home/bigboss/antigravity-env/lib/python3.12/site-packages",
+        "/home/outerheaven/.hermes/.venv/lib/python3.12/site-packages",
+    ]
+    for p in venv_candidates:
+        if os.path.exists(p) and p not in sys.path:
+            sys.path.insert(0, p)
+    try:
+        from bleak import BleakScanner, BleakClient
+        from bleak.backends.device import BLEDevice
+        from bleak.backends.scanner import AdvertisementData
+        from bleak.backends.characteristic import BleakGATTCharacteristic
+        from bleak.exc import BleakError, BleakBluetoothNotAvailableError
+    except ImportError:
+        pass
 
 logger = logging.getLogger("megan-studio.haptics")
 
+def _resolve_journal_path() -> Path:
+    target = Path("/home/outerheaven/outerheaven-cluster-repo/docs/megan_haptic_journal.md")
+    try:
+        if target.parent.exists() or Path("/home/outerheaven").exists():
+            return target
+    except Exception:
+        pass
+    repo_docs = Path(__file__).resolve().parent.parent.parent / "docs"
+    if repo_docs.exists():
+        return repo_docs / "megan_haptic_journal.md"
+    return target
+
 # Default-Pfade & Parameter
-JOURNAL_PATH = Path("/home/outerheaven/outerheaven-cluster-repo/docs/megan_haptic_journal.md")
+JOURNAL_PATH = _resolve_journal_path()
 LOVENSE_NAME_PREFIX = "LVS-"
 LOVENSE_UUID_SUFFIX = "4c5653"  # Hex für 'LVS'
 LOVENSE_TX_CHAR_SUFFIX = "0002-0000-5000-8000-00805f9b34fb"
 TARGET_DEVICE_MAC = "28:68:47:24:C0:94"
 TARGET_DEVICE_NAME = "Dynamo"
-MIN_THROTTLE_INTERVAL = 0.20  # VibeMate Standard: 200 ms (5 FPS) Frame-Sampling-Takt
-DEFAULT_WATCHDOG_TIMEOUT = 5.0  # 5s Not-Stopp
+
+# ------------------------------------------------------------------------------
+# Timing- & Pacing-Parameter (VibeMate RE 200 ms / 5 FPS & 80 ms BLE Throttler)
+# ------------------------------------------------------------------------------
+MIN_FRAME_INTERVAL = 0.20       # VibeMate Standard: 200 ms (5 FPS) Frame-Sampling-Takt
+BLE_COMMAND_THROTTLE = 0.08     # Hardware-sicheres BLE-Schreibminimum: 80 ms
+MIN_THROTTLE_INTERVAL = BLE_COMMAND_THROTTLE  # Abwärtskompatibilität
+DEFAULT_WATCHDOG_TIMEOUT = 5.0  # 5s Not-Stopp bei Heartbeat-Verlust
+FRAME_UNDERRUN_TIMEOUT = 1.0    # 1.0s Pufferunterlauf Fail-Safe Schwelle
+
+
+# ==============================================================================
+# Native Pattern-Presets (RE Innocent Witches & VibeMate)
+# ==============================================================================
+
+HAPTIC_PATTERNS: Dict[str, Dict[str, Any]] = {
+    "low": {
+        "name": "low",
+        "description": "Sanftes Atmen (Level 2-6, 800ms Zyklus, 10-30% Intensität)",
+        "min_level": 2,
+        "max_level": 6,
+        "step_duration": 0.10,  # 8 Schritte à 100ms = 800ms Zyklus
+        "levels": [2, 3, 4, 5, 6, 5, 4, 3],
+        "cycle_duration": 0.80
+    },
+    "med": {
+        "name": "med",
+        "description": "Mittlere Oszillation (Level 8-12, 400ms Zyklus, 40-60% Intensität)",
+        "min_level": 8,
+        "max_level": 12,
+        "step_duration": 0.10,  # 4 Schritte à 100ms = 400ms Zyklus
+        "levels": [8, 10, 12, 10],
+        "cycle_duration": 0.40
+    },
+    "high": {
+        "name": "high",
+        "description": "Schneller Takt (Level 14-18, 200ms Takt, 70-90% Intensität)",
+        "min_level": 14,
+        "max_level": 18,
+        "step_duration": 0.10,  # 2 Schritte à 100ms = 200ms Takt
+        "levels": [14, 18],
+        "cycle_duration": 0.20
+    },
+    "crescendo": {
+        "name": "crescendo",
+        "description": "Lineare Steigerung (Level 2 bis 18 im Sekundentakt)",
+        "start_level": 2,
+        "end_level": 18,
+        "duration_sec": 1.0,
+        "step_duration": MIN_FRAME_INTERVAL
+    },
+    "decrescendo": {
+        "name": "decrescendo",
+        "description": "Kontrolliertes Abklingen (Level 18 bis 0 im Sekundentakt)",
+        "start_level": 18,
+        "end_level": 0,
+        "duration_sec": 1.0,
+        "step_duration": MIN_FRAME_INTERVAL
+    }
+}
+
+
+def generate_triangle_wave(
+    min_level: int,
+    max_level: int,
+    step_duration: float = MIN_FRAME_INTERVAL,
+    duration_sec: Optional[float] = None
+) -> Generator[Tuple[int, float], None, None]:
+    """
+    Synchroner Generator für oszillierende Dreieckswellen.
+    Erzeugt (level, step_duration) Paare basierend auf min_level und max_level.
+    """
+    min_lvl = max(0, min(20, int(min_level)))
+    max_lvl = max(0, min(20, int(max_level)))
+    if min_lvl > max_lvl:
+        min_lvl, max_lvl = max_lvl, min_lvl
+
+    step_dur = max(BLE_COMMAND_THROTTLE, float(step_duration))
+
+    if min_lvl == max_lvl:
+        cycle = [min_lvl]
+    else:
+        up = list(range(min_lvl, max_lvl + 1))
+        down = list(range(max_lvl - 1, min_lvl, -1))
+        cycle = up + down
+
+    elapsed = 0.0
+    idx = 0
+    while duration_sec is None or elapsed < duration_sec:
+        lvl = cycle[idx % len(cycle)]
+        yield lvl, step_dur
+        elapsed += step_dur
+        idx += 1
+
+
+async def triangle_wave(
+    min_level: int,
+    max_level: int,
+    step_duration: float = MIN_FRAME_INTERVAL,
+    duration_sec: Optional[float] = None
+) -> AsyncGenerator[int, None]:
+    """
+    Asynchroner Generator für oszillierende Dreieckswellen.
+    Liefert den aktuellen Level und wartet step_duration (min 80ms Throttler).
+    """
+    for lvl, step_dur in generate_triangle_wave(min_level, max_level, step_duration, duration_sec):
+        yield lvl
+        await asyncio.sleep(step_dur)
+
+
+def generate_ramp(
+    start_level: int,
+    end_level: int,
+    duration_sec: float = 1.0,
+    step_duration: float = MIN_FRAME_INTERVAL
+) -> Generator[Tuple[int, float], None, None]:
+    """
+    Synchroner Generator für lineare Rampen-Interpolation (Crescendo / Decrescendo).
+    Erzeugt (level, step_duration) Paare.
+    """
+    start_lvl = max(0, min(20, int(start_level)))
+    end_lvl = max(0, min(20, int(end_level)))
+    dur = max(0.1, float(duration_sec))
+    step_dur = max(BLE_COMMAND_THROTTLE, float(step_duration))
+    steps = max(1, int(round(dur / step_dur)))
+
+    for i in range(steps + 1):
+        fraction = i / steps
+        current_lvl = int(round(start_lvl + (end_lvl - start_lvl) * fraction))
+        yield current_lvl, step_dur
+
+
+async def ramp(
+    start_level: int,
+    end_level: int,
+    duration_sec: float = 1.0,
+    step_duration: float = MIN_FRAME_INTERVAL
+) -> AsyncGenerator[int, None]:
+    """
+    Asynchroner Generator für lineare Rampen-Interpolation.
+    Liefert den aktuellen Level und wartet step_duration.
+    """
+    for lvl, step_dur in generate_ramp(start_level, end_level, duration_sec, step_duration):
+        yield lvl
+        await asyncio.sleep(step_dur)
 
 
 # ==============================================================================
@@ -87,6 +261,21 @@ class HapticControllerBase(ABC):
         """Liefert aktuellen Hardware- und Verbindungsstatus."""
         pass
 
+    @abstractmethod
+    async def play_pattern(self, name: str, duration_sec: Optional[float] = None, context: str = "Pattern") -> Dict[str, Any]:
+        """Spielt ein vordefiniertes Haptik-Pattern ab."""
+        pass
+
+    @abstractmethod
+    async def play_triangle(self, min_level: int, max_level: int, step_duration: float = MIN_FRAME_INTERVAL, duration_sec: Optional[float] = None, context: str = "Triangle Wave") -> bool:
+        """Spielt eine Dreieckswelle ab."""
+        pass
+
+    @abstractmethod
+    async def play_ramp(self, start_level: int, end_level: int, duration_sec: float = 1.0, step_duration: float = MIN_FRAME_INTERVAL, context: str = "Ramp") -> bool:
+        """Spielt eine lineare Rampe ab."""
+        pass
+
 
 # ==============================================================================
 # 2. Lovense Native BLE / GATT Controller
@@ -104,7 +293,7 @@ class LovenseBLEController(HapticControllerBase):
         target_uuid_suffix: str = LOVENSE_UUID_SUFFIX,
         tx_char_suffix: str = LOVENSE_TX_CHAR_SUFFIX,
         target_mac: Optional[str] = TARGET_DEVICE_MAC,
-        min_interval_sec: float = MIN_THROTTLE_INTERVAL,
+        min_interval_sec: float = BLE_COMMAND_THROTTLE,
         watchdog_timeout: float = DEFAULT_WATCHDOG_TIMEOUT,
         journal_manager: Optional["HapticJournalManager"] = None
     ):
@@ -608,6 +797,110 @@ class LovenseBLEController(HapticControllerBase):
         }
 
     # --------------------------------------------------------------------------
+    # Native Pattern Presets & Wellenformen
+    # --------------------------------------------------------------------------
+
+    async def play_pattern(
+        self,
+        name: str,
+        duration_sec: Optional[float] = None,
+        context: str = "Play Pattern"
+    ) -> Dict[str, Any]:
+        """Spielt ein vordefiniertes Haptik-Pattern (low, med, high, crescendo, decrescendo) ab."""
+        pattern_key = name.lower().strip()
+        if pattern_key not in HAPTIC_PATTERNS:
+            logger.warning(f"Unbekanntes Haptik-Pattern '{name}'. Verfügbar: {list(HAPTIC_PATTERNS.keys())}")
+            return {"success": False, "error": f"Unknown pattern '{name}'"}
+
+        cfg = HAPTIC_PATTERNS[pattern_key]
+        dur = duration_sec or cfg.get("duration_sec", 3.0)
+        logger.info(f"[Lovense BLE] Starte Pattern '{pattern_key}' ({cfg['description']}) für {dur}s...")
+
+        try:
+            if "start_level" in cfg and "end_level" in cfg:
+                await self.play_ramp(
+                    start_level=cfg["start_level"],
+                    end_level=cfg["end_level"],
+                    duration_sec=dur,
+                    step_duration=cfg.get("step_duration", MIN_FRAME_INTERVAL),
+                    context=f"{context}:{pattern_key}"
+                )
+            else:
+                levels = cfg.get("levels")
+                step_dur = cfg.get("step_duration", MIN_FRAME_INTERVAL)
+                if levels:
+                    start_t = time.monotonic()
+                    idx = 0
+                    while time.monotonic() - start_t < dur:
+                        lvl = levels[idx % len(levels)]
+                        await self.vibrate(lvl, time_sec=step_dur, context=f"{context}:{pattern_key}")
+                        await asyncio.sleep(step_dur)
+                        idx += 1
+                else:
+                    await self.play_triangle(
+                        min_level=cfg["min_level"],
+                        max_level=cfg["max_level"],
+                        step_duration=step_dur,
+                        duration_sec=dur,
+                        context=f"{context}:{pattern_key}"
+                    )
+            await self.stop(context=f"{context}:{pattern_key}:Finished")
+            return {"success": True, "pattern": pattern_key, "duration": dur}
+        except asyncio.CancelledError:
+            await self.stop(context=f"{context}:{pattern_key}:Cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"[Lovense BLE] Fehler beim Abspielen von Pattern '{pattern_key}': {e}")
+            await self.stop(context=f"{context}:{pattern_key}:Error")
+            return {"success": False, "error": str(e)}
+
+    async def play_triangle(
+        self,
+        min_level: int,
+        max_level: int,
+        step_duration: float = MIN_FRAME_INTERVAL,
+        duration_sec: Optional[float] = None,
+        context: str = "Triangle Wave"
+    ) -> bool:
+        """Spielt eine Dreieckswelle direkt auf dem Controller ab."""
+        dur = duration_sec or 3.0
+        try:
+            async for lvl in triangle_wave(min_level, max_level, step_duration, duration_sec=dur):
+                await self.vibrate(lvl, time_sec=step_duration, context=context)
+            await self.stop(context=f"{context}:Finished")
+            return True
+        except asyncio.CancelledError:
+            await self.stop(context=f"{context}:Cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"[Lovense BLE] Fehler bei play_triangle: {e}")
+            await self.stop(context=f"{context}:Error")
+            return False
+
+    async def play_ramp(
+        self,
+        start_level: int,
+        end_level: int,
+        duration_sec: float = 1.0,
+        step_duration: float = MIN_FRAME_INTERVAL,
+        context: str = "Ramp"
+    ) -> bool:
+        """Spielt eine lineare Rampe (Crescendo / Decrescendo) direkt auf dem Controller ab."""
+        try:
+            async for lvl in ramp(start_level, end_level, duration_sec=duration_sec, step_duration=step_duration):
+                await self.vibrate(lvl, time_sec=step_duration, context=context)
+            if end_level == 0:
+                await self.stop(context=f"{context}:Finished")
+            return True
+        except asyncio.CancelledError:
+            await self.stop(context=f"{context}:Cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"[Lovense BLE] Fehler bei play_ramp: {e}")
+            await self.stop(context=f"{context}:Error")
+            return False
+
+    # --------------------------------------------------------------------------
     # Sicherheits-Watchdog & Status
     # --------------------------------------------------------------------------
 
@@ -729,6 +1022,18 @@ class ButtplugHapticController(HapticControllerBase):
     def heartbeat(self) -> None:
         self.last_heartbeat = time.time()
 
+    async def play_pattern(self, name: str, duration_sec: Optional[float] = None, context: str = "Pattern") -> Dict[str, Any]:
+        self.heartbeat()
+        return {"success": False, "note": "Buttplug.io Controller ist für spätere Erweiterung vorbereitet."}
+
+    async def play_triangle(self, min_level: int, max_level: int, step_duration: float = MIN_FRAME_INTERVAL, duration_sec: Optional[float] = None, context: str = "Triangle Wave") -> bool:
+        self.heartbeat()
+        return False
+
+    async def play_ramp(self, start_level: int, end_level: int, duration_sec: float = 1.0, step_duration: float = MIN_FRAME_INTERVAL, context: str = "Ramp") -> bool:
+        self.heartbeat()
+        return False
+
     def get_status(self) -> Dict[str, Any]:
         return {
             "backend": "ButtplugHapticController",
@@ -760,11 +1065,12 @@ class HapticJournalManager:
 
     def _ensure_journal_structure(self) -> None:
         """Stellt sicher, dass das Journal existiert und die Grundstruktur besitzt."""
-        if not self.journal_file.parent.exists():
-            self.journal_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if not self.journal_file.parent.exists():
+                self.journal_file.parent.mkdir(parents=True, exist_ok=True)
 
-        if not self.journal_file.exists() or self.journal_file.stat().st_size == 0:
-            initial_content = """# 📖 Megan Studio – Adaptives Haptik-Tagebuch & Hardware-Journal
+            if not self.journal_file.exists() or self.journal_file.stat().st_size == 0:
+                initial_content = """# 📖 Megan Studio – Adaptives Haptik-Tagebuch & Hardware-Journal
 Stand: 2026-10-19 | Host: Outer Heaven (100.116.38.29) | Operator: Sebastian
 
 Dieses Journal erfasst vollautomatisch alle haptischen Test-Aktionen, Latenzen, Sicherheitsereignisse sowie Sebastians Feedback. Es dient als kontinuierlicher Lern- und Referenzspeicher für Megan, um adaptive Reaktionsmuster und Haptik-Kurven zu perfektionieren.
@@ -800,9 +1106,11 @@ Dieses Journal erfasst vollautomatisch alle haptischen Test-Aktionen, Latenzen, 
 | Zeitstempel | Aktion-ID | Kontext | Parameter | Latenz | Hardware-Status | Sebastians Feedback |
 |-------------|-----------|---------|-----------|--------|-----------------|---------------------|
 """
-            with open(self.journal_file, "w", encoding="utf-8") as f:
-                f.write(initial_content)
-            logger.info(f"Haptik-Journal initialisiert unter {self.journal_file}")
+                with open(self.journal_file, "w", encoding="utf-8") as f:
+                    f.write(initial_content)
+                logger.info(f"Haptik-Journal initialisiert unter {self.journal_file}")
+        except Exception as e:
+            logger.debug(f"[HapticJournalManager] Journal-Initialisierung übersprungen oder nicht schreibbar: {e}")
 
     async def log_action(
         self,
@@ -883,19 +1191,21 @@ Dieses Journal erfasst vollautomatisch alle haptischen Test-Aktionen, Latenzen, 
 class FrameHapticBuffer:
     """
     VibeMate- und Innocent-Witches-kompatibler Frame-Haptik-Puffer.
-    Sampling-Takt: 200 ms (5 FPS Standard).
+    Sampling-Takt: 200 ms (5 FPS Standard, MIN_FRAME_INTERVAL = 0.2).
 
     Fail-Safe-Spezifikation:
-    - Bei leerem Frame-Puffer während aktiver Wiedergabe (Buffer Underrun):
+    - Bei Pufferunterlauf (Frame-Underrun > 1.0s):
       Sofortiges Absetzen von Stop; (Level 0) an alle verbundenen Lovense-Geräte.
-    - Bei Verbindungsabbruch zum Client:
+    - Bei Verbindungsabbruch des Clients:
       Puffer wird unmittelbar entleert und Stop; (Level 0) erzwungen.
+    - Bei Exceptions im Buffer-Worker:
+      Sofortiger Not-Aus (Stop;) und Streaming-Abbruch.
     """
 
     def __init__(
         self,
         controller: HapticControllerBase,
-        sample_interval: float = MIN_THROTTLE_INTERVAL
+        sample_interval: float = MIN_FRAME_INTERVAL
     ):
         self.controller = controller
         self.sample_interval = sample_interval
@@ -911,23 +1221,50 @@ class FrameHapticBuffer:
             if not self._is_streaming:
                 self.start_streaming()
 
+    async def push_pattern(self, name: str, duration_sec: Optional[float] = None) -> bool:
+        """Schiebt Frames eines vordefinierten Patterns in den Puffer."""
+        cfg = HAPTIC_PATTERNS.get(name.lower().strip())
+        if not cfg:
+            logger.warning(f"[FrameHapticBuffer] Unbekanntes Pattern '{name}'")
+            return False
+        dur = duration_sec or cfg.get("duration_sec", 3.0)
+        if "start_level" in cfg and "end_level" in cfg:
+            for lvl, _ in generate_ramp(cfg["start_level"], cfg["end_level"], duration_sec=dur, step_duration=self.sample_interval):
+                await self.push_frame(strength=lvl, context=f"pattern:{name}")
+        else:
+            levels = cfg.get("levels")
+            if levels:
+                steps = max(1, int(round(dur / self.sample_interval)))
+                for i in range(steps):
+                    lvl = levels[i % len(levels)]
+                    await self.push_frame(strength=lvl, context=f"pattern:{name}")
+            else:
+                for lvl, _ in generate_triangle_wave(cfg["min_level"], cfg["max_level"], step_duration=self.sample_interval, duration_sec=dur):
+                    await self.push_frame(strength=lvl, context=f"pattern:{name}")
+        return True
+
     def start_streaming(self) -> None:
         if not self._worker_task or self._worker_task.done():
             self._is_streaming = True
             self._worker_task = asyncio.create_task(self._process_buffer())
 
     async def _process_buffer(self) -> None:
-        logger.info(f"[FrameHapticBuffer] Starte VibeMate 200ms Frame-Sampling (5 FPS)...")
+        logger.info(f"[FrameHapticBuffer] Starte VibeMate 200ms Frame-Sampling (5 FPS, Takt: {int(self.sample_interval*1000)}ms)...")
         try:
             while self._is_streaming:
-                if self._queue.empty():
-                    # FAIL-SAFE: Puffer leer -> Sofortiger Not-Aus Stop;
-                    logger.warning("[FrameHapticBuffer] Frame-Puffer ist leer -> FAILSAFE: Not-Aus (Stop;)")
-                    await self.controller.stop(context="FAILSAFE_EMPTY_BUFFER")
+                try:
+                    # Warte auf den nächsten Frame (bis zu 1.0s Pufferunterlauf-Toleranz)
+                    frame = await asyncio.wait_for(self._queue.get(), timeout=FRAME_UNDERRUN_TIMEOUT)
+                except asyncio.TimeoutError:
+                    # FAIL-SAFE: Pufferunterlauf > 1.0s -> Sofortiges Not-Aus (Stop;)
+                    logger.warning(
+                        f"🚨 [FrameHapticBuffer] Frame-Underrun (> {FRAME_UNDERRUN_TIMEOUT}s Pufferunterlauf) "
+                        f"-> FAILSAFE: Not-Aus (Stop;)!"
+                    )
+                    await self.controller.stop(context="FAILSAFE_BUFFER_UNDERRUN")
                     self._is_streaming = False
                     break
 
-                frame = await self._queue.get()
                 strength = frame.get("strength", 0)
                 air = frame.get("air", 0)
                 ctx = frame.get("context", "frame")

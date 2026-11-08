@@ -1542,21 +1542,48 @@ async def handle_danbooru_tags(request: web.Request) -> web.Response:
 # Handlers: Lovense LAN Bridge & Haptic
 # ------------------------------------------------------------------------------
 async def handle_lovense_status(request: web.Request) -> web.Response:
-    return web.json_response({
-        "success": True,
-        "ip": LOVENSE_IP,
-        "port": LOVENSE_PORT,
-        "connected": True
-    })
+    try:
+        import haptic_engine
+        status = haptic_engine.haptic_controller.get_status()
+        status["ip"] = LOVENSE_IP
+        status["port"] = LOVENSE_PORT
+        return web.json_response(status)
+    except Exception as e:
+        return web.json_response({
+            "success": True,
+            "ip": LOVENSE_IP,
+            "port": LOVENSE_PORT,
+            "connected": False,
+            "error": str(e)
+        })
 
 async def handle_bot_haptic_test(request: web.Request) -> web.Response:
     try:
         body = await request.json()
-        strength = body.get("strength", 5)
-        # Send LAN command to Lovense device
-        logger.info(f"Lovense Haptic Command empfangen: Stärke {strength}")
-        return web.json_response({"success": True, "strength": strength, "status": "sent"})
+        strength = body.get("strength")
+        pattern = body.get("pattern")
+        duration = float(body.get("duration", 2.0))
+
+        import haptic_engine
+        if pattern:
+            logger.info(f"Lovense Haptic Pattern empfangen: {pattern} ({duration}s)")
+            asyncio.create_task(
+                haptic_engine.haptic_controller.play_pattern(
+                    pattern, duration_sec=duration, context="API /api/bot/haptic/test"
+                )
+            )
+            return web.json_response({"success": True, "pattern": pattern, "duration": duration, "status": "started"})
+        elif strength is not None:
+            logger.info(f"Lovense Haptic Command empfangen: Stärke {strength} ({duration}s)")
+            res = await haptic_engine.haptic_controller.vibrate(
+                int(strength), time_sec=duration, context="API /api/bot/haptic/test"
+            )
+            return web.json_response(res)
+        else:
+            await haptic_engine.haptic_controller.stop(context="API /api/bot/haptic/test Stop")
+            return web.json_response({"success": True, "command": "stop"})
     except Exception as e:
+        logger.error(f"Fehler in handle_bot_haptic_test: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 # ------------------------------------------------------------------------------
@@ -1746,7 +1773,7 @@ async def handle_audio_transcribe(request: web.Request) -> web.Response:
             client_timeout = aiohttp.ClientTimeout(total=2.0, connect=0.5)
             async with aiohttp.ClientSession(timeout=client_timeout) as session:
                 async with session.post(
-                    "http://127.0.0.1:8000/api/audio/transcribe",
+                    "http://127.0.0.1:8000/api/audio/transcribe?language=de",
                     data=raw_body,
                     headers=headers
                 ) as resp:
