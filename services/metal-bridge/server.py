@@ -7,6 +7,7 @@ Catlord-Reverse-Engineering-Pipeline, REA-Sandbox (Docker) und Web-IDE Services.
 
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -33,6 +34,14 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 DEFAULT_OLLAMA_MODEL = "deepseek-coder:6.7b-instruct-q4_K_M"
 DOCKER_CONTAINER_NAME = "rea-sandbox"
 
+# Catlord Pfade
+CATLORD_REPO_DIR = Path("/mnt/storage-fast/outerheaven-cluster-repo/projects/catlord")
+if not CATLORD_REPO_DIR.exists():
+    CATLORD_REPO_DIR = Path("/home/bigboss/outerheaven-cluster-repo/projects/catlord")
+CATLORD_VOICE_NOTES_DIR = CATLORD_REPO_DIR / "voice-notes"
+CATLORD_STORAGE_NOTE_DIR = Path("/mnt/storage-beta/projects/catlord-media/gdrive-sync/Note ")
+CATLORD_MEDIA_DIR = Path("/mnt/storage-beta/projects/catlord-media")
+
 app = FastAPI(
     title="OuterHeaven Metal-Bridge API",
     version="1.1.0",
@@ -56,6 +65,12 @@ class DecompileRequest(BaseModel):
     apk_name: str
     target_subfolder: Optional[str] = None
     filter_keyword: Optional[str] = None
+
+
+class CatlordVoiceNoteRequest(BaseModel):
+    title: Optional[str] = None
+    category: Optional[str] = "idea"
+    content: str
 
 
 # ==========================================
@@ -742,6 +757,301 @@ def get_sandbox_outputs():
         "output_dir": str(SANDBOX_OUTPUT_DIR),
         "count": len(folders),
         "folders": folders
+    }
+
+
+# ==========================================
+# 🐾 Catlord Studio Endpunkte
+# ==========================================
+
+@app.post("/api/catlord/voice-note")
+def save_catlord_voice_note(req: CatlordVoiceNoteRequest):
+    """
+    Speichert eine Catlord-Voice-Note als Markdown-Datei im Projekt unter
+    projects/catlord/voice-notes/ und synchronisiert sie nach
+    /mnt/storage-beta/projects/catlord-media/gdrive-sync/Note /
+    """
+    if not req.content or not req.content.strip():
+        raise HTTPException(status_code=400, detail="Inhalt der Voice-Note darf nicht leer sein.")
+
+    now = datetime.now()
+    timestamp_slug = now.strftime("%Y%m%d_%H%M%S")
+    human_date = now.strftime("%Y-%m-%d %H:%M:%S")
+
+    category = (req.category or "idea").strip().lower()
+    raw_title = (req.title or "").strip()
+
+    if not raw_title:
+        first_line = req.content.strip().splitlines()[0]
+        words = first_line.split()[:5]
+        raw_title = " ".join(words) if words else f"Notiz {category.capitalize()}"
+        if len(raw_title) > 40:
+            raw_title = raw_title[:40].rstrip()
+
+    slug_title = re.sub(r'[^a-zA-Z0-9_\-]+', '_', raw_title.strip()).strip('_')
+    if not slug_title:
+        slug_title = "note"
+    filename = f"{timestamp_slug}_{category}_{slug_title}.md"
+
+    md_content = f"""# {raw_title}
+
+- **Datum:** {human_date}
+- **Kategorie:** {category}
+- **Quelle:** Catlord Studio App
+
+## Notiz
+{req.content.strip()}
+"""
+
+    # 1. Lokal im Git-Repo speichern
+    CATLORD_VOICE_NOTES_DIR.mkdir(parents=True, exist_ok=True)
+    local_path = CATLORD_VOICE_NOTES_DIR / filename
+    try:
+        local_path.write_text(md_content, encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim lokalen Speichern: {str(e)}")
+
+    # 2. Auf NFS/Storage kopieren (/mnt/storage-beta/projects/catlord-media/gdrive-sync/Note /)
+    nfs_copied = False
+    storage_path_str = None
+    try:
+        if CATLORD_STORAGE_NOTE_DIR.exists():
+            storage_path = CATLORD_STORAGE_NOTE_DIR / filename
+            storage_path.write_text(md_content, encoding="utf-8")
+            nfs_copied = True
+            storage_path_str = str(storage_path)
+        else:
+            # Fallback via SSH auf outerheaven
+            res = subprocess.run([
+                "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "outerheaven",
+                f"cat > '/mnt/storage-beta/projects/catlord-media/gdrive-sync/Note /{filename}'"
+            ], input=md_content.encode("utf-8"), capture_output=True, timeout=10)
+            if res.returncode == 0:
+                nfs_copied = True
+                storage_path_str = f"outerheaven:/mnt/storage-beta/projects/catlord-media/gdrive-sync/Note /{filename}"
+    except Exception as e:
+        print(f"[Catlord] Warnung: Fehler beim NFS-Sync der Voice-Note: {e}")
+
+    return {
+        "status": "success",
+        "filename": filename,
+        "title": raw_title,
+        "category": category,
+        "timestamp": human_date,
+        "local_path": str(local_path),
+        "nfs_copied": nfs_copied,
+        "storage_path": storage_path_str
+    }
+
+
+@app.get("/api/catlord/docs")
+def list_catlord_docs(folder: Optional[str] = Query(None, description="Optionaler Ordnerfilter: docs, prompts, voice-notes, rea-findings")):
+    """
+    Listet alle Markdown- und Textdateien aus projects/catlord/docs/,
+    prompts/, voice-notes/ und rea-findings/ auf.
+    """
+    valid_folders = ["docs", "prompts", "voice-notes", "rea-findings"]
+    target_folders = [folder] if folder and folder in valid_folders else valid_folders
+
+    docs = []
+    for f in target_folders:
+        dir_path = CATLORD_REPO_DIR / f
+        if not dir_path.exists():
+            continue
+
+        for root, _, files in os.walk(dir_path):
+            for fname in files:
+                if fname.endswith((".md", ".txt")):
+                    fpath = Path(root) / fname
+                    rel_to_folder = fpath.relative_to(dir_path)
+                    try:
+                        st = fpath.stat()
+                        title = fname
+                        try:
+                            with open(fpath, "r", encoding="utf-8", errors="ignore") as fp:
+                                for line in fp:
+                                    sline = line.strip()
+                                    if sline.startswith("# "):
+                                        title = sline[2:].strip()
+                                        break
+                                    elif sline.startswith("## ") and title == fname:
+                                        title = sline[3:].strip()
+                        except Exception:
+                            pass
+
+                        docs.append({
+                            "folder": f,
+                            "filename": fname,
+                            "relative_path": f"{f}/{rel_to_folder}",
+                            "title": title,
+                            "size_bytes": st.st_size,
+                            "size_formatted": format_bytes(st.st_size),
+                            "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+                            "mtime": st.st_mtime
+                        })
+                    except Exception:
+                        pass
+
+    # Sortiere: Neueste zuerst
+    docs.sort(key=lambda x: x["mtime"], reverse=True)
+    return {
+        "count": len(docs),
+        "docs": docs
+    }
+
+
+@app.get("/api/catlord/docs/{folder}/{filename}")
+def get_catlord_doc_content(
+    folder: str,
+    filename: str,
+    format: Optional[str] = Query(None, description="Format: 'raw' oder 'json'"),
+    accept: Optional[str] = Header(None)
+):
+    """
+    Liefert den Inhalt einer ausgewählten Markdown- oder Textdatei aus
+    docs, prompts, voice-notes oder rea-findings mit Path-Traversal-Schutz.
+    """
+    valid_folders = ["docs", "prompts", "voice-notes", "rea-findings"]
+    if folder not in valid_folders:
+        raise HTTPException(status_code=400, detail=f"Ungültiger Ordner: '{folder}'. Erlaubt sind: {valid_folders}")
+
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Ungültiger Dateiname.")
+
+    if not filename.endswith((".md", ".txt")):
+        raise HTTPException(status_code=400, detail="Nur .md- und .txt-Dateien sind abrufbar.")
+
+    fpath = CATLORD_REPO_DIR / folder / filename
+    if not fpath.exists() or not fpath.is_file():
+        raise HTTPException(status_code=404, detail=f"Datei '{folder}/{filename}' nicht gefunden.")
+
+    try:
+        content = fpath.read_text(encoding="utf-8", errors="replace")
+        st = fpath.stat()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Lesen der Datei: {str(e)}")
+
+    if format == "raw" or (accept and "text/plain" in accept and format != "json"):
+        return Response(content=content, media_type="text/plain; charset=utf-8")
+
+    return {
+        "folder": folder,
+        "filename": filename,
+        "relative_path": f"{folder}/{filename}",
+        "content": content,
+        "size_bytes": st.st_size,
+        "size_formatted": format_bytes(st.st_size),
+        "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+    }
+
+
+@app.get("/api/catlord/media-stats")
+def get_catlord_media_stats():
+    """
+    Liefert eine Übersicht über die vorhandenen Datasets und Videos von
+    Elliot & Käch unter /mnt/storage-beta/projects/catlord-media/
+    """
+    image_exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
+    video_exts = {".mp4", ".mov", ".mkv", ".avi", ".webm"}
+
+    base_dir = CATLORD_MEDIA_DIR
+
+    def scan_dir(path: Path):
+        img_count = 0
+        vid_count = 0
+        total_size = 0
+        latest_mtime = 0.0
+
+        if not path.exists():
+            return {
+                "exists": False,
+                "images": 0,
+                "videos": 0,
+                "total_files": 0,
+                "size_bytes": 0,
+                "size_formatted": "0 B",
+                "subfolders": []
+            }
+
+        subfolders = []
+        try:
+            for root, dirs, files in os.walk(path, followlinks=True):
+                rpath = Path(root)
+                rel = rpath.relative_to(path)
+                folder_imgs = 0
+                folder_vids = 0
+                folder_size = 0
+
+                for fname in files:
+                    ext = os.path.splitext(fname)[1].lower()
+                    fpath = rpath / fname
+                    try:
+                        st = fpath.stat()
+                        fsize = st.st_size
+                        total_size += fsize
+                        folder_size += fsize
+                        if st.st_mtime > latest_mtime:
+                            latest_mtime = st.st_mtime
+                    except Exception:
+                        continue
+
+                    if ext in image_exts:
+                        img_count += 1
+                        folder_imgs += 1
+                    elif ext in video_exts:
+                        vid_count += 1
+                        folder_vids += 1
+
+                if str(rel) != "." and (folder_imgs > 0 or folder_vids > 0):
+                    subfolders.append({
+                        "name": rpath.name,
+                        "relative_path": str(rel),
+                        "images": folder_imgs,
+                        "videos": folder_vids,
+                        "size_bytes": folder_size,
+                        "size_formatted": format_bytes(folder_size)
+                    })
+        except Exception as e:
+            print(f"[Catlord] Fehler beim Scannen von {path}: {e}")
+
+        return {
+            "exists": True,
+            "images": img_count,
+            "videos": vid_count,
+            "total_files": img_count + vid_count,
+            "size_bytes": total_size,
+            "size_formatted": format_bytes(total_size),
+            "latest_modified": datetime.fromtimestamp(latest_mtime, tz=timezone.utc).isoformat() if latest_mtime > 0 else None,
+            "subfolders": subfolders
+        }
+
+    elliot_stats = scan_dir(base_dir / "elliot")
+    kaech_stats = scan_dir(base_dir / "kaech")
+    raw_footage_stats = scan_dir(base_dir / "raw-footage")
+    references_stats = scan_dir(base_dir / "references")
+    gdrive_datasets_stats = scan_dir(base_dir / "gdrive-sync" / "dataset")
+
+    total_images = elliot_stats["images"] + kaech_stats["images"] + raw_footage_stats["images"]
+    total_videos = elliot_stats["videos"] + kaech_stats["videos"] + raw_footage_stats["videos"]
+
+    return {
+        "media_dir": str(base_dir),
+        "accessible": base_dir.exists(),
+        "totals": {
+            "elliot_images": elliot_stats["images"],
+            "elliot_videos": elliot_stats["videos"],
+            "kaech_images": kaech_stats["images"],
+            "kaech_videos": kaech_stats["videos"],
+            "total_images": total_images,
+            "total_videos": total_videos,
+        },
+        "details": {
+            "elliot": elliot_stats,
+            "kaech": kaech_stats,
+            "raw_footage": raw_footage_stats,
+            "references": references_stats,
+            "dataset_all": gdrive_datasets_stats
+        }
     }
 
 
