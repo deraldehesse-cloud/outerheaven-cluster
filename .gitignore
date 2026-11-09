@@ -90,3 +90,8 @@ backups_recovery_*/
 Thumbs.db
 
 .server_secret
+
+# Android Build Artifacts
+**/build/
+**/.gradle/
+*.apk
