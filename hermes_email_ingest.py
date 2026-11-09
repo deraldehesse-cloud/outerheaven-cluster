@@ -86,7 +86,7 @@ def get_attachments_dir() -> Path:
 
 
 def init_ingest_db(db_path: Optional[Path] = None) -> Path:
-    """Initialisiert die SQLite Ingest & Review Tabellen falls nicht vorhanden."""
+    """Initialisiert die SQLite Ingest & Review Tabellen falls nicht vorhanden und migriert Spalten."""
     path = db_path or get_db_path()
     with sqlite3.connect(str(path)) as conn:
         cursor = conn.cursor()
@@ -109,6 +109,25 @@ def init_ingest_db(db_path: Optional[Path] = None) -> Path:
                 updated_at TEXT NOT NULL
             )
         """)
+        # Schema-Migration für Phobie-Schild & Mahnungs-Quarantäne
+        cursor.execute("PRAGMA table_info(email_inbox_reviews)")
+        existing_cols = [c[1] for c in cursor.fetchall()]
+        new_cols = [
+            ("draft_response", "TEXT"),
+            ("creditor_email", "TEXT"),
+            ("calm_summary", "TEXT"),
+            ("reference_number", "TEXT"),
+            ("amount", "REAL DEFAULT 0.0"),
+            ("paperless_doc_id", "INTEGER")
+        ]
+        for col_name, col_type in new_cols:
+            if col_name not in existing_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE email_inbox_reviews ADD COLUMN {col_name} {col_type}")
+                    logger.info("Spalte '%s' erfolgreich zu email_inbox_reviews hinzugefügt.", col_name)
+                except Exception as e:
+                    logger.debug("Migration Spalte %s: %s", col_name, e)
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS email_ingest_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,9 +140,14 @@ def init_ingest_db(db_path: Optional[Path] = None) -> Path:
                 created_at TEXT NOT NULL
             )
         """)
+        cursor.execute("DROP VIEW IF EXISTS pending_reviews")
         cursor.execute("""
             CREATE VIEW IF NOT EXISTS pending_reviews AS
-            SELECT * FROM email_inbox_reviews WHERE status = 'pending';
+            SELECT id, sender, subject, received_at, summary, category, confidence,
+                   attachment_name, attachment_path, attachment_size, status,
+                   draft_response, creditor_email, calm_summary, reference_number,
+                   amount, paperless_doc_id, llm_response, error_message, created_at, updated_at
+            FROM email_inbox_reviews WHERE status = 'pending';
         """)
         conn.commit()
     return path
@@ -303,23 +327,26 @@ def classify_email_with_llm(
     model: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Klassifiziert eine E-Mail via LLM in SPAM, PAPERLESS oder REVIEW.
+    Klassifiziert eine E-Mail via LLM in SPAM, PAPERLESS, MAHNUNG oder REVIEW.
+    Extrahiert für Mahnungen deeskalierende Zusammenfassungen und rechtssichere Antwortentwürfe.
     """
     url = ollama_url or OLLAMA_URL
     target_model = model or DEFAULT_MODEL
     att_str = ", ".join(attachment_names) if attachment_names else "Keine Anhänge"
 
     system_prompt = (
-        "Du bist das intelligente E-Mail-Ingest- und Triage-Modul von Hermes.\n"
-        "Deine Aufgabe ist es, eingehende E-Mails strikt in genau EINE von drei Kategorien einzustufen:\n"
+        "Du bist das intelligente E-Mail-Ingest-, Triage- und Phobie-Schild-Modul von Hermes.\n"
+        "Deine Aufgabe ist es, eingehende E-Mails strikt in genau EINE von vier Kategorien einzustufen:\n"
         "1. 'SPAM': Unerwünschte Werbung, Newsletter, Marketing, Phishing, Gewinnspiele, automatisierter Werbemüll.\n"
-        "2. 'PAPERLESS': Wichtige Dokumente zur dauerhaften Archivierung. Rechnungen (z.B. Telekom, Strom, Hosting, Amazon), "
-        "Behördenschreiben (Arbeitsagentur, Jobcenter, Finanzamt, Krankenkasse, Rentenversicherung), Verträge, Gehaltsabrechnungen, Mahnungen.\n"
-        "3. 'REVIEW': Unklare Fälle, persönliche Nachrichten von Menschen, wichtige Fragen oder Dokumente, bei denen Unsicherheit herrscht.\n\n"
-        "Regeln für die Triage:\n"
-        "- Wenn es eindeutig eine Rechnung oder Behördenpost mit Anhang ist -> 'PAPERLESS'.\n"
-        "- Wenn es eindeutig Werbung / Rabattaktion / Newsletter ist -> 'SPAM'.\n"
-        "- Bei jeglicher Unsicherheit oder wenn eine manuelle Bestätigung sinnvoll ist -> 'REVIEW'.\n"
+        "2. 'PAPERLESS': Neutrale Standarddokumente zur dauerhaften Archivierung. Laufende reguläre Rechnungen (z.B. Hosting, Telefon, Stromabschlag), "
+        "Verträge, Gehaltsabrechnungen, neutrale Behördenschreiben ohne akute Zahlungsaufforderung.\n"
+        "3. 'MAHNUNG': Belastende Schreiben wie Mahnungen, Zahlungserinnerungen, Inkassoschreiben, behördliche Zahlungsaufforderungen, "
+        "Festsetzungsbescheide, Vollstreckungsankündigungen, Rückstände.\n"
+        "4. 'REVIEW': Unklare Fälle, persönliche Nachrichten von Menschen, wichtige Fragen oder Dokumente bei Unsicherheit.\n\n"
+        "Regeln für das Mahnungs-Schild:\n"
+        "- Wenn Kategorie 'MAHNUNG': Verfasse eine 'calm_summary' in 1-2 unaufgeregten, beruhigenden Sätzen ohne Panik. "
+        "Erstelle zudem einen höflichen, rechtssicheren 'draft_response' (Bitte um 14 Tage Fristverlängerung zur Sachverhaltsprüfung, "
+        "ausdrücklich OHNE blindes Schuldanerkenntnis).\n"
         "- Antworte AUSSCHLIESSLICH im geforderten JSON-Format."
     )
 
@@ -333,12 +360,19 @@ E-Mail-Details:
 
 Antworte im folgenden JSON-Format:
 {{
-  "category": "SPAM|PAPERLESS|REVIEW",
+  "category": "SPAM|PAPERLESS|MAHNUNG|REVIEW",
   "confidence": 0.95,
-  "summary": "1-2 Sätze auf Deutsch: Was ist der Kerninhalt und warum diese Einstufung?",
+  "summary": "1-2 Sätze auf Deutsch: Was ist der Kerninhalt?",
+  "calm_summary": "1-2 beruhigende, unaufgeregte Sätze für den Nutzer (z.B. Gläubiger, Betrag, Frist).",
+  "creditor_name": "Name des Gläubigers / Unternehmens",
+  "creditor_email": "E-Mail-Adresse für die Rückmeldung",
+  "reference_number": "Aktenzeichen oder Rechnungsnummer",
+  "amount": 0.0,
+  "due_date": "YYYY-MM-DD",
   "suggested_title": "YYYY-MM-DD [Absender] - [Dokumenttyp] - [Betreff]",
   "correspondent": "Name des Absenders / Unternehmens",
-  "document_type": "Rechnung|Bescheid|Mahnung|Vertrag|Werbung|Info"
+  "document_type": "Mahnung|Zahlungserinnerung|Rechnung|Bescheid|Vertrag|Werbung|Info",
+  "draft_response": "Höflicher Antwortentwurf zur Fristverlängerung (ohne Schuldanerkenntnis)"
 }}
 """
 
@@ -369,9 +403,26 @@ Antworte im folgenden JSON-Format:
 
                 parsed = json.loads(raw_text)
                 cat = str(parsed.get("category", "REVIEW")).upper()
-                if cat not in ["SPAM", "PAPERLESS", "REVIEW"]:
+                doc_t = str(parsed.get("document_type", "")).lower()
+
+                if "mahnung" in doc_t or "inkasso" in doc_t or "erinnerung" in doc_t:
+                    cat = "MAHNUNG"
+
+                if cat not in ["SPAM", "PAPERLESS", "MAHNUNG", "REVIEW"]:
                     cat = "REVIEW"
                 parsed["category"] = cat
+
+                # Ergänze Fallbacks falls calm_summary oder draft_response fehlen
+                if cat == "MAHNUNG":
+                    cred = parsed.get("creditor_name") or sender
+                    amt = float(parsed.get("amount") or 0.0)
+                    ref = parsed.get("reference_number") or ""
+                    due = parsed.get("due_date")
+                    if not parsed.get("calm_summary"):
+                        parsed["calm_summary"] = generate_calm_summary(cred, amt, ref, due)
+                    if not parsed.get("draft_response"):
+                        parsed["draft_response"] = generate_safe_draft_response(cred, ref, due, amt)
+
                 logger.info("E-Mail [%s] von '%s' klassifiziert als: %s (Modell: %s)", subject[:30], sender[:30], cat, m)
                 return parsed
         except Exception as e:
@@ -383,38 +434,100 @@ Antworte im folgenden JSON-Format:
     sender_lower = sender.lower()
 
     spam_keywords = ["rabatt", "abmelden", "newsletter", "unsubscribe", "gutschein", "sale", "angebot", "prozent"]
-    paperless_keywords = ["rechnung", "invoice", "arbeitsagentur", "bescheid", "mahnung", "aktenzeichen", "abrechnung"]
+    mahnung_keywords = ["mahnung", "zahlungserinnerung", "inkasso", "forderung", "festsetzungsbescheid", "vollstreckung", "rückstand"]
+    paperless_keywords = ["rechnung", "invoice", "arbeitsagentur", "bescheid", "aktenzeichen", "abrechnung"]
 
     if any(k in subject_lower or k in sender_lower for k in spam_keywords):
         fallback_cat = "SPAM"
         summary = "Heuristisch als Werbe-E-Mail / Newsletter erkannt (Ollama Offline-Fallback)."
+        return {
+            "category": fallback_cat,
+            "confidence": 0.6,
+            "summary": summary,
+            "suggested_title": f"{datetime.now().strftime('%Y-%m-%d')} {subject[:40]}",
+            "correspondent": sender,
+            "document_type": "Werbung"
+        }
+    elif any(k in subject_lower or k in body_lower for k in mahnung_keywords):
+        fallback_cat = "MAHNUNG"
+        amt_match = re.search(r'(\d+[\.,]\d{2})\s*(?:€|EUR)', body)
+        amt = float(amt_match.group(1).replace(',', '.')) if amt_match else 0.0
+        ref_match = re.search(r'(?:Aktenzeichen|Az\.?|Referenz|Rechnungsnr\.?|Kassenzeichen)[:\s]*([A-Za-z0-9\-\./]+)', body, re.IGNORECASE)
+        ref = ref_match.group(1) if ref_match else ""
+        calm_summary = generate_calm_summary(sender, amt, ref)
+        draft = generate_safe_draft_response(sender, ref, amount=amt)
+        return {
+            "category": "MAHNUNG",
+            "confidence": 0.8,
+            "summary": f"Mahnung/Forderung von {sender} erkannt.",
+            "calm_summary": calm_summary,
+            "creditor_name": sender,
+            "creditor_email": sender,
+            "reference_number": ref,
+            "amount": amt,
+            "suggested_title": f"{datetime.now().strftime('%Y-%m-%d')} {sender[:25]} - Mahnung",
+            "correspondent": sender,
+            "document_type": "Mahnung",
+            "draft_response": draft
+        }
     elif any(k in subject_lower or k in body_lower for k in paperless_keywords) or any(a.lower().endswith(".pdf") for a in attachment_names):
         fallback_cat = "PAPERLESS"
         summary = "Heuristisch als rechnungs- oder behördenrelevantes Dokument erkannt."
+        return {
+            "category": fallback_cat,
+            "confidence": 0.6,
+            "summary": summary,
+            "suggested_title": f"{datetime.now().strftime('%Y-%m-%d')} {subject[:40]}",
+            "correspondent": sender,
+            "document_type": "Rechnung"
+        }
     else:
         fallback_cat = "REVIEW"
         summary = "Unklarer E-Mail-Inhalt; manuelle Überprüfung empfohlen."
-
-    return {
-        "category": fallback_cat,
-        "confidence": 0.6,
-        "summary": summary,
-        "suggested_title": f"{datetime.now().strftime('%Y-%m-%d')} {subject[:40]}",
-        "correspondent": sender,
-        "document_type": "Info"
-    }
+        return {
+            "category": fallback_cat,
+            "confidence": 0.6,
+            "summary": summary,
+            "suggested_title": f"{datetime.now().strftime('%Y-%m-%d')} {subject[:40]}",
+            "correspondent": sender,
+            "document_type": "Info"
+        }
 
 
 # ==============================================================================
 # Paperless-ngx Dispatcher
 # ==============================================================================
 
+def ensure_paperless_tag(tag_name: str, paperless_url: Optional[str] = None, token: Optional[str] = None) -> Optional[int]:
+    """Prüft, ob der Tag in Paperless existiert oder legt ihn via API an."""
+    url = (paperless_url or PAPERLESS_URL).rstrip("/")
+    api_token = token or PAPERLESS_TOKEN
+    headers = {"Authorization": f"Token {api_token}", "Content-Type": "application/json"}
+    try:
+        req = urllib.request.Request(f"{url}/api/tags/?page_size=100", headers=headers)
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            for t in data.get("results", []):
+                if t.get("name", "").lower() == tag_name.lower():
+                    return t.get("id")
+        # Anlegen
+        create_data = json.dumps({"name": tag_name}).encode("utf-8")
+        req_post = urllib.request.Request(f"{url}/api/tags/", data=create_data, headers=headers, method="POST")
+        with urllib.request.urlopen(req_post, timeout=4) as resp:
+            new_tag = json.loads(resp.read().decode("utf-8"))
+            return new_tag.get("id")
+    except Exception as e:
+        logger.warning("Konnte Paperless-Tag '%s' nicht sicherstellen: %s", tag_name, e)
+    return None
+
+
 def send_to_paperless(
     file_bytes: bytes,
     filename: str,
     title: Optional[str] = None,
     paperless_url: Optional[str] = None,
-    token: Optional[str] = None
+    token: Optional[str] = None,
+    tags: Optional[List[Any]] = None
 ) -> Tuple[bool, str]:
     """
     Sendet eine Datei via Multipart/form-data an Paperless-ngx.
@@ -442,6 +555,19 @@ def send_to_paperless(
         parts.append(f'Content-Disposition: form-data; name="title"'.encode("utf-8"))
         parts.append(b"")
         parts.append(title.encode("utf-8"))
+
+    # Optional Tags
+    if tags:
+        for t in tags:
+            tag_id = t
+            if isinstance(t, str):
+                resolved = ensure_paperless_tag(t, url, api_token)
+                if resolved:
+                    tag_id = resolved
+            parts.append(f"--{boundary}".encode("utf-8"))
+            parts.append(f'Content-Disposition: form-data; name="tags"'.encode("utf-8"))
+            parts.append(b"")
+            parts.append(str(tag_id).encode("utf-8"))
 
     parts.append(f"--{boundary}--".encode("utf-8"))
     parts.append(b"")
@@ -471,6 +597,30 @@ def send_to_paperless(
         return False, str(e)
 
 
+def generate_calm_summary(creditor: str, amount: float = 0.0, ref: Optional[str] = None, due_date: Optional[str] = None) -> str:
+    """Erstellt eine komplett unaufgeregte 1-2 Satz Zusammenfassung für das Phobie-Schild."""
+    amt_str = f" über {amount:.2f} €" if amount > 0 else ""
+    ref_str = f" (Az: {ref})" if ref else ""
+    due_str = f", Zahlungsziel {due_date}" if due_date else ""
+    return f"Forderung von {creditor}{amt_str}{ref_str}{due_str}. Das Original ist sicher im Paperless-Archiv abgelegt; ein rechtssicherer Fristverlängerungs-Entwurf liegt bereit."
+
+
+def generate_safe_draft_response(creditor: str, ref: Optional[str] = None, due_date: Optional[str] = None, amount: float = 0.0) -> str:
+    """Erzeugt einen rechtssicheren, höflichen Antwortentwurf (Fristverlängerung zur Sachverhaltsprüfung, ohne Schuldanerkenntnis)."""
+    today_str = datetime.now().strftime("%d.%m.%Y")
+    ref_display = ref if ref else "Ihr Schreiben"
+    return (
+        f"Sehr geehrte Damen und Herren,\n\n"
+        f"Bezug nehmend auf Ihr Schreiben vom {today_str} (Referenz / Aktenzeichen: {ref_display}) "
+        f"teile ich Ihnen mit, dass ich den Vorgang derzeit sorgfältig mit meinen Unterlagen abgleiche.\n\n"
+        f"Zur gewissenhaften Prüfung des Sachverhalts bitte ich Sie höflich um eine kurze Fristverlängerung um 14 Tage. "
+        f"Ich werde mich unverzüglich nach Abschluss der internen Prüfung wieder bei Ihnen melden.\n\n"
+        f"Bitte beachten Sie, dass diese Mitteilung rein vorsorglich zur Fristwahrung erfolgt und "
+        f"ausdrücklich kein Schuldanerkenntnis darstellt.\n\n"
+        f"Mit freundlichen Grüßen\nSebastian"
+    )
+
+
 # ==============================================================================
 # SQLite Review Management
 # ==============================================================================
@@ -485,9 +635,15 @@ def add_review_item(
     attachment_name: Optional[str] = None,
     attachment_data: Optional[bytes] = None,
     llm_response: Optional[Dict[str, Any]] = None,
+    draft_response: Optional[str] = None,
+    creditor_email: Optional[str] = None,
+    calm_summary: Optional[str] = None,
+    reference_number: Optional[str] = None,
+    amount: float = 0.0,
+    paperless_doc_id: Optional[int] = None,
     db_path: Optional[Path] = None
 ) -> int:
-    """Speichert ein unklares Dokument in der SQLite Review-Tabelle."""
+    """Speichert ein unklares Dokument oder eine Mahnung in der SQLite Review-Tabelle."""
     path = db_path or init_ingest_db()
     att_path_str = None
     att_size = 0
@@ -514,28 +670,33 @@ def add_review_item(
             INSERT INTO email_inbox_reviews (
                 sender, subject, received_at, summary, category, confidence,
                 attachment_name, attachment_path, attachment_size, status,
-                llm_response, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+                draft_response, creditor_email, calm_summary, reference_number,
+                amount, paperless_doc_id, llm_response, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             sender, subject, received_at, summary, category, confidence,
-            attachment_name, att_path_str, att_size, llm_json_str,
+            attachment_name, att_path_str, att_size,
+            draft_response, creditor_email, calm_summary, reference_number,
+            amount, paperless_doc_id, llm_json_str,
             now_iso, now_iso
         ))
         conn.commit()
         item_id = cursor.lastrowid
-        logger.info("Review-Element #%d angelegt für Betreff: '%s'", item_id, subject[:30])
+        logger.info("Review-Element #%d angelegt für Betreff: '%s' (Kategorie: %s)", item_id, subject[:30], category)
         return item_id
 
 
 def list_pending_reviews(limit: int = 50, db_path: Optional[Path] = None) -> List[Dict[str, Any]]:
-    """Gibt alle offenen Review-Elemente zurück."""
+    """Gibt alle offenen Review- und Mahnungs-Elemente zurück."""
     path = db_path or init_ingest_db()
     with sqlite3.connect(str(path)) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("""
             SELECT id, sender, subject, received_at, summary, category, confidence,
-                   attachment_name, attachment_size, status, llm_response, created_at
+                   attachment_name, attachment_size, status,
+                   draft_response, creditor_email, calm_summary, reference_number,
+                   amount, paperless_doc_id, llm_response, created_at
             FROM email_inbox_reviews
             WHERE status = 'pending'
             ORDER BY id DESC
@@ -554,14 +715,82 @@ def list_pending_reviews(limit: int = 50, db_path: Optional[Path] = None) -> Lis
         return results
 
 
+def approve_and_send_draft(
+    item_id: int,
+    custom_body: Optional[str] = None,
+    custom_recipient: Optional[str] = None,
+    db_path: Optional[Path] = None
+) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+    """
+    Freigabe-Endpunkt (100% Draft-and-Approve):
+    Versendet den geprüften Antwortentwurf erst nach aktiver Freigabe durch den Nutzer via SMTP.
+    """
+    path = db_path or init_ingest_db()
+    with sqlite3.connect(str(path)) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM email_inbox_reviews WHERE id = ?", (item_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False, f"Review-Eintrag #{item_id} nicht gefunden.", None
+
+        item = dict(row)
+        recipient = (custom_recipient or item.get("creditor_email") or item.get("sender") or "").strip()
+        body = (custom_body or item.get("draft_response") or "").strip()
+
+        # E-Mail-Adresse sauber aus String extrahieren falls Format 'Name <email@...>' vorliegt
+        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', recipient)
+        target_email = email_match.group(0) if email_match else recipient
+
+        if not target_email or "@" not in target_email:
+            return False, f"Keine gültige Empfänger-E-Mail vorhanden ('{recipient}').", item
+
+        if not body:
+            return False, "Der Antwort-Entwurf ist leer.", item
+
+        ref = item.get("reference_number") or ""
+        subject = f"Re: {item.get('subject', 'Rückmeldung')}"
+        if ref and ref not in subject:
+            subject += f" (Ref: {ref})"
+
+        # SMTP-Versand
+        success, msg = False, "SMTP-Handler nicht verfügbar"
+        try:
+            from hermes_email_handler import send_smtp_email
+            success, msg = send_smtp_email(target_email, subject, body)
+        except Exception as e:
+            logger.error("Fehler beim Aufruf von send_smtp_email: %s", e)
+            msg = str(e)
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if success:
+            cursor.execute("""
+                UPDATE email_inbox_reviews
+                SET status = 'approved_sent', updated_at = ?
+                WHERE id = ?
+            """, (now_iso, item_id))
+            conn.commit()
+            item["status"] = "approved_sent"
+            logger.info("Entwurf für Review #%d erfolgreich an %s versendet.", item_id, target_email)
+            return True, f"E-Mail erfolgreich an {target_email} versendet.", item
+        else:
+            cursor.execute("""
+                UPDATE email_inbox_reviews
+                SET error_message = ?, updated_at = ?
+                WHERE id = ?
+            """, (msg, now_iso, item_id))
+            conn.commit()
+            return False, f"Versand fehlgeschlagen: {msg}", item
+
+
 def resolve_review_item(
     item_id: int,
-    action: str,  # "DELETE" oder "SEND_TO_PAPERLESS"
+    action: str,  # "DELETE", "DISMISS" oder "SEND_TO_PAPERLESS"
     custom_title: Optional[str] = None,
     db_path: Optional[Path] = None
 ) -> Tuple[bool, str]:
     """
-    Führt die vom User gewünschte Aktion aus (Löschen oder an Paperless senden).
+    Führt die vom User gewünschte Aktion aus (Löschen/Verwerfen oder an Paperless senden).
     """
     path = db_path or init_ingest_db()
     with sqlite3.connect(str(path)) as conn:
@@ -576,7 +805,7 @@ def resolve_review_item(
         action_upper = action.strip().upper()
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        if action_upper == "DELETE":
+        if action_upper in ["DELETE", "DISMISS", "ARCHIVE"]:
             # Anhang-Datei löschen falls vorhanden
             att_path = item.get("attachment_path")
             if att_path and os.path.isfile(att_path):
@@ -587,12 +816,12 @@ def resolve_review_item(
 
             cursor.execute("""
                 UPDATE email_inbox_reviews
-                SET status = 'deleted', updated_at = ?
+                SET status = 'dismissed', updated_at = ?
                 WHERE id = ?
             """, (now_iso, item_id))
             conn.commit()
-            logger.info("Review-Element #%d erfolgreich gelöscht.", item_id)
-            return True, f"Review-Element #{item_id} gelöscht."
+            logger.info("Review-Element #%d als verworfen/archiviert markiert.", item_id)
+            return True, f"Review-Element #{item_id} archiviert / verworfen."
 
         elif action_upper == "SEND_TO_PAPERLESS":
             att_path = item.get("attachment_path")
@@ -612,7 +841,8 @@ def resolve_review_item(
                 filename = f"email_{item_id}.txt"
 
             title_to_use = custom_title or item.get("subject") or filename
-            success, msg = send_to_paperless(file_bytes, filename, title=title_to_use)
+            tags_to_apply = ["Mahnung"] if item.get("category") == "MAHNUNG" else None
+            success, msg = send_to_paperless(file_bytes, filename, title=title_to_use, tags=tags_to_apply)
 
             if success:
                 # Temporäre Datei aufräumen
@@ -638,7 +868,7 @@ def resolve_review_item(
                 return False, f"Übertragung an Paperless fehlgeschlagen: {msg}"
 
         else:
-            return False, f"Unbekannte Aktion: {action}. Erlaubt sind 'DELETE' und 'SEND_TO_PAPERLESS'."
+            return False, f"Unbekannte Aktion: {action}. Erlaubt sind 'DELETE', 'DISMISS' und 'SEND_TO_PAPERLESS'."
 
 
 # ==============================================================================
@@ -770,6 +1000,57 @@ class EmailIngestWorker:
                         # E-Mail als gelesen markieren
                         mail.store(m_id, "+FLAGS", "\\Seen")
                         logger.info("📄 E-Mail '%s' als PAPERLESS verarbeitet (%s).", subject[:40], "Erfolgreich" if uploaded_any else "Kein Upload")
+
+                    elif category == "MAHNUNG":
+                        # 🛡️ PHOBIE-SCHILD: Sofortige Quarantäne belastender Mahnungen
+                        # 1. Originaldokument sofort im Hintergrund in Paperless mit Tag 'Mahnung' archivieren
+                        uploaded_any = False
+                        if attachments:
+                            for att in attachments:
+                                ok, p_msg = send_to_paperless(att["data"], att["filename"], title=title, tags=["Mahnung"])
+                                if ok:
+                                    uploaded_any = True
+                        else:
+                            doc_bytes = f"Von: {sender}\nBetreff: {subject}\nDatum: {email_data['date']}\n\n{body}".encode("utf-8")
+                            ok, _ = send_to_paperless(doc_bytes, f"mahnung_{int(time.time())}.txt", title=title, tags=["Mahnung"])
+                            if ok:
+                                uploaded_any = True
+
+                        first_att = attachments[0] if attachments else None
+
+                        # Kerndaten für unaufgeregte Darstellung
+                        creditor = classification.get("creditor_name") or sender
+                        cred_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', sender)
+                        cred_email = classification.get("creditor_email") or (cred_match.group(0) if cred_match else sender)
+                        ref_num = str(classification.get("reference_number") or "")
+                        try:
+                            amt = float(classification.get("amount") or 0.0)
+                        except (ValueError, TypeError):
+                            amt = 0.0
+                        due = classification.get("due_date")
+                        calm_sum = classification.get("calm_summary") or generate_calm_summary(creditor, amt, ref_num, due)
+                        draft = classification.get("draft_response") or generate_safe_draft_response(creditor, ref_num, due, amt)
+
+                        # In SQLite Review-DB als Quarantäne-Entwurf ablegen
+                        add_review_item(
+                            sender=sender,
+                            subject=subject,
+                            received_at=email_data["date"] or datetime.now().isoformat(),
+                            summary=summary,
+                            category="MAHNUNG",
+                            confidence=float(classification.get("confidence", 0.95)),
+                            attachment_name=first_att["filename"] if first_att else None,
+                            attachment_data=first_att["data"] if first_att else None,
+                            llm_response=classification,
+                            draft_response=draft,
+                            creditor_email=cred_email,
+                            calm_summary=calm_sum,
+                            reference_number=ref_num,
+                            amount=amt
+                        )
+                        # Als gelesen markieren, damit der Nutzer das Schreiben nicht im Posteingang öffnen muss
+                        mail.store(m_id, "+FLAGS", "\\Seen")
+                        logger.info("🛡️ Phobie-Schild: Belastendes Schreiben '%s' archiviert & in Quarantäne gelegt.", subject[:40])
 
                     else:  # REVIEW
                         first_att = attachments[0] if attachments else None

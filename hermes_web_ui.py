@@ -34,6 +34,16 @@ try:
 except ImportError:
     hermes_email_ingest = None
 
+try:
+    import budget_monitor
+except ImportError:
+    budget_monitor = None
+
+try:
+    import application_assistant
+except ImportError:
+    application_assistant = None
+
 app = FastAPI(title="Hermes Agent Kontrollzentrum")
 PORT = int(os.getenv("PORT", "8081"))
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
@@ -274,6 +284,22 @@ class EmailGenerateRequest(BaseModel):
 class EmailReviewActionRequest(BaseModel):
     action: str  # "DELETE" or "SEND_TO_PAPERLESS"
     title: Optional[str] = None
+
+class BudgetConfigRequest(BaseModel):
+    MONTHLY_INCOME: Optional[float] = None
+    FIX_RENT: Optional[float] = None
+    FIX_UTILITIES: Optional[float] = None
+    FIX_PHONE: Optional[float] = None
+    FIX_GROCERIES: Optional[float] = None
+
+class ReviewApproveSendRequest(BaseModel):
+    draft_response: Optional[str] = None
+    recipient: Optional[str] = None
+    subject: Optional[str] = None
+
+class ApplicationGenerateRequest(BaseModel):
+    voice_transcript: Optional[str] = None
+    job_posting_text: Optional[str] = None
 
 # --- Standard / Initial-Skills ---
 DEFAULT_SKILLS = [
@@ -3194,6 +3220,62 @@ def trigger_email_poll():
         raise HTTPException(status_code=500, detail="E-Mail Ingest Modul nicht verfügbar")
     count = hermes_email_ingest.get_ingest_worker().poll_once()
     return {"status": "success", "processed_emails": count}
+
+# --- Mahnungs-Schild 1-Tap Freigabe (100% Draft-and-Approve) ---
+@app.post("/api/reviews/{item_id}/approve-send")
+@app.post("/api/email_review/{item_id}/approve-send")
+def approve_and_send_review_draft(item_id: int, req: Optional[ReviewApproveSendRequest] = None):
+    """Gibt einen Antwort-Entwurf nach Nutzerprüfung frei und versendet ihn über SMTP."""
+    if hermes_email_ingest is None:
+        raise HTTPException(status_code=500, detail="E-Mail Ingest Modul nicht verfügbar")
+    custom_body = req.draft_response if req else None
+    custom_recip = req.recipient if req else None
+    success, msg, item = hermes_email_ingest.approve_and_send_draft(
+        item_id=item_id,
+        custom_body=custom_body,
+        custom_recipient=custom_recip
+    )
+    if not success and not item:
+        raise HTTPException(status_code=404, detail=msg)
+    if not success:
+        raise HTTPException(status_code=500, detail=msg)
+    return {"status": "success", "message": msg, "item": item}
+
+# --- Budget & Finanz-Radar Endpunkte ---
+@app.get("/api/budget/config")
+def get_budget_config():
+    """Liefert die aktuelle Budget-Konfiguration aus budget.env."""
+    if budget_monitor is None:
+        raise HTTPException(status_code=500, detail="Budget-Monitor Modul nicht verfügbar")
+    return budget_monitor.load_budget_config()
+
+@app.post("/api/budget/config")
+def update_budget_config(req: BudgetConfigRequest):
+    """Aktualisiert die Budget-Konfiguration in budget.env."""
+    if budget_monitor is None:
+        raise HTTPException(status_code=500, detail="Budget-Monitor Modul nicht verfügbar")
+    updates = {k: v for k, v in req.dict().items() if v is not None}
+    updated = budget_monitor.save_budget_config(updates)
+    return {"status": "success", "config": updated}
+
+@app.get("/api/budget/summary")
+def get_budget_summary():
+    """Liefert die monatliche Finanzübersicht mit realem Restgeld und KI-Spar-Coach."""
+    if budget_monitor is None:
+        raise HTTPException(status_code=500, detail="Budget-Monitor Modul nicht verfügbar")
+    return budget_monitor.get_budget_summary()
+
+# --- Bewerbungs-Assistent Endpunkte ---
+@app.post("/api/applications/generate")
+def generate_application(req: ApplicationGenerateRequest):
+    """Generiert ein maßgeschneidertes Anschreiben und Lebenslauf-Entwurf via LLM."""
+    if application_assistant is None:
+        raise HTTPException(status_code=500, detail="Bewerbungs-Assistent Modul nicht verfügbar")
+    res = application_assistant.generate_application_draft(
+        voice_transcript=req.voice_transcript,
+        job_posting_text=req.job_posting_text
+    )
+    return res
 
 # Starte E-Mail Ingest Worker (nur im Standalone-Server-Modus, nicht in Unittests)
 if hermes_email_ingest and "unittest" not in sys.modules:
