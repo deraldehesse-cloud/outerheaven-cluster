@@ -42,6 +42,9 @@ class MainViewModel(
     private val _selectedPackage = MutableStateFlow<String?>(null)
     val selectedPackage: StateFlow<String?> = _selectedPackage.asStateFlow()
 
+    private val _availablePackages = MutableStateFlow<List<String>>(emptyList())
+    val availablePackages: StateFlow<List<String>> = _availablePackages.asStateFlow()
+
     // REA-Sandbox States
     private val _sandboxStatusState = MutableStateFlow<UiState<SandboxStatus>>(UiState.Loading)
     val sandboxStatusState: StateFlow<UiState<SandboxStatus>> = _sandboxStatusState.asStateFlow()
@@ -105,12 +108,29 @@ class MainViewModel(
         } catch (_: Exception) {}
     }
 
+    private fun updateAvailablePackages(newPkgs: List<String>) {
+        val current = _availablePackages.value.toMutableList()
+        var changed = false
+        for (p in newPkgs) {
+            val clean = p.trim().removeSuffix(".apk")
+            if (clean.isNotBlank() && clean != "catlord" && !current.contains(clean)) {
+                current.add(clean)
+                changed = true
+            }
+        }
+        if (changed) {
+            _availablePackages.value = current
+        }
+    }
+
     fun loadDropzone() {
         viewModelScope.launch {
             _dropzoneState.value = UiState.Loading
             try {
                 val res = api.getDropzone()
                 _dropzoneState.value = UiState.Success(res)
+                val apkPkgs = res.files.filter { it.is_apk }.map { it.name.removeSuffix(".apk") }
+                updateAvailablePackages(apkPkgs)
             } catch (e: Exception) {
                 _dropzoneState.value = UiState.Error(e.localizedMessage ?: "Dropzone konnte nicht geladen werden")
             }
@@ -120,15 +140,18 @@ class MainViewModel(
     fun loadFindings(pkg: String? = null) {
         if (pkg != null) {
             _selectedPackage.value = pkg
+            updateAvailablePackages(listOf(pkg))
         }
+        val targetPkg = pkg ?: _selectedPackage.value
         viewModelScope.launch {
             _findingsState.value = UiState.Loading
             try {
-                val res = api.getFindings(pkg)
+                val res = api.getFindings(targetPkg)
                 _findingsState.value = UiState.Success(res)
                 if (_selectedPackage.value == null && res.packageName.isNotEmpty()) {
                     _selectedPackage.value = res.packageName
                 }
+                updateAvailablePackages(res.available_packages)
             } catch (e: HttpException) {
                 if (e.code() == 404) {
                     _findingsState.value = UiState.Error("NOT_FOUND")
@@ -147,8 +170,10 @@ class MainViewModel(
     }
 
     fun selectPackage(pkg: String) {
-        _selectedPackage.value = pkg
-        loadFindings(pkg)
+        val clean = pkg.trim().removeSuffix(".apk")
+        _selectedPackage.value = clean
+        updateAvailablePackages(listOf(clean))
+        loadFindings(clean)
     }
 
     fun triggerPipeline() {
@@ -172,6 +197,7 @@ class MainViewModel(
         loadSandboxStatus()
         loadSandboxJobs()
         loadSandboxOutputs()
+        loadDropzone()
     }
 
     fun loadSandboxStatus() {
@@ -211,6 +237,8 @@ class MainViewModel(
             try {
                 val res = api.getSandboxOutputs()
                 _sandboxOutputsState.value = UiState.Success(res)
+                val folderPkgs = res.folders.map { it.name }.filter { it.isNotBlank() && it != "catlord" }
+                updateAvailablePackages(folderPkgs)
 
                 // Beim ersten Laden bevorzugt das neueste Paket auswählen, das has_findings == true besitzt
                 if (_selectedPackage.value == null) {

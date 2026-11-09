@@ -58,13 +58,31 @@ fun SandboxScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(
-                    text = "REA-SANDBOX (DOCKER)",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = AccentCyan,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "REA-SANDBOX (DOCKER)",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = AccentCyan,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Surface(
+                        color = AccentCyan.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.6f))
+                    ) {
+                        Text(
+                            text = "v1.0.5",
+                            color = AccentCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
                 Text(
                     text = "Headless JADX & Reverse-Engineering Environment",
                     style = MaterialTheme.typography.bodyMedium,
@@ -274,11 +292,17 @@ fun SandboxScreen(
                         val apks = dz.data.files.filter { it.is_apk }
                         if (apks.isEmpty()) {
                             Text(
-                                text = "Keine APKs in der Dropzone verfügbar.",
+                                text = "Keine APKs in der Dropzone verfügbar (/catlord-dropzone).",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = TextMuted
                             )
                         } else {
+                            Text(
+                                text = "Gefundene APKs in Dropzone (${apks.size}):",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary,
+                                fontWeight = FontWeight.Medium
+                            )
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -290,7 +314,7 @@ fun SandboxScreen(
                                     FilterChip(
                                         selected = isSelected,
                                         onClick = { selectedApkToDecompile = apk.name },
-                                        label = { Text(apk.name) },
+                                        label = { Text("${apk.name} (${apk.size_formatted})") },
                                         colors = FilterChipDefaults.filterChipColors(
                                             selectedContainerColor = AccentGreen,
                                             selectedLabelColor = DarkBackground,

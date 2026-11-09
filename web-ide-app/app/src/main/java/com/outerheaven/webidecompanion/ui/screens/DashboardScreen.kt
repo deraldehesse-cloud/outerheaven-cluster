@@ -53,13 +53,31 @@ fun DashboardScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(
-                    text = "METAL-DGEAR CONTROL",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = AccentCyan,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "METAL-DGEAR CONTROL",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = AccentCyan,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Surface(
+                        color = AccentCyan.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.6f))
+                    ) {
+                        Text(
+                            text = "v1.0.5",
+                            color = AccentCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
                 Text(
                     text = "Node: 100.96.88.84 • OuterHeaven Cluster",
                     style = MaterialTheme.typography.bodyMedium,
@@ -83,7 +101,8 @@ fun DashboardScreen(
         // Web-IDE (code-server) Card
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface)
+            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+            border = BorderStroke(1.dp, DarkBorder)
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -103,12 +122,20 @@ fun DashboardScreen(
                             contentDescription = null,
                             tint = AccentBlue
                         )
-                        Text(
-                            text = "Web-IDE (code-server)",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = TextPrimary,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Column {
+                            Text(
+                                text = "Web-IDE (code-server)",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Unit: code-server.service",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextMuted,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
 
                     val csActive = when (val s = statusState) {
@@ -125,19 +152,25 @@ fun DashboardScreen(
                     color = TextSecondary
                 )
 
-                OutlinedButton(
+                Button(
                     onClick = {
-                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(MetalBridgeApi.CODE_SERVER_URL))
-                        context.startActivity(browserIntent)
+                        try {
+                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(MetalBridgeApi.CODE_SERVER_URL)).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(browserIntent)
+                        } catch (_: Exception) {}
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
-                    border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.6f)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentBlue,
+                        contentColor = DarkBackground
+                    ),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Icon(imageVector = Icons.Default.OpenInBrowser, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "Web-IDE im Browser öffnen", fontWeight = FontWeight.Medium)
+                    Text(text = "Web-IDE im Browser öffnen", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -145,7 +178,8 @@ fun DashboardScreen(
         // Ollama AI Service Card
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface)
+            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+            border = BorderStroke(1.dp, DarkBorder)
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -165,12 +199,20 @@ fun DashboardScreen(
                             contentDescription = null,
                             tint = AccentCyan
                         )
-                        Text(
-                            text = "Ollama LLM Backend",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = TextPrimary,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Column {
+                            Text(
+                                text = "Ollama LLM Backend",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Unit: ollama.service",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextMuted,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
 
                     val ollamaActive = when (val s = statusState) {
@@ -183,7 +225,7 @@ fun DashboardScreen(
 
                 when (val s = statusState) {
                     is UiState.Success -> {
-                        val activeModel = s.data.services.ollama.active_model
+                        val activeModel = s.data.services.ollama.active_model.ifEmpty { "deepseek-coder:6.7b-instruct-q4_K_M" }
                         Text(
                             text = "Aktives Modell: $activeModel",
                             style = MaterialTheme.typography.bodyMedium,

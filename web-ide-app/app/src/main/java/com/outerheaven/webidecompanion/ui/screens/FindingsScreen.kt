@@ -1,5 +1,6 @@
 package com.outerheaven.webidecompanion.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,6 +11,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -17,6 +20,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -32,27 +40,15 @@ fun FindingsScreen(
     modifier: Modifier = Modifier
 ) {
     val findingsState by viewModel.findingsState.collectAsState()
-    val sandboxOutputsState by viewModel.sandboxOutputsState.collectAsState()
+    val availablePackages by viewModel.availablePackages.collectAsState()
     val selectedPackage by viewModel.selectedPackage.collectAsState()
-    val contentScrollState = rememberScrollState()
     val packageChipScrollState = rememberScrollState()
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
 
-    // Paketauswahl basierend auf der Ordnerliste aus /api/sandbox/outputs
-    val candidateFolders = (sandboxOutputsState as? UiState.Success)?.data?.folders?.filter { it.name != "catlord" } ?: emptyList()
-    val availablePackagesFromFindings = (findingsState as? UiState.Success)?.data?.available_packages ?: emptyList()
-
-    val packageList = remember(candidateFolders, availablePackagesFromFindings, selectedPackage) {
-        val list = mutableListOf<String>()
-        candidateFolders.forEach { folder ->
-            if (folder.name.isNotBlank() && !list.contains(folder.name)) {
-                list.add(folder.name)
-            }
-        }
-        availablePackagesFromFindings.forEach { pkg ->
-            if (pkg.isNotBlank() && !list.contains(pkg)) {
-                list.add(pkg)
-            }
-        }
+    // Permanente Paketliste: Nutzt aggregierten ViewModel-Zustand, ergänzt um evtl. gewählte Pakete
+    val packageList = remember(availablePackages, selectedPackage) {
+        val list = availablePackages.toMutableList()
         selectedPackage?.let { sel ->
             if (sel.isNotBlank() && !list.contains(sel)) {
                 list.add(sel)
@@ -75,13 +71,31 @@ fun FindingsScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(
-                    text = "LLM FINDINGS & ANALYSEN",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = AccentCyan,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "LLM FINDINGS & ANALYSEN",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = AccentCyan,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Surface(
+                        color = AccentCyan.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.6f))
+                    ) {
+                        Text(
+                            text = "v1.0.5",
+                            color = AccentCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
                 Text(
                     text = "Auswertungen durch DeepSeek 6.7b",
                     style = MaterialTheme.typography.bodyMedium,
@@ -91,6 +105,7 @@ fun FindingsScreen(
             IconButton(
                 onClick = {
                     viewModel.loadSandboxOutputs()
+                    viewModel.loadDropzone()
                     viewModel.loadFindings(selectedPackage)
                 },
                 modifier = Modifier
@@ -105,7 +120,7 @@ fun FindingsScreen(
             }
         }
 
-        // 1. Obere Chip-Leiste zur Paketauswahl (IMMER anzeigen)
+        // 1. Permanente Chip-Leiste oben (bleibt auch bei 404 für neue APKs immer sichtbar)
         if (packageList.isNotEmpty()) {
             Row(
                 modifier = Modifier
@@ -135,7 +150,7 @@ fun FindingsScreen(
             }
         }
 
-        // 2. Textbereich / Findings Viewer / Fallback-Hinweiskarte
+        // 2. Vollflächiger Markdown-Viewer oder 404-Fallback-Karte
         when (val state = findingsState) {
             is UiState.Success -> {
                 val findings = state.data
@@ -147,18 +162,73 @@ fun FindingsScreen(
                     colors = CardDefaults.cardColors(containerColor = DarkSurface)
                 ) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(contentScrollState)
-                            .padding(16.dp)
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        Text(
-                            text = findings.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = FontFamily.Monospace,
-                            color = TextPrimary,
-                            lineHeight = 20.sp
-                        )
+                        // Toolbar im Markdown Viewer
+                        Surface(
+                            color = DarkSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Description,
+                                        contentDescription = null,
+                                        tint = AccentCyan,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = findings.filename.ifEmpty { "llm_findings.md" },
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = TextPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "(${findings.packageName})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextMuted
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString(findings.content))
+                                        Toast.makeText(context, "Findings kopiert", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Kopieren",
+                                        tint = AccentCyan,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = DarkBorder)
+
+                        // Scrollbarer strukturierter Markdown-Inhalt
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
+                                .padding(16.dp)
+                        ) {
+                            MarkdownViewer(markdown = findings.content)
+                        }
                     }
                 }
             }
@@ -210,13 +280,14 @@ fun FindingsScreen(
                             Text(
                                 text = "Paket: $selectedPackage",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = TextMuted
+                                color = TextMuted,
+                                fontFamily = FontFamily.Monospace
                             )
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = if (isNotFound)
-                                "Für dieses Paket wurde noch keine LLM-Analyse generiert. Bitte in der Sandbox oder Pipeline anstoßen."
+                                "Für '${selectedPackage ?: "dieses Paket"}' wurde noch keine llm_findings.md erzeugt.\nDie Analyse kann in der Sandbox oder Pipeline angestoßen werden."
                             else
                                 state.message,
                             style = MaterialTheme.typography.bodyMedium,
@@ -249,7 +320,211 @@ fun FindingsScreen(
                         .weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("Wähle ein Paket aus", color = TextSecondary)
+                    Text("Wähle ein Paket aus der oberen Leiste", color = TextSecondary)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Vollflächiger Markdown-Viewer mit Unterstützung für:
+ * - H1, H2, H3 Überschriften
+ * - Horizontale Trennlinien (---)
+ * - Codeblöcke (``` ... ```)
+ * - Listen mit Bullet-Points (- / *)
+ * - Formatierungen (**fett**, `code`)
+ */
+@Composable
+fun MarkdownViewer(
+    markdown: String,
+    modifier: Modifier = Modifier
+) {
+    val lines = markdown.lines()
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        var inCodeBlock = false
+        val currentCodeBlock = StringBuilder()
+
+        for (line in lines) {
+            val trimmed = line.trim()
+
+            // Code-Block Start / Ende
+            if (trimmed.startsWith("```")) {
+                if (inCodeBlock) {
+                    // Ende Codeblock
+                    Surface(
+                        color = DarkSurfaceVariant,
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, DarkBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = currentCodeBlock.toString().trimEnd(),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = AccentGreen,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(10.dp)
+                        )
+                    }
+                    currentCodeBlock.clear()
+                    inCodeBlock = false
+                } else {
+                    inCodeBlock = true
+                }
+                continue
+            }
+
+            if (inCodeBlock) {
+                currentCodeBlock.appendLine(line)
+                continue
+            }
+
+            // Horizontale Trennlinie
+            if (trimmed == "---" || trimmed == "***" || trimmed == "___") {
+                HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 4.dp))
+                continue
+            }
+
+            // Überschriften
+            when {
+                trimmed.startsWith("# ") -> {
+                    Text(
+                        text = trimmed.removePrefix("# ").trim(),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = AccentCyan,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                    )
+                }
+                trimmed.startsWith("## ") -> {
+                    Text(
+                        text = trimmed.removePrefix("## ").trim(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = AccentBlue,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                    )
+                }
+                trimmed.startsWith("### ") -> {
+                    Text(
+                        text = trimmed.removePrefix("### ").trim(),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
+                    val content = trimmed.substring(2).trim()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text(
+                            text = "•",
+                            color = AccentCyan,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Text(
+                            text = parseInlineMarkdown(content),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary,
+                            lineHeight = 20.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                trimmed.isEmpty() -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                else -> {
+                    Text(
+                        text = parseInlineMarkdown(trimmed),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary,
+                        lineHeight = 22.sp
+                    )
+                }
+            }
+        }
+
+        // Falls Datei mit ungeschlossenem Codeblock endet
+        if (inCodeBlock && currentCodeBlock.isNotEmpty()) {
+            Surface(
+                color = DarkSurfaceVariant,
+                shape = RoundedCornerShape(6.dp),
+                border = BorderStroke(1.dp, DarkBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = currentCodeBlock.toString().trimEnd(),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = AccentGreen,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Parst inline **fett** und `code` Markups in einen AnnotatedString.
+ */
+fun parseInlineMarkdown(text: String): AnnotatedString {
+    return buildAnnotatedString {
+        var idx = 0
+        while (idx < text.length) {
+            val boldStart = text.indexOf("**", idx)
+            val codeStart = text.indexOf("`", idx)
+
+            val nextSpecial = when {
+                boldStart != -1 && codeStart != -1 -> minOf(boldStart, codeStart)
+                boldStart != -1 -> boldStart
+                codeStart != -1 -> codeStart
+                else -> -1
+            }
+
+            if (nextSpecial == -1) {
+                append(text.substring(idx))
+                break
+            }
+
+            if (nextSpecial > idx) {
+                append(text.substring(idx, nextSpecial))
+            }
+
+            if (nextSpecial == boldStart) {
+                val boldEnd = text.indexOf("**", boldStart + 2)
+                if (boldEnd != -1) {
+                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = AccentCyan))
+                    append(text.substring(boldStart + 2, boldEnd))
+                    pop()
+                    idx = boldEnd + 2
+                } else {
+                    append("**")
+                    idx = boldStart + 2
+                }
+            } else {
+                val codeEnd = text.indexOf("`", codeStart + 1)
+                if (codeEnd != -1) {
+                    pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, color = AccentGreen, background = DarkSurfaceVariant))
+                    append(" ${text.substring(codeStart + 1, codeEnd)} ")
+                    pop()
+                    idx = codeEnd + 1
+                } else {
+                    append("`")
+                    idx = codeStart + 1
                 }
             }
         }

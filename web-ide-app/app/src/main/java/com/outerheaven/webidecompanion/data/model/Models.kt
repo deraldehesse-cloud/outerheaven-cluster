@@ -36,7 +36,8 @@ data class DiskInfo(
 
 data class ServicesInfo(
     val code_server: ServiceDetail = ServiceDetail(),
-    val ollama: OllamaDetail = OllamaDetail()
+    val ollama: OllamaDetail = OllamaDetail(),
+    val rea_sandbox: SandboxStatus? = null
 )
 
 data class ServiceDetail(
