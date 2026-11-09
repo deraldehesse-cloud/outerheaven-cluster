@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Header, Response
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psutil
@@ -287,6 +288,7 @@ def root():
         "node": "metal-dgear",
         "tailscale_ip": "100.96.88.84",
         "endpoints": [
+            "/sandbox",
             "/api/status",
             "/api/dropzone",
             "/api/pipeline/trigger",
@@ -303,6 +305,482 @@ def root():
             "/api/catlord/media-stats",
         ]
     }
+
+
+@app.get("/sandbox", response_class=HTMLResponse)
+def sandbox_dashboard():
+    """
+    Kompakte Dark-Mode HTML-Webview für die Web-IDE (code-server).
+    Bietet Status der Dropzone-Dateien und JADX-Dekompilierungs-Trigger per Fetch.
+    """
+    html_content = r"""<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OuterHeaven REA Sandbox Dashboard</title>
+    <style>
+        :root {
+            --bg: #1e1e1e;
+            --surface: #252526;
+            --surface-elevated: #2d2d30;
+            --border: #3c3c3c;
+            --primary: #0e639c;
+            --primary-hover: #1177bb;
+            --accent: #4ec9b0;
+            --warning: #ce9178;
+            --danger: #f48771;
+            --success: #89d185;
+            --text: #cccccc;
+            --text-bright: #ffffff;
+            --text-muted: #858585;
+            --font-mono: Consolas, "Courier New", monospace;
+            --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 13px;
+            line-height: 1.5;
+            padding: 16px;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 16px;
+        }
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        h1 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-bright);
+        }
+        .badge {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+        .badge-running { background: rgba(137, 209, 133, 0.2); color: var(--success); border: 1px solid var(--success); }
+        .badge-stopped { background: rgba(244, 135, 113, 0.2); color: var(--danger); border: 1px solid var(--danger); }
+        .badge-blue { background: rgba(14, 99, 156, 0.3); color: #4fc1ff; border: 1px solid #4fc1ff; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        @media (max-width: 800px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+        .card {
+            background-color: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 14px;
+            margin-bottom: 16px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--text-bright);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 8px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        th, td {
+            text-align: left;
+            padding: 6px 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        th { color: var(--text-muted); font-weight: normal; }
+        tr:hover { background-color: var(--surface-elevated); }
+        .btn {
+            background-color: var(--primary);
+            color: #fff;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: inherit;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.15s ease;
+        }
+        .btn:hover { background-color: var(--primary-hover); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background-color: #3a3d41; }
+        .btn-secondary:hover { background-color: #45494e; }
+        .btn-danger { background-color: #8b2b2b; }
+        .btn-danger:hover { background-color: #a83232; }
+        .form-group {
+            margin-bottom: 10px;
+        }
+        label {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        input, select {
+            width: 100%;
+            background-color: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text-bright);
+            padding: 6px 8px;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 12px;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .log-box {
+            background-color: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 10px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: #d4d4d4;
+            max-height: 240px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .status-bar {
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-bottom: 12px;
+            display: none;
+            font-size: 12px;
+        }
+        .status-info { background: rgba(14, 99, 156, 0.2); border: 1px solid var(--primary); color: #4fc1ff; }
+        .status-success { background: rgba(137, 209, 133, 0.2); border: 1px solid var(--success); color: var(--success); }
+        .status-error { background: rgba(244, 135, 113, 0.2); border: 1px solid var(--danger); color: var(--danger); }
+        .actions-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-title">
+            <span style="font-size: 18px;">🔬</span>
+            <h1>OuterHeaven REA Sandbox Dashboard</h1>
+            <span class="badge badge-blue">metal-dgear</span>
+            <span id="container-badge" class="badge badge-running">Prüfe...</span>
+        </div>
+        <div>
+            <button class="btn btn-secondary" onclick="loadAll()">🔄 Aktualisieren</button>
+        </div>
+    </header>
+
+    <div id="status-bar" class="status-bar"></div>
+
+    <div class="grid">
+        <!-- Linke Spalte: Dropzone APKs & Steuerung -->
+        <div>
+            <div class="card">
+                <div class="card-header">
+                    <span>📦 Dropzone APKs (<span id="dropzone-count">0</span>)</span>
+                    <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono)">workspace/catlord-dropzone</span>
+                </div>
+                <div style="overflow-x:auto; max-height: 260px;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>APK Datei</th>
+                                <th>Größe</th>
+                                <th>Datum</th>
+                                <th>Aktion</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dropzone-table">
+                            <tr><td colspan="4" style="color:var(--text-muted)">Lade Dropzone-Dateien...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span>⚙️ JADX Dekompilierung auslösen</span>
+                    <span class="badge badge-blue">JADX 1.5.0</span>
+                </div>
+                <form id="decompile-form" onsubmit="triggerDecompile(event)">
+                    <div class="form-group">
+                        <label for="apk-select">Ausgewählte APK:</label>
+                        <select id="apk-select" required onchange="onApkSelectChange()">
+                            <option value="">-- APK auswählen --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="target-folder">Ziel-Unterordner (in rea-output/):</label>
+                        <input type="text" id="target-folder" placeholder="z.B. catlord/InnocentWitches" />
+                    </div>
+                    <div class="form-group">
+                        <label for="filter-kw">Gezielte Code-Suche / Keyword-Filter (optional):</label>
+                        <input type="text" id="filter-kw" placeholder="z.B. save, crypto, auth, vibe, camera, token" />
+                    </div>
+                    <div class="actions-row">
+                        <button type="submit" id="btn-decompile" class="btn">
+                            <span>▶</span> Dekompilierung starten (JADX)
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="triggerPipeline()">
+                            <span>⚡</span> Full Pipeline
+                        </button>
+                        <button type="button" class="btn btn-danger" onclick="restartContainer()">
+                            <span>🔄</span> Container Restart
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Rechte Spalte: Sandbox Status, Container Info & Jobs Log -->
+        <div>
+            <div class="card">
+                <div class="card-header">
+                    <span>🐳 Sandbox Container Status</span>
+                    <span id="container-status-text" style="font-size: 11px; color: var(--accent);">--</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; margin-bottom: 10px;">
+                    <div><span style="color:var(--text-muted)">Container:</span> <strong id="ci-name">rea-sandbox</strong></div>
+                    <div><span style="color:var(--text-muted)">Image:</span> <span id="ci-image">rea-sandbox:latest</span></div>
+                    <div><span style="color:var(--text-muted)">JADX Version:</span> <span id="ci-jadx">1.5.0</span></div>
+                    <div><span style="color:var(--text-muted)">Host PID:</span> <span id="ci-pid">--</span></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span>📜 Letzte Decompile-Jobs & Logs</span>
+                    <button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="loadJobs()">Reload Logs</button>
+                </div>
+                <div id="job-info" style="font-size: 12px; margin-bottom: 8px; color: var(--text-bright);">Keine laufenden Jobs.</div>
+                <div id="log-box" class="log-box">Warte auf Job-Informationen...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showStatus(text, type='info') {
+            const el = document.getElementById('status-bar');
+            el.className = 'status-bar status-' + type;
+            el.textContent = text;
+            el.style.display = 'block';
+            if (type !== 'info') {
+                setTimeout(() => { el.style.display = 'none'; }, 6000);
+            }
+        }
+
+        async function loadSandboxStatus() {
+            try {
+                const res = await fetch('/api/sandbox/status');
+                const data = await res.json();
+                const badge = document.getElementById('container-badge');
+                const stText = document.getElementById('container-status-text');
+                if (data.is_running) {
+                    badge.className = 'badge badge-running';
+                    badge.textContent = 'RUNNING';
+                    stText.textContent = 'Online (PID: ' + (data.pid || '--') + ')';
+                    document.getElementById('ci-pid').textContent = data.pid || '--';
+                    document.getElementById('ci-image').textContent = data.image || 'rea-sandbox:latest';
+                    document.getElementById('ci-jadx').textContent = data.jadx_version || '1.5.0';
+                } else {
+                    badge.className = 'badge badge-stopped';
+                    badge.textContent = 'STOPPED';
+                    stText.textContent = 'Gestoppt / Nicht aktiv';
+                }
+            } catch(e) {
+                console.error('Status error:', e);
+            }
+        }
+
+        async function loadDropzone() {
+            try {
+                const res = await fetch('/api/dropzone');
+                const data = await res.json();
+                document.getElementById('dropzone-count').textContent = data.files.length;
+                const tbody = document.getElementById('dropzone-table');
+                const select = document.getElementById('apk-select');
+                const currentVal = select.value;
+
+                if (!data.files || data.files.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">Keine APKs in der Dropzone gefunden.</td></tr>';
+                    select.innerHTML = '<option value="">-- Keine APKs verfügbar --</option>';
+                    return;
+                }
+
+                tbody.innerHTML = '';
+                select.innerHTML = '<option value="">-- APK auswählen --</option>';
+
+                data.files.forEach(f => {
+                    const row = document.createElement('tr');
+                    const dateStr = f.modified_at ? f.modified_at.substring(0, 16).replace('T', ' ') : '--';
+                    row.innerHTML = `
+                        <td style="font-weight:600; color:var(--text-bright); word-break:break-all;">\${f.name}</td>
+                        <td style="color:var(--accent);">\${f.size_formatted}</td>
+                        <td style="color:var(--text-muted); font-size:11px;">\${dateStr}</td>
+                        <td><button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="selectApk('\${f.name}')">Wählen</button></td>
+                    `;
+                    tbody.appendChild(row);
+
+                    const opt = document.createElement('option');
+                    opt.value = f.name;
+                    opt.textContent = `\${f.name} (\${f.size_formatted})`;
+                    if (f.name === currentVal) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            } catch(e) {
+                console.error('Dropzone error:', e);
+            }
+        }
+
+        function selectApk(name) {
+            const select = document.getElementById('apk-select');
+            select.value = name;
+            onApkSelectChange();
+        }
+
+        function onApkSelectChange() {
+            const apkName = document.getElementById('apk-select').value;
+            if (!apkName) return;
+            const target = document.getElementById('target-folder');
+            const base = apkName.replace(/\\.apk$/i, '');
+            target.value = 'catlord/' + base;
+        }
+
+        async function loadJobs() {
+            try {
+                const res = await fetch('/api/sandbox/jobs');
+                const data = await res.json();
+                const logBox = document.getElementById('log-box');
+                const jobInfo = document.getElementById('job-info');
+                if (!data.jobs || data.jobs.length === 0) {
+                    jobInfo.textContent = 'Bisher keine Jobs in der Sandbox ausgeführt.';
+                    logBox.textContent = 'Kein Log-Output vorhanden.';
+                    return;
+                }
+                const latest = data.jobs[0];
+                const stColor = latest.status === 'completed' ? 'var(--success)' : (latest.status === 'running' ? 'var(--accent)' : 'var(--danger)');
+                const exitStr = latest.exit_code !== null ? latest.exit_code : 'läuft';
+                jobInfo.innerHTML = `Job <strong>\${latest.id}</strong> (\${latest.apk_name}) &bull; Status: <span style="color:\${stColor}; font-weight:bold;">\${latest.status.toUpperCase()}</span> (Exit: \${exitStr})`;
+                logBox.textContent = latest.log_tail || 'Kein Log-Output verfügbar.';
+            } catch(e) {
+                console.error('Jobs error:', e);
+            }
+        }
+
+        async function triggerDecompile(event) {
+            event.preventDefault();
+            const apk = document.getElementById('apk-select').value;
+            if (!apk) {
+                showStatus('Bitte zuerst eine APK auswählen.', 'error');
+                return;
+            }
+            const target = document.getElementById('target-folder').value.trim() || null;
+            const kw = document.getElementById('filter-kw').value.trim() || null;
+            const btn = document.getElementById('btn-decompile');
+            btn.disabled = true;
+            btn.textContent = '⏳ Starte JADX...';
+            showStatus('Dekompilierungs-Job für ' + apk + ' wird gestartet...', 'info');
+
+            try {
+                const res = await fetch('/api/sandbox/decompile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ apk_name: apk, target_subfolder: target, filter_keyword: kw })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showStatus('Job gestartet: ' + (data.job_id || data.message), 'success');
+                    loadJobs();
+                } else {
+                    showStatus('Fehler: ' + (data.detail || 'Konnte Job nicht starten'), 'error');
+                }
+            } catch(e) {
+                showStatus('Netzwerkfehler: ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>▶</span> Dekompilierung starten (JADX)';
+            }
+        }
+
+        async function restartContainer() {
+            if (!confirm('Möchtest du den rea-sandbox Docker-Container wirklich neustarten?')) return;
+            showStatus('Starte Container neu...', 'info');
+            try {
+                const res = await fetch('/api/sandbox/container/restart', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok) {
+                    showStatus('Container erfolgreich neugestartet!', 'success');
+                    loadSandboxStatus();
+                } else {
+                    showStatus('Fehler beim Container-Neustart: ' + (data.detail || data.error), 'error');
+                }
+            } catch(e) {
+                showStatus('Fehler: ' + e.message, 'error');
+            }
+        }
+
+        async function triggerPipeline() {
+            showStatus('Triggere Dropzone-Pipeline (/api/pipeline/trigger)...', 'info');
+            try {
+                const res = await fetch('/api/pipeline/trigger', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok) {
+                    showStatus('Pipeline angestoßen: ' + (data.message || 'Läuft'), 'success');
+                    loadJobs();
+                } else {
+                    showStatus('Pipeline Fehler: ' + data.detail, 'error');
+                }
+            } catch(e) {
+                showStatus('Fehler: ' + e.message, 'error');
+            }
+        }
+
+        function loadAll() {
+            loadSandboxStatus();
+            loadDropzone();
+            loadJobs();
+        }
+
+        // Init & Auto-Refresh
+        loadAll();
+        setInterval(loadAll, 10000);
+    </script>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html_content)
 
 
 @app.get("/api/status")
@@ -823,10 +1301,12 @@ def ask_deepseek(req: CatlordAskDeepSeekRequest):
     if context_blocks:
         context_str = "\n\n" + "\n\n".join(context_blocks) + "\n\n"
 
-    system_and_user_prompt = f"""Du bist ein Senior Android Reverse-Engineering und Software-Architektur Experte im OuterHeaven Cluster.
+    system_and_user_prompt = f"""Du bist leitender Spielentwickler, Game Designer und Dialog-Autor für das Spiel 'Catlord' im OuterHeaven Cluster.
+Charaktere: Elliot (fauler, zynischer, dicker Kater / Tank), Käch (agile Ninja-Katze / Speed), Gert / Baustelle, etc.
+Deine Aufgabe ist es, mitreißende Dialoge, packende Spiellogik, Quests und sauberen Spiel-Code (Python, Android, Engine) zu entwerfen.
 Aufgabe / Frage: {prompt_clean}
 {context_str}
-Antworte technisch präzise, fundiert und auf Deutsch."""
+Antworte kreativ, technisch fundiert und auf Deutsch."""
 
     payload = {
         "model": DEFAULT_OLLAMA_MODEL,

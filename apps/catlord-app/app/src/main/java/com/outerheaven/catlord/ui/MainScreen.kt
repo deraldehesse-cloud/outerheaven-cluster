@@ -48,7 +48,7 @@ fun MainScreen(
                             border = androidx.compose.foundation.BorderStroke(1.dp, AmberGold)
                         ) {
                             Text(
-                                text = "v1.0.1",
+                                text = "v1.0.2",
                                 color = AmberGold,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -129,8 +129,8 @@ fun MainScreen(
                 NavigationBarItem(
                     selected = currentScreen == AppScreen.REA_MEDIA,
                     onClick = { viewModel.setScreen(AppScreen.REA_MEDIA) },
-                    icon = { Icon(Icons.Default.Science, contentDescription = "REA & Media") },
-                    label = { Text("REA & Media") },
+                    icon = { Icon(Icons.Default.AutoStories, contentDescription = "Story & Media Hub") },
+                    label = { Text("Story & Media") },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = DarkBackground,
                         selectedTextColor = AmberGold,

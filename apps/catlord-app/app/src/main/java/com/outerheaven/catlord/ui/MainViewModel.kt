@@ -99,8 +99,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isLoadingReaMedia = MutableStateFlow(false)
     val isLoadingReaMedia: StateFlow<Boolean> = _isLoadingReaMedia.asStateFlow()
 
-    val defaultPackages = listOf("Catlord-Test", "InnocentWitches", "QueensBrothel", "VibeMate", "megan-app")
-    private val _selectedPackage = MutableStateFlow("Catlord-Test")
+    val defaultPackages = listOf("Catlord", "Elliot (Tank)", "Käch (Cash)", "Story & Quests", "Game Code")
+    private val _selectedPackage = MutableStateFlow("Catlord")
     val selectedPackage: StateFlow<String> = _selectedPackage.asStateFlow()
 
     private val _availablePackages = MutableStateFlow<List<String>>(defaultPackages)
@@ -321,7 +321,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             findingsRes.onSuccess { findings ->
                 _latestFindings.value = findings
                 if (findings.availablePackages.isNotEmpty()) {
-                    val merged = (defaultPackages + findings.availablePackages).distinct()
+                    val catlordOnly = findings.availablePackages.filter {
+                        it.contains("catlord", ignoreCase = true) ||
+                        it.contains("elliot", ignoreCase = true) ||
+                        it.contains("kaech", ignoreCase = true)
+                    }
+                    val merged = (defaultPackages + catlordOnly).distinct()
                     _availablePackages.value = merged
                 }
             }.onFailure { err ->
@@ -384,7 +389,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             findingsRes.onSuccess { findings ->
                 _latestFindings.value = findings
                 if (findings.availablePackages.isNotEmpty()) {
-                    val merged = (defaultPackages + findings.availablePackages).distinct()
+                    val catlordOnly = findings.availablePackages.filter {
+                        it.contains("catlord", ignoreCase = true) ||
+                        it.contains("elliot", ignoreCase = true) ||
+                        it.contains("kaech", ignoreCase = true)
+                    }
+                    val merged = (defaultPackages + catlordOnly).distinct()
                     _availablePackages.value = merged
                 }
             }

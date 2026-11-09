@@ -51,6 +51,8 @@ credentials/
 !mission-control/workflows/archetypes/*.json
 !mission-control/data/canonical_vault.json
 !nodes/**/.vscode/*.json
+!.vscode/tasks.json
+rea-output
 
 
 # Generierte Medien und Modelle

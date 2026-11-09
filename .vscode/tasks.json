@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "REA: Analyze Dropzone APKs",
+      "type": "shell",
+      "command": "/mnt/storage-fast/scripts/process-catlord-apks.sh",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true,
+        "focus": true
+      }
+    },
+    {
+      "label": "REA: Restart Sandbox Container",
+      "type": "shell",
+      "command": "docker compose -f /mnt/storage-fast/rea-sandbox/docker-compose.yml restart",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false,
+        "focus": false
+      }
+    }
+  ]
+}
