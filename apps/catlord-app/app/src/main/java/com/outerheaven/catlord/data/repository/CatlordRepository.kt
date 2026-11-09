@@ -163,9 +163,25 @@ class CatlordRepository private constructor(context: Context) {
         }
     }
 
-    suspend fun askDeepSeek(prompt: String, pkg: String? = null, saveToFindings: Boolean = true): Result<AskDeepSeekResponse> = withContext(Dispatchers.IO) {
+    suspend fun askDeepSeek(
+        prompt: String,
+        model: String = "catlord-hermes:latest",
+        pkg: String? = null,
+        includeLore: Boolean = false,
+        saveToFindings: Boolean = false,
+        saveToDrafts: Boolean = true
+    ): Result<AskDeepSeekResponse> = withContext(Dispatchers.IO) {
         try {
-            val res = api.askDeepSeek(AskDeepSeekRequest(prompt = prompt, pkg = pkg, saveToFindings = saveToFindings))
+            val res = api.askDeepSeek(
+                AskDeepSeekRequest(
+                    prompt = prompt,
+                    model = model,
+                    pkg = pkg,
+                    includeLore = includeLore,
+                    saveToFindings = saveToFindings,
+                    saveToDrafts = saveToDrafts
+                )
+            )
             Result.success(res)
         } catch (e: Exception) {
             Result.failure(e)

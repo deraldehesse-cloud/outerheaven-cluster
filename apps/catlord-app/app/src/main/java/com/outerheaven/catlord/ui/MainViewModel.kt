@@ -62,7 +62,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedCategory = MutableStateFlow("Story")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
-    val categories = listOf("Story", "Gameplay", "Elliot", "Käch", "Loco", "Gert / Baustelle")
+    val categories = listOf("Story", "Gameplay", "Elliot", "Cash / Loco (Casper)", "Gert / Baustelle")
 
     private val _noteTitle = MutableStateFlow("")
     val noteTitle: StateFlow<String> = _noteTitle.asStateFlow()
@@ -89,7 +89,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isLoadingDocs = MutableStateFlow(false)
     val isLoadingDocs: StateFlow<Boolean> = _isLoadingDocs.asStateFlow()
 
-    // REA & Media State
+    // AI Studio & Media State
+    val availableAgents = listOf(
+        CatlordAgentInfo(
+            id = "catlord-hermes:latest",
+            name = "catlord-hermes:latest",
+            title = "Hermes (Story & Dialoge)",
+            icon = "🎭",
+            description = "Lead-Writer für lebendige Dialoge, Quests & Storyline"
+        ),
+        CatlordAgentInfo(
+            id = "catlord-architect:latest",
+            name = "catlord-architect:latest",
+            title = "Architect (Konzepte)",
+            icon = "📐",
+            description = "Game-Design, Strukturierung von Voice-Notes & Mechaniken"
+        ),
+        CatlordAgentInfo(
+            id = "metal-coder:latest",
+            name = "metal-coder:latest",
+            title = "Coder (Kotlin/Game)",
+            icon = "💻",
+            description = "Kotlin/Python, Game-Logik, Android & Code-Analyse"
+        ),
+        CatlordAgentInfo(
+            id = "metal-fast:latest",
+            name = "metal-fast:latest",
+            title = "Fast (Quick Chat)",
+            icon = "⚡",
+            description = "Blitzschneller Assistent für kurze, direkte Antworten"
+        )
+    )
+
+    private val _selectedModel = MutableStateFlow("catlord-hermes:latest")
+    val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()
+
+    fun selectModel(modelId: String) {
+        _selectedModel.value = modelId
+    }
+
+    private val _includeLore = MutableStateFlow(true)
+    val includeLore: StateFlow<Boolean> = _includeLore.asStateFlow()
+
+    fun toggleIncludeLore() {
+        _includeLore.value = !_includeLore.value
+    }
+
+    private val _saveToDrafts = MutableStateFlow(true)
+    val saveToDrafts: StateFlow<Boolean> = _saveToDrafts.asStateFlow()
+
+    fun toggleSaveToDrafts() {
+        _saveToDrafts.value = !_saveToDrafts.value
+    }
+
     private val _mediaStats = MutableStateFlow<MediaStatsResponse?>(null)
     val mediaStats: StateFlow<MediaStatsResponse?> = _mediaStats.asStateFlow()
 
@@ -99,7 +151,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isLoadingReaMedia = MutableStateFlow(false)
     val isLoadingReaMedia: StateFlow<Boolean> = _isLoadingReaMedia.asStateFlow()
 
-    val defaultPackages = listOf("Catlord", "Elliot (Tank)", "Käch (Cash)", "Story & Quests", "Game Code")
+    val defaultPackages = listOf("Catlord", "Elliot (Tank)", "Cash / Loco (Casper)", "Story & Quests", "Game Code")
     private val _selectedPackage = MutableStateFlow("Catlord")
     val selectedPackage: StateFlow<String> = _selectedPackage.asStateFlow()
 
@@ -121,7 +173,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _decompileMessage = MutableStateFlow<String?>(null)
     val decompileMessage: StateFlow<String?> = _decompileMessage.asStateFlow()
 
-    // DeepSeek Agent State
+    // Agent Prompt State
     private val _deepSeekPrompt = MutableStateFlow("")
     val deepSeekPrompt: StateFlow<String> = _deepSeekPrompt.asStateFlow()
 
@@ -358,20 +410,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun askDeepSeek() {
         val prompt = _deepSeekPrompt.value.trim()
         if (prompt.isBlank()) {
-            _statusMessage.value = "Bitte einen Prompt für DeepSeek eingeben."
+            _statusMessage.value = "Bitte eine Frage oder einen Prompt eingeben."
             return
         }
-        val pkg = _selectedPackage.value.ifBlank { null }
+        val currentModel = _selectedModel.value
+        val lore = _includeLore.value
+        val drafts = _saveToDrafts.value
         viewModelScope.launch {
             _isAskingDeepSeek.value = true
-            _statusMessage.value = "DeepSeek analysiert..."
-            val res = repository.askDeepSeek(prompt = prompt, pkg = pkg, saveToFindings = true)
+            _statusMessage.value = "Agent generiert Antwort auf metal-dgear..."
+            val res = repository.askDeepSeek(
+                prompt = prompt,
+                model = currentModel,
+                pkg = null,
+                includeLore = lore,
+                saveToFindings = false,
+                saveToDrafts = drafts
+            )
             res.onSuccess { resp ->
                 _deepSeekResponse.value = resp
-                _statusMessage.value = "DeepSeek Analyse abgeschlossen!"
-                loadLatestFindingsForPackage(_selectedPackage.value)
+                _statusMessage.value = "Antwort von ${resp.model ?: currentModel} erhalten!"
             }.onFailure { err ->
-                _statusMessage.value = "DeepSeek Fehler: ${err.message}"
+                _statusMessage.value = "Fehler bei Anfrage: ${err.message}"
             }
             _isAskingDeepSeek.value = false
         }

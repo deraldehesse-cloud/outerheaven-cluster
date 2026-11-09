@@ -77,8 +77,66 @@ class CatlordVoiceNoteRequest(BaseModel):
 
 class CatlordAskDeepSeekRequest(BaseModel):
     prompt: str
+    model: Optional[str] = "catlord-hermes:latest"
     package: Optional[str] = None
+    include_lore: Optional[bool] = False
     save_to_findings: Optional[bool] = True
+    save_to_drafts: Optional[bool] = False
+
+
+class SandboxAnalyzeRequest(BaseModel):
+    package: str
+    keyword: Optional[str] = None
+    custom_prompt: Optional[str] = None
+
+
+# Spezialisierte Ollama-Agenten auf metal-dgear
+OLLAMA_AGENTS = {
+    "catlord-hermes:latest": {
+        "id": "catlord-hermes:latest",
+        "name": "catlord-hermes:latest",
+        "title": "Hermes (Story & Dialoge)",
+        "role": "Lead-Writer & Narrative-Designer",
+        "description": "Hermes 3 8B – Story, Dialoge, Charaktere: Sebastian, Gert Baert, Elliot, Cash/Loco (Casper), Holly",
+        "base_model": "hermes3:8b",
+        "badge": "STORY",
+        "icon": "🎭",
+        "default_for": "story"
+    },
+    "catlord-architect:latest": {
+        "id": "catlord-architect:latest",
+        "name": "catlord-architect:latest",
+        "title": "Architect (Konzepte)",
+        "role": "Game-Design-Architekt & Struktur-Assistent",
+        "description": "Qwen 2.5 7B – Game-Design, Strukturierung von Voice-Notes, Mechaniken & Inventar-Logik",
+        "base_model": "qwen2.5:7b",
+        "badge": "CONCEPT",
+        "icon": "📐",
+        "default_for": "concepts"
+    },
+    "metal-coder:latest": {
+        "id": "metal-coder:latest",
+        "name": "metal-coder:latest",
+        "title": "Coder (Kotlin/Game)",
+        "role": "Senior Android- & Cluster-Entwickler",
+        "description": "DeepSeek-Coder 6.7B – Code-Analyse, Kotlin/Python, Jetpack Compose & REA-Sandbox",
+        "base_model": "deepseek-coder:6.7b-instruct-q4_K_M",
+        "badge": "CODE",
+        "icon": "💻",
+        "default_for": "code"
+    },
+    "metal-fast:latest": {
+        "id": "metal-fast:latest",
+        "name": "metal-fast:latest",
+        "title": "Fast (Quick Chat)",
+        "role": "Technischer Blitz-Assistent",
+        "description": "Qwen 2.5 3B – Blitzschneller Assistent für kurze, präzise Antworten ohne Einleitungsfloskeln",
+        "base_model": "qwen2.5:3b",
+        "badge": "FAST",
+        "icon": "⚡",
+        "default_for": "quick"
+    }
+}
 
 
 # ==========================================
@@ -290,6 +348,7 @@ def root():
         "endpoints": [
             "/sandbox",
             "/api/status",
+            "/api/models",
             "/api/dropzone",
             "/api/pipeline/trigger",
             "/api/pipeline/status",
@@ -298,8 +357,10 @@ def root():
             "/api/sandbox/decompile",
             "/api/sandbox/jobs",
             "/api/sandbox/outputs",
+            "/api/sandbox/analyze",
             "/api/sandbox/container/restart",
             "/api/catlord/ask-deepseek",
+            "/api/catlord/ask-agent",
             "/api/catlord/voice-note",
             "/api/catlord/docs",
             "/api/catlord/media-stats",
@@ -590,6 +651,49 @@ def sandbox_dashboard():
         </div>
     </div>
 
+    <!-- Untere Sektion: Code-Analyse & LLM Findings mit metal-coder:latest -->
+    <div class="card" style="margin-top: 16px;">
+        <div class="card-header">
+            <span>🔬 REA Code-Analyse & Findings</span>
+            <span class="badge badge-blue">metal-coder:latest</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div>
+                <form id="analyze-form" onsubmit="triggerAnalyze(event)">
+                    <div class="form-group">
+                        <label for="pkg-select">Dekompiliertes Paket (in rea-output/):</label>
+                        <select id="pkg-select" required onchange="onPkgSelectChange()">
+                            <option value="">-- Paket auswählen --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="analyze-kw">Fokus-Keyword / Suchbegriff (optional):</label>
+                        <input type="text" id="analyze-kw" placeholder="z.B. auth, crypto, token, vibe, billing, network" />
+                    </div>
+                    <div class="form-group">
+                        <label for="analyze-prompt">Spezifische Analyse-Anweisung (optional):</label>
+                        <input type="text" id="analyze-prompt" placeholder="z.B. Finde API-Endpunkte und Token-Handling" />
+                    </div>
+                    <div class="actions-row">
+                        <button type="submit" id="btn-analyze" class="btn">
+                            <span>🤖</span> Mit metal-coder:latest analysieren
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="loadSelectedFindings()">
+                            <span>📄</span> Letzte Findings laden
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-weight: 600; font-size: 12px; color: var(--text-bright);" id="findings-title">llm_findings.md</span>
+                    <span id="findings-mtime" style="font-size: 11px; color: var(--text-muted);">--</span>
+                </div>
+                <div id="findings-box" class="log-box" style="max-height: 220px; white-space: pre-wrap; font-family: var(--font-mono); font-size: 11px;">Wähle ein Paket aus, um gespeicherte Findings anzuzeigen oder eine neue Analyse mit metal-coder:latest zu starten...</div>
+            </div>
+        </div>
+    </div>
+
     <script>
         function showStatus(text, type='info') {
             const el = document.getElementById('status-bar');
@@ -767,10 +871,103 @@ def sandbox_dashboard():
             }
         }
 
+        async function loadOutputs() {
+            try {
+                const res = await fetch('/api/sandbox/outputs');
+                const data = await res.json();
+                const select = document.getElementById('pkg-select');
+                const currentVal = select.value;
+                if (!data.folders || data.folders.length === 0) {
+                    select.innerHTML = '<option value="">-- Keine dekompilierten Pakete gefunden --</option>';
+                    return;
+                }
+                select.innerHTML = '<option value="">-- Paket auswählen --</option>';
+                data.folders.forEach(f => {
+                    const opt = document.createElement('option');
+                    opt.value = f.relative_path || f.name;
+                    opt.textContent = `${f.name} (${f.file_count} Dateien${f.has_findings ? ' • Findings vorhanden' : ''})`;
+                    if (opt.value === currentVal || f.name === currentVal) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            } catch(e) {
+                console.error('Outputs error:', e);
+            }
+        }
+
+        function onPkgSelectChange() {
+            loadSelectedFindings();
+        }
+
+        async function loadSelectedFindings() {
+            const select = document.getElementById('pkg-select');
+            const pkg = select.value;
+            if (!pkg) return;
+            const cleanPkg = pkg.split('/').pop();
+            const titleEl = document.getElementById('findings-title');
+            const box = document.getElementById('findings-box');
+            const mtimeEl = document.getElementById('findings-mtime');
+            titleEl.textContent = `llm_findings.md (${cleanPkg})`;
+            box.textContent = 'Lade Findings...';
+            try {
+                const res = await fetch('/api/findings/latest?package=' + encodeURIComponent(cleanPkg));
+                if (res.ok) {
+                    const data = await res.json();
+                    box.textContent = data.content || 'Kein Inhalt vorhanden.';
+                    mtimeEl.textContent = data.modified_at ? data.modified_at.substring(0, 19).replace('T', ' ') : '';
+                } else {
+                    box.textContent = `Noch keine llm_findings.md für '${cleanPkg}' vorhanden. Nutze den Button oben, um eine Analyse mit metal-coder:latest zu starten.`;
+                    mtimeEl.textContent = '--';
+                }
+            } catch(e) {
+                box.textContent = 'Fehler beim Laden: ' + e.message;
+            }
+        }
+
+        async function triggerAnalyze(event) {
+            event.preventDefault();
+            const pkg = document.getElementById('pkg-select').value;
+            if (!pkg) {
+                showStatus('Bitte zuerst ein dekompiliertes Paket auswählen.', 'error');
+                return;
+            }
+            const kw = document.getElementById('analyze-kw').value.trim() || null;
+            const prompt = document.getElementById('analyze-prompt').value.trim() || null;
+            const btn = document.getElementById('btn-analyze');
+            const box = document.getElementById('findings-box');
+            btn.disabled = true;
+            btn.textContent = '⏳ Analysiere mit metal-coder...';
+            showStatus('Analyse für ' + pkg + ' mit metal-coder:latest gestartet...', 'info');
+            box.textContent = '⏳ metal-coder:latest analysiert Code auf metal-dgear (kann ca. 10–30 Sekunden dauern)...';
+
+            try {
+                const res = await fetch('/api/sandbox/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ package: pkg, keyword: kw, custom_prompt: prompt })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showStatus('Analyse erfolgreich abgeschlossen!', 'success');
+                    box.textContent = data.analysis || 'Analyse fertig, aber keine Ausgabe.';
+                    document.getElementById('findings-mtime').textContent = 'Gerade eben';
+                } else {
+                    showStatus('Fehler: ' + (data.detail || 'Analyse fehlgeschlagen'), 'error');
+                    box.textContent = 'Fehler bei der Analyse: ' + (data.detail || 'Unbekannt');
+                }
+            } catch(e) {
+                showStatus('Netzwerkfehler: ' + e.message, 'error');
+                box.textContent = 'Netzwerkfehler: ' + e.message;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>🤖</span> Mit metal-coder:latest analysieren';
+            }
+        }
+
         function loadAll() {
             loadSandboxStatus();
             loadDropzone();
             loadJobs();
+            loadOutputs();
         }
 
         // Init & Auto-Refresh
@@ -851,6 +1048,43 @@ def get_status():
             "end_time": tracker.end_time,
             "last_exit_code": tracker.last_exit_code,
         }
+    }
+
+
+@app.get("/api/models")
+def get_models():
+    """
+    Liefert die Liste der auf metal-dgear verfügbaren spezialisierten Ollama-Agenten
+    inklusive Beschreibung, Rolle und aktuellem Laufzeitstatus.
+    """
+    ollama_info = get_ollama_status()
+    running_models = ollama_info.get("active_models", [])
+    installed_models = ollama_info.get("available_models", [])
+
+    models_list = []
+    for model_id, meta in OLLAMA_AGENTS.items():
+        is_installed = any(model_id in m for m in installed_models)
+        is_running = any(model_id in m for m in running_models)
+        models_list.append({
+            "id": model_id,
+            "name": meta["name"],
+            "title": meta["title"],
+            "role": meta["role"],
+            "description": meta["description"],
+            "base_model": meta["base_model"],
+            "badge": meta["badge"],
+            "icon": meta["icon"],
+            "is_installed": is_installed,
+            "is_active": is_running,
+            "default_for": meta["default_for"]
+        })
+
+    return {
+        "node": "metal-dgear",
+        "count": len(models_list),
+        "models": models_list,
+        "running_models": running_models,
+        "installed_models": installed_models
     }
 
 
@@ -1126,19 +1360,23 @@ Fasse in 3 prägnanten Punkten auf Deutsch zusammen:
 
                         try:
                             payload = {
-                                "model": DEFAULT_OLLAMA_MODEL,
+                                "model": "metal-coder:latest",
                                 "prompt": prompt_text,
                                 "stream": False,
-                                "options": {"num_predict": 200, "temperature": 0.2}
+                                "options": {"num_predict": 400, "temperature": 0.2}
                             }
                             ores = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, timeout=60)
+                            if ores.status_code != 200:
+                                payload["model"] = DEFAULT_OLLAMA_MODEL
+                                ores = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, timeout=60)
+
                             if ores.status_code == 200:
                                 findings_text = ores.json().get("response", "")
                                 if findings_text:
                                     findings_path = SANDBOX_OUTPUT_DIR / out_folder / "llm_findings.md"
                                     findings_content = f"""# LLM Analyse: {pkg_name} (Filter: {kw})
 
-- **Modell:** `{DEFAULT_OLLAMA_MODEL}`
+- **Modell:** `metal-coder:latest`
 - **Suchbegriff:** `{kw}`
 - **Gefundene Treffer:** {len(matched_files)} Klassen
 - **Zeitpunkt:** {datetime.now(timezone.utc).isoformat()}
@@ -1148,7 +1386,7 @@ Fasse in 3 prägnanten Punkten auf Deutsch zusammen:
 {findings_text}
 """
                                     findings_path.write_text(findings_content, encoding="utf-8")
-                                    tail += f"\n[DeepSeek Analyse für '{kw}' in llm_findings.md gespeichert]"
+                                    tail += f"\n[metal-coder Analyse für '{kw}' in llm_findings.md gespeichert]"
                         except Exception as oe:
                             tail += f"\n[Ollama Fehler: {str(oe)}]"
                     else:
@@ -1249,6 +1487,121 @@ def get_sandbox_outputs():
     }
 
 
+@app.post("/api/sandbox/analyze")
+def analyze_decompiled_package(req: SandboxAnalyzeRequest):
+    """
+    Analysiert ein dekompiliertes Paket in rea-output mit metal-coder:latest.
+    """
+    pkg_clean = req.package.strip().strip("/")
+    if not pkg_clean:
+        raise HTTPException(status_code=400, detail="Paketname darf nicht leer sein.")
+
+    pkg_dir = SANDBOX_OUTPUT_DIR / pkg_clean
+    if not pkg_dir.exists():
+        pkg_dir = OUTPUT_BASE_DIR / pkg_clean
+        if not pkg_dir.exists():
+            raise HTTPException(status_code=404, detail=f"Paket-Ordner '{pkg_clean}' nicht in {SANDBOX_OUTPUT_DIR} gefunden.")
+
+    kw = (req.keyword or "").strip()
+    sources_dir = pkg_dir / "sources"
+    matched_snippets = []
+
+    if kw and sources_dir.exists():
+        grep_cmd = [
+            "grep", "-rnwil",
+            "--exclude-dir=androidx", "--exclude-dir=android",
+            "--exclude-dir=kotlin", "--exclude-dir=kotlinx",
+            "--exclude-dir=com/google", "--exclude-dir=org/intellij",
+            kw, str(sources_dir)
+        ]
+        try:
+            grep_res = subprocess.run(grep_cmd, capture_output=True, text=True, timeout=20)
+            if grep_res.returncode == 0 and grep_res.stdout.strip():
+                files = [f for f in grep_res.stdout.strip().split("\n") if f][:3]
+                for f in files:
+                    try:
+                        rel = Path(f).relative_to(pkg_dir)
+                        with open(f, "r", encoding="utf-8", errors="replace") as fp:
+                            lines = [line for line in fp if "@kotlin.Metadata" not in line][:40]
+                        matched_snippets.append(f"### Datei: {rel}\n```java\n{''.join(lines)}\n```")
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"Grep error: {e}")
+
+    # Fallback to existing findings or top files
+    if not matched_snippets and sources_dir.exists():
+        for p in sources_dir.rglob("*.java"):
+            if "android" not in str(p) and "androidx" not in str(p):
+                try:
+                    rel = p.relative_to(pkg_dir)
+                    with open(p, "r", encoding="utf-8", errors="replace") as fp:
+                        lines = [line for line in fp][:35]
+                    matched_snippets.append(f"### Datei: {rel}\n```java\n{''.join(lines)}\n```")
+                    if len(matched_snippets) >= 2:
+                        break
+                except Exception:
+                    pass
+
+    context_code = "\n\n".join(matched_snippets) if matched_snippets else "Keine spezifischen Quellcode-Dateien extrahiert."
+    prompt_user = req.custom_prompt.strip() if req.custom_prompt else f"Analysiere den dekompilierten Code des Pakets '{pkg_clean}' (Fokus: {kw or 'Architektur, Netzwerk & Spiellogik'})."
+
+    prompt_text = f"""Du bist Senior Reverse-Engineering-Analyst und nutzt metal-coder.
+Paket: {pkg_clean}
+Fokus: {kw or 'Gesamtüberblick'}
+
+Gefundene Code-Fragmente:
+{context_code}
+
+Aufgabe: {prompt_user}
+
+Liefere eine präzise technische Analyse auf Deutsch:
+1. Relevante Klassen, Schnittstellen und Logik
+2. Sicherheitsrelevante Aspekte (Tokens, API-Endpunkte, Krypto, Storage)
+3. Modding- & Hooking-Ansätze (Frida / Xposed / Smali Patches)"""
+
+    try:
+        payload = {
+            "model": "metal-coder:latest",
+            "prompt": prompt_text,
+            "stream": False,
+            "options": {"num_ctx": 8192, "num_predict": 1024, "temperature": 0.2}
+        }
+        res = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, timeout=120)
+        if res.status_code != 200:
+            payload["model"] = DEFAULT_OLLAMA_MODEL
+            res = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, timeout=120)
+
+        if res.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Ollama meldet: {res.text}")
+
+        analysis_text = res.json().get("response", "").strip()
+        findings_file = pkg_dir / "llm_findings.md"
+        findings_md = f"""# LLM Analyse: {pkg_clean}
+
+- **Modell:** `metal-coder:latest`
+- **Fokus / Keyword:** `{kw or 'Allgemein'}`
+- **Zeitpunkt:** {datetime.now(timezone.utc).isoformat()}
+
+---
+
+{analysis_text}
+"""
+        findings_file.write_text(findings_md, encoding="utf-8")
+        return {
+            "status": "success",
+            "package": pkg_clean,
+            "keyword": kw,
+            "analysis": analysis_text,
+            "findings_file": str(findings_file),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==========================================
 # 🐾 Catlord Studio Endpunkte
 # ==========================================
@@ -1256,8 +1609,9 @@ def get_sandbox_outputs():
 @app.post("/api/catlord/ask-deepseek")
 def ask_deepseek(req: CatlordAskDeepSeekRequest):
     """
-    Sendet einen Analyse- oder Code-Prompt an DeepSeek (Ollama) auf metal-dgear,
-    optional angereichert mit Kontext aus dekompilierten Paketen oder Catlord-Docs.
+    Sendet einen Story-, Konzept- oder Code-Prompt an einen der spezialisierten
+    Ollama-Agenten auf metal-dgear (z.B. catlord-hermes:latest, catlord-architect:latest,
+    metal-coder:latest, metal-fast:latest), optional angereichert mit Catlord-Lore.
     """
     if not req.prompt or not req.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt darf nicht leer sein.")
@@ -1265,10 +1619,35 @@ def ask_deepseek(req: CatlordAskDeepSeekRequest):
     prompt_clean = req.prompt.strip()
     pkg_name = req.package.strip() if req.package else None
 
+    # Modell ermitteln mit Validierung und Fallback
+    target_model = (req.model or "catlord-hermes:latest").strip()
+    valid_models = list(OLLAMA_AGENTS.keys()) + [DEFAULT_OLLAMA_MODEL]
+    if target_model not in valid_models:
+        ollama_status = get_ollama_status()
+        if target_model not in ollama_status.get("available_models", []):
+            target_model = "catlord-hermes:latest"
+
     # Kontext sammeln
     context_blocks = []
-    if pkg_name:
-        # 1. Aus /mnt/storage-fast/rea-sandbox/output/catlord/<package>/
+
+    # 1. Catlord Lore laden falls angefordert
+    if req.include_lore:
+        lore_files = [
+            ("charaktere.md", "Charaktere & Rollen"),
+            ("gameplay.md", "Gameplay & Mechaniken")
+        ]
+        for fname, desc in lore_files:
+            fpath = CATLORD_REPO_DIR / "docs" / fname
+            if fpath.exists():
+                try:
+                    text = fpath.read_text(encoding="utf-8", errors="replace")
+                    if text.strip():
+                        context_blocks.append(f"### Catlord Lore ({desc} - {fname}):\n{text[:3500]}")
+                except Exception:
+                    pass
+
+    # 2. Optionaler Paket-Kontext (nur wenn explizit ein fremdes Paket übergeben wurde)
+    if pkg_name and pkg_name.lower() not in ("catlord", "catlord-app", "general", "allgemein"):
         pkg_dir = OUTPUT_BASE_DIR / pkg_name
         if pkg_dir.exists():
             for fname in ["llm_analysis_context.md", "llm_findings.md"]:
@@ -1277,45 +1656,30 @@ def ask_deepseek(req: CatlordAskDeepSeekRequest):
                     try:
                         text = fpath.read_text(encoding="utf-8", errors="replace")
                         if text.strip():
-                            context_blocks.append(f"### Bestehender Kontext ({fname}) aus REA-Output für '{pkg_name}':\n{text[:4000]}")
+                            context_blocks.append(f"### Kontext ({fname}) für '{pkg_name}':\n{text[:3000]}")
                             break
                     except Exception:
                         pass
 
-        # 2. Falls kein Output gefunden, in projects/catlord/rea-findings/ suchen
-        if not context_blocks and CATLORD_REPO_DIR.exists():
-            rf_dir = CATLORD_REPO_DIR / "rea-findings"
-            if rf_dir.exists():
-                for f in rf_dir.glob("*.md"):
-                    if pkg_name.lower() in f.name.lower():
-                        try:
-                            text = f.read_text(encoding="utf-8", errors="replace")
-                            if text.strip():
-                                context_blocks.append(f"### Vorherige Findings aus {f.name}:\n{text[:3000]}")
-                                break
-                        except Exception:
-                            pass
-
-    # Prompt für DeepSeek formulieren
-    context_str = ""
+    # Prompt zusammenstellen
     if context_blocks:
-        context_str = "\n\n" + "\n\n".join(context_blocks) + "\n\n"
+        context_str = "\n\n".join(context_blocks)
+        full_prompt = f"Hier ist relevanter Kontext für die Aufgabe:\n{context_str}\n\nAufgabe / Frage:\n{prompt_clean}"
+    else:
+        full_prompt = prompt_clean
 
-    system_and_user_prompt = f"""Du bist leitender Spielentwickler, Game Designer und Dialog-Autor für das Spiel 'Catlord' im OuterHeaven Cluster.
-Charaktere: Elliot (fauler, zynischer, dicker Kater / Tank), Käch (agile Ninja-Katze / Speed), Gert / Baustelle, etc.
-Deine Aufgabe ist es, mitreißende Dialoge, packende Spiellogik, Quests und sauberen Spiel-Code (Python, Android, Engine) zu entwerfen.
-Aufgabe / Frage: {prompt_clean}
-{context_str}
-Antworte kreativ, technisch fundiert und auf Deutsch."""
+    # Modell-spezifische Parameter
+    num_ctx = 8192 if ("coder" in target_model or "architect" in target_model) else 4096
+    temperature = 0.75 if "hermes" in target_model else (0.2 if "coder" in target_model else 0.4)
 
     payload = {
-        "model": DEFAULT_OLLAMA_MODEL,
-        "prompt": system_and_user_prompt,
+        "model": target_model,
+        "prompt": full_prompt,
         "stream": False,
         "options": {
-            "num_ctx": 8192,
+            "num_ctx": num_ctx,
             "num_predict": 1024,
-            "temperature": 0.2
+            "temperature": temperature
         }
     }
 
@@ -1326,30 +1690,64 @@ Antworte kreativ, technisch fundiert und auf Deutsch."""
             timeout=300
         )
         if ollama_res.status_code != 200:
+            # Fallback auf Default-Modell falls gewähltes Modell nicht antwortet
+            payload["model"] = DEFAULT_OLLAMA_MODEL
+            ollama_res = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, timeout=300)
+
+        if ollama_res.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Ollama meldet Status {ollama_res.status_code}: {ollama_res.text}")
 
         data = ollama_res.json()
         response_text = data.get("response", "").strip()
         if not response_text:
-            response_text = "Keine Antwort von DeepSeek generiert."
+            response_text = f"Keine Antwort vom Agenten '{target_model}' generiert."
     except requests.exceptions.Timeout:
-        raise HTTPException(status_code=504, detail="Timeout (300s) bei der Antwortgenerierung durch DeepSeek auf metal-dgear.")
+        raise HTTPException(status_code=504, detail=f"Timeout (300s) bei der Antwortgenerierung durch '{target_model}' auf metal-dgear.")
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Fehler bei Verbindung zu Ollama: {str(e)}")
 
-    saved_file_name = None
-    saved_path_str = None
+    now = datetime.now()
+    ts_slug = now.strftime("%Y%m%d_%H%M%S")
+    model_slug = re.sub(r'[^a-zA-Z0-9_\-]+', '_', target_model.split(':')[0]).strip('_')
+    first_line = prompt_clean.splitlines()[0]
+    title_slug = re.sub(r'[^a-zA-Z0-9_\-]+', '_', first_line[:25].strip()).strip('_') or "draft"
 
-    if req.save_to_findings:
-        now = datetime.now()
-        ts_slug = now.strftime("%Y%m%d_%H%M%S")
-        slug_pkg = re.sub(r'[^a-zA-Z0-9_\-]+', '_', (pkg_name or "general").lower()).strip('_')
-        saved_file_name = f"{ts_slug}_{slug_pkg}_deepseek.md"
+    saved_draft_name = None
+    saved_draft_path = None
+    saved_finding_name = None
+    saved_finding_path = None
 
-        findings_md = f"""# DeepSeek Analyse: {pkg_name or 'Allgemein'}
+    # 1. Speichern in ai-drafts falls gewünscht
+    if req.save_to_drafts:
+        saved_draft_name = f"{ts_slug}_{model_slug}_{title_slug}.md"
+        draft_content = f"""# AI Entwurf: {first_line[:50]}
 
-- **Modell:** `{DEFAULT_OLLAMA_MODEL}`
-- **Paket:** `{pkg_name or 'Allgemein'}`
+- **Modell:** `{target_model}`
+- **Datum:** {now.strftime("%Y-%m-%d %H:%M:%S")}
+- **Lore-Kontext einbezogen:** {"Ja" if req.include_lore else "Nein"}
+- **Prompt:** {prompt_clean}
+
+---
+
+{response_text}
+"""
+        try:
+            drafts_dir = CATLORD_REPO_DIR / "docs" / "ai-drafts"
+            drafts_dir.mkdir(parents=True, exist_ok=True)
+            draft_file = drafts_dir / saved_draft_name
+            draft_file.write_text(draft_content, encoding="utf-8")
+            saved_draft_path = str(draft_file)
+        except Exception as de:
+            print(f"[Catlord] Fehler beim Speichern in ai-drafts: {de}")
+
+    # 2. Speichern in rea-findings falls gewünscht
+    if req.save_to_findings and not req.save_to_drafts:
+        slug_pkg = re.sub(r'[^a-zA-Z0-9_\-]+', '_', (pkg_name or "catlord").lower()).strip('_')
+        saved_finding_name = f"{ts_slug}_{slug_pkg}_{model_slug}.md"
+        findings_md = f"""# Agent Antwort: {pkg_name or 'Catlord'}
+
+- **Modell:** `{target_model}`
+- **Paket:** `{pkg_name or 'Catlord'}`
 - **Prompt:** {prompt_clean}
 - **Zeitpunkt:** {now.strftime("%Y-%m-%d %H:%M:%S")}
 
@@ -1360,28 +1758,31 @@ Antworte kreativ, technisch fundiert und auf Deutsch."""
         try:
             rf_dir = CATLORD_REPO_DIR / "rea-findings"
             rf_dir.mkdir(parents=True, exist_ok=True)
-            saved_file = rf_dir / saved_file_name
+            saved_file = rf_dir / saved_finding_name
             saved_file.write_text(findings_md, encoding="utf-8")
-            saved_path_str = str(saved_file)
-
-            # Falls ein Paketordner in OUTPUT_BASE_DIR existiert, dort auch llm_findings.md aktualisieren
-            if pkg_name:
-                pkg_dir = OUTPUT_BASE_DIR / pkg_name
-                if pkg_dir.exists():
-                    (pkg_dir / "llm_findings.md").write_text(findings_md, encoding="utf-8")
+            saved_finding_path = str(saved_file)
         except Exception as se:
             print(f"[Catlord] Fehler beim Speichern der Findings: {se}")
 
     return {
         "status": "success",
+        "model": target_model,
         "package": pkg_name,
         "prompt": prompt_clean,
         "response": response_text,
-        "saved_to_findings": (saved_file_name is not None),
-        "file_name": saved_file_name,
-        "file_path": saved_path_str,
+        "include_lore": req.include_lore,
+        "saved_to_findings": (saved_finding_name is not None),
+        "saved_to_drafts": (saved_draft_name is not None),
+        "file_name": saved_draft_name or saved_finding_name,
+        "file_path": saved_draft_path or saved_finding_path,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
+
+
+@app.post("/api/catlord/ask-agent")
+def ask_agent(req: CatlordAskDeepSeekRequest):
+    """Alias für /api/catlord/ask-deepseek mit flexibler Agenten-Auswahl."""
+    return ask_deepseek(req)
 
 
 @app.post("/api/catlord/voice-note")

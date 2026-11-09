@@ -70,7 +70,7 @@ fun DashboardScreen(
                         border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.6f))
                     ) {
                         Text(
-                            text = "v1.0.5",
+                            text = "v1.0.6",
                             color = AccentCyan,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
@@ -175,7 +175,7 @@ fun DashboardScreen(
             }
         }
 
-        // Ollama AI Service Card
+        // Ollama AI Service Card mit 4 Spezial-Agenten
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = DarkSurface),
@@ -183,7 +183,7 @@ fun DashboardScreen(
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -201,13 +201,13 @@ fun DashboardScreen(
                         )
                         Column {
                             Text(
-                                text = "Ollama LLM Backend",
+                                text = "Ollama Spezial-Agenten",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = TextPrimary,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "Unit: ollama.service",
+                                text = "Unit: ollama.service • Port 11434",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TextMuted,
                                 fontFamily = FontFamily.Monospace
@@ -225,17 +225,52 @@ fun DashboardScreen(
 
                 when (val s = statusState) {
                     is UiState.Success -> {
-                        val activeModel = s.data.services.ollama.active_model.ifEmpty { "deepseek-coder:6.7b-instruct-q4_K_M" }
+                        val activeModel = s.data.services.ollama.active_model.ifEmpty { "metal-coder:latest" }
                         Text(
-                            text = "Aktives Modell: $activeModel",
+                            text = "Aktiver Agent: $activeModel",
                             style = MaterialTheme.typography.bodyMedium,
                             fontFamily = FontFamily.Monospace,
-                            color = AccentCyan
+                            color = AccentCyan,
+                            fontWeight = FontWeight.Bold
                         )
+
+                        HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 2.dp))
+
+                        // Übersicht der 4 Spezial-Agenten
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("💻 metal-coder:latest", style = MaterialTheme.typography.bodySmall, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                Text("Code & Sandbox (6.7B)", style = MaterialTheme.typography.bodySmall, color = AccentCyan)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("⚡ metal-fast:latest", style = MaterialTheme.typography.bodySmall, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                Text("Quick Chat (3B)", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("📐 catlord-architect:latest", style = MaterialTheme.typography.bodySmall, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                Text("Game-Design & Voice (7B)", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("🎭 catlord-hermes:latest", style = MaterialTheme.typography.bodySmall, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                Text("Story & Dialoge (8B)", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                            }
+                        }
                     }
                     else -> {
                         Text(
-                            text = "Lade Modelldaten...",
+                            text = "Lade Agentendaten von metal-dgear...",
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextSecondary
                         )

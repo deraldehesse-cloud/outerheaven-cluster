@@ -144,17 +144,31 @@ data class DecompileResponse(
 
 data class AskDeepSeekRequest(
     @SerializedName("prompt") val prompt: String,
+    @SerializedName("model") val model: String = "catlord-hermes:latest",
     @SerializedName("package") val pkg: String? = null,
-    @SerializedName("save_to_findings") val saveToFindings: Boolean = true
+    @SerializedName("include_lore") val includeLore: Boolean = false,
+    @SerializedName("save_to_findings") val saveToFindings: Boolean = false,
+    @SerializedName("save_to_drafts") val saveToDrafts: Boolean = true
 )
 
 data class AskDeepSeekResponse(
     @SerializedName("status") val status: String = "",
+    @SerializedName("model") val model: String? = null,
     @SerializedName("package") val pkg: String? = null,
     @SerializedName("prompt") val prompt: String = "",
     @SerializedName("response") val response: String = "",
+    @SerializedName("include_lore") val includeLore: Boolean = false,
     @SerializedName("saved_to_findings") val savedToFindings: Boolean = false,
+    @SerializedName("saved_to_drafts") val savedToDrafts: Boolean = false,
     @SerializedName("file_name") val fileName: String? = null,
     @SerializedName("file_path") val filePath: String? = null,
     @SerializedName("timestamp") val timestamp: String = ""
+)
+
+data class CatlordAgentInfo(
+    val id: String,
+    val name: String,
+    val title: String,
+    val icon: String,
+    val description: String
 )

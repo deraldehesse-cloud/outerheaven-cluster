@@ -129,8 +129,8 @@ fun MainScreen(
                 NavigationBarItem(
                     selected = currentScreen == AppScreen.REA_MEDIA,
                     onClick = { viewModel.setScreen(AppScreen.REA_MEDIA) },
-                    icon = { Icon(Icons.Default.AutoStories, contentDescription = "Story & Media Hub") },
-                    label = { Text("Story & Media") },
+                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "AI Studio & Media") },
+                    label = { Text("AI Studio") },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = DarkBackground,
                         selectedTextColor = AmberGold,

@@ -33,20 +33,21 @@ import com.outerheaven.catlord.ui.theme.*
 @Composable
 fun ReaMediaScreen(viewModel: MainViewModel) {
     val mediaStats by viewModel.mediaStats.collectAsState()
-    val findings by viewModel.latestFindings.collectAsState()
     val isConnected by viewModel.isConnected.collectAsState()
     val isLoading by viewModel.isLoadingReaMedia.collectAsState()
     val serverUrl by viewModel.serverUrl.collectAsState()
 
-    // Story & Game Assistant State
-    val selectedPackage by viewModel.selectedPackage.collectAsState()
-    val availablePackages by viewModel.availablePackages.collectAsState()
+    // AI Studio State
+    val selectedModel by viewModel.selectedModel.collectAsState()
+    val includeLore by viewModel.includeLore.collectAsState()
+    val saveToDrafts by viewModel.saveToDrafts.collectAsState()
+    val availableAgents = viewModel.availableAgents
     val deepSeekPrompt by viewModel.deepSeekPrompt.collectAsState()
     val isAskingDeepSeek by viewModel.isAskingDeepSeek.collectAsState()
     val deepSeekResponse by viewModel.deepSeekResponse.collectAsState()
     val speechState by viewModel.speechState.collectAsState()
 
-    val packageChipScrollState = rememberScrollState()
+    val agentChipScrollState = rememberScrollState()
     val templateScrollState = rememberScrollState()
 
     val context = LocalContext.current
@@ -66,7 +67,7 @@ fun ReaMediaScreen(viewModel: MainViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Cluster Connection Header
+        // 1. Cluster Connection Header
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = DarkSurface),
@@ -121,152 +122,433 @@ fun ReaMediaScreen(viewModel: MainViewModel) {
             }
         }
 
-        // Section: Elliot & Käch Datasets / Media Stats
+        // 2. AI Studio: 4 Spezial-Agenten & Prompt Engine
         item {
-            Text(
-                text = "🐾 Datasets & Media (Elliot & Käch)",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
-        }
-
-        if (isLoading && mediaStats == null) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
+            Card(
+                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, CyberViolet.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    CircularProgressIndicator(color = NeonCyan)
-                }
-            }
-        } else {
-            val stats = mediaStats
-            val totals = stats?.totals
-
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Elliot Card
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(Icons.Default.Pets, contentDescription = null, tint = AmberGold, modifier = Modifier.size(20.dp))
-                                Text("Elliot (Tank)", fontWeight = FontWeight.Bold, color = AmberGold, fontSize = 14.sp)
-                            }
-                            Text(
-                                text = "${totals?.elliotImages ?: 0} Bilder",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "${totals?.elliotVideos ?: 0} Videos",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = stats?.details?.get("elliot")?.sizeFormatted ?: "",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextDisabled
-                            )
-                        }
-                    }
-
-                    // Käch Card
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(Icons.Default.SportsMartialArts, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(20.dp))
-                                Text("Käch / Cash", fontWeight = FontWeight.Bold, color = NeonCyan, fontSize = 14.sp)
-                            }
-                            Text(
-                                text = "${totals?.kaechImages ?: 0} Bilder",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "${totals?.kaechVideos ?: 0} Videos",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = stats?.details?.get("kaech")?.sizeFormatted ?: "",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextDisabled
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Raw Footage & Gesamt
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                    // Header
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text("Gesamtes Catlord-Archiv", fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = CyberViolet)
                             Text(
-                                text = "NFS: /mnt/storage-beta/projects/catlord-media/",
-                                color = TextSecondary,
-                                fontSize = 11.sp
+                                text = "Catlord AI Studio",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
                             )
                         }
-                        Column(horizontalAlignment = Alignment.End) {
+                        Surface(
+                            color = CyberViolet.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
                             Text(
-                                text = "${totals?.totalImages ?: 0} Fotos • ${totals?.totalVideos ?: 0} Videos",
+                                text = "4 OLLAMA AGENTS",
+                                color = CyberViolet,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = NeonGreen
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
-                            Text(
-                                text = stats?.details?.get("raw_footage")?.sizeFormatted ?: "",
-                                color = TextDisabled,
-                                fontSize = 11.sp
+                        }
+                    }
+
+                    Text(
+                        text = "Wähle einen spezialisierten lokalen Agenten auf metal-dgear:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+
+                    // Agenten-Auswahl Chips
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(agentChipScrollState),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        availableAgents.forEach { agent ->
+                            val isSelected = agent.id == selectedModel
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.selectModel(agent.id) },
+                                label = {
+                                    Text(
+                                        "${agent.icon} ${agent.title}",
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = when {
+                                        agent.id.contains("hermes") -> CyberViolet
+                                        agent.id.contains("architect") -> AmberGold
+                                        agent.id.contains("coder") -> NeonCyan
+                                        else -> NeonGreen
+                                    },
+                                    selectedLabelColor = DarkBackground,
+                                    containerColor = DarkSurfaceVariant,
+                                    labelColor = TextPrimary
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = isSelected,
+                                    borderColor = if (isSelected) CyberViolet else DarkSurfaceElevated
+                                )
                             )
+                        }
+                    }
+
+                    // Aktiver Agent Info-Banner
+                    val activeAgent = availableAgents.find { it.id == selectedModel } ?: availableAgents.first()
+                    Surface(
+                        color = DarkSurfaceVariant,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(activeAgent.icon, fontSize = 20.sp)
+                            Column {
+                                Text(
+                                    text = activeAgent.title,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = activeAgent.description,
+                                    color = TextSecondary,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Option Toggles (Lore & Drafts)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Lore-Kontext Toggle
+                        FilterChip(
+                            selected = includeLore,
+                            onClick = { viewModel.toggleIncludeLore() },
+                            label = {
+                                Text(
+                                    if (includeLore) "📚 Lore-Kontext aktiv" else "📚 Ohne Lore",
+                                    fontSize = 11.sp
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = NeonCyan.copy(alpha = 0.25f),
+                                selectedLabelColor = NeonCyan,
+                                containerColor = DarkSurfaceVariant,
+                                labelColor = TextSecondary
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = includeLore,
+                                borderColor = if (includeLore) NeonCyan else DarkSurfaceElevated
+                            )
+                        )
+
+                        // In ai-drafts speichern Toggle
+                        FilterChip(
+                            selected = saveToDrafts,
+                            onClick = { viewModel.toggleSaveToDrafts() },
+                            label = {
+                                Text(
+                                    if (saveToDrafts) "💾 Speichern in ai-drafts" else "💾 Nicht speichern",
+                                    fontSize = 11.sp
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AmberGold.copy(alpha = 0.25f),
+                                selectedLabelColor = AmberGold,
+                                containerColor = DarkSurfaceVariant,
+                                labelColor = TextSecondary
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = saveToDrafts,
+                                borderColor = if (saveToDrafts) AmberGold else DarkSurfaceElevated
+                            )
+                        )
+                    }
+
+                    // Prompt Vorlagen / Schnell-Aktionen
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(templateScrollState),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        when {
+                            selectedModel.contains("hermes") -> {
+                                SuggestionChip(
+                                    onClick = {
+                                        viewModel.setDeepSeekPrompt("Schreibe einen Dialog zwischen Elliot (fauler, zynischer Kater) und Cash / Loco (Casper) über einen gescheiterten Einbruchsversuch:")
+                                    },
+                                    label = { Text("💬 Elliot & Cash Dialog", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(containerColor = DarkSurfaceVariant, labelColor = TextPrimary)
+                                )
+                                SuggestionChip(
+                                    onClick = {
+                                        viewModel.setDeepSeekPrompt("Erzähle eine Baustellen-Katastrophe von Gert Baert im 'Zentrum der Macht' und wie Sebastian sie ausbügelt:")
+                                    },
+                                    label = { Text("🏗️ Gert Baert Story", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(containerColor = DarkSurfaceVariant, labelColor = TextPrimary)
+                                )
+                                SuggestionChip(
+                                    onClick = {
+                                        viewModel.setDeepSeekPrompt("Entwirf eine Quest, in der Elliot mit dem 'Arsch-Anschlag' eine Badezimmertür gegen Gläubiger verbarrikadiert:")
+                                    },
+                                    label = { Text("🛡️ Waschbecken-Quest", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(containerColor = DarkSurfaceVariant, labelColor = TextPrimary)
+                                )
+                            }
+                            selectedModel.contains("architect") -> {
+                                SuggestionChip(
+                                    onClick = {
+                                        viewModel.setDeepSeekPrompt("Strukturiere ein Level- & Inventar-Konzept für die Katzen-Assassinen (Elliot als Tank, Cash/Loco als Assassin, Holly als Mentorin):")
+                                    },
+                                    label = { Text("📐 Inventar- & Level-Logik", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(containerColor = DarkSurfaceVariant, labelColor = TextPrimary)
+                                )
+                                SuggestionChip(
+                                    onClick = {
+                                        viewModel.setDeepSeekPrompt("Entwirf die Core-Gameplay-Loop für Catlord (Point-and-Click / RPG mit Voice-Notes & Crafting):")
+                                    },
+                                    label = { Text("🔄 Core-Loop Mechanik", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(containerColor = DarkSurfaceVariant, labelColor = TextPrimary)
+                                )
+                            }
+                            selectedModel.contains("coder") -> {
+                                SuggestionChip(
+                                    onClick = {
+                                        viewModel.setDeepSeekPrompt("Schreibe eine Kotlin Coroutine / Flow Funktion zur Offline-Synchronisation von Voice-Notes mit Fehlerbehandlung:")
+                                    },
+                                    label = { Text("💻 Kotlin Coroutine Sync", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(containerColor = DarkSurfaceVariant, labelColor = TextPrimary)
+                                )
+                                SuggestionChip(
+                                    onClick = {
+                                        viewModel.setDeepSeekPrompt("Schreibe Python-Code für einen FastAPI Endpunkt zur automatischen Markdown-Gliederung von Spiel-Dokumenten:")
+                                    },
+                                    label = { Text("🐍 Python FastAPI Handler", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(containerColor = DarkSurfaceVariant, labelColor = TextPrimary)
+                                )
+                            }
+                            else -> {
+                                SuggestionChip(
+                                    onClick = {
+                                        viewModel.setDeepSeekPrompt("Fasse in 2 prägnanten Sätzen zusammen: Wer sind Attic Guy, Gert Baert, Elliot und Cash / Loco?")
+                                    },
+                                    label = { Text("⚡ Quick Lore Check", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(containerColor = DarkSurfaceVariant, labelColor = TextPrimary)
+                                )
+                                SuggestionChip(
+                                    onClick = {
+                                        viewModel.setDeepSeekPrompt("Gib mir 3 Ideen für skurrile Fähigkeiten von Elliot im Spiel:")
+                                    },
+                                    label = { Text("⚡ 3 Skill-Ideen", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(containerColor = DarkSurfaceVariant, labelColor = TextPrimary)
+                                )
+                            }
+                        }
+                    }
+
+                    // Input Field
+                    OutlinedTextField(
+                        value = deepSeekPrompt,
+                        onValueChange = { viewModel.setDeepSeekPrompt(it) },
+                        label = { Text("Prompt / Frage an ${activeAgent.title}") },
+                        placeholder = { Text("z.B. Wie reagiert Elliot, wenn Cash sein Trockenfutter stiehlt?") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                        maxLines = 6,
+                        trailingIcon = {
+                            if (deepSeekPrompt.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.setDeepSeekPrompt("") }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Leeren", tint = TextSecondary)
+                                }
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CyberViolet,
+                            unfocusedBorderColor = DarkSurfaceElevated,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedLabelColor = CyberViolet,
+                            unfocusedLabelColor = TextSecondary
+                        )
+                    )
+
+                    // Action Row (Mic Button + Generate Button)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val isListening = speechState is SpeechState.Listening
+
+                        // Speech Input Button
+                        IconButton(
+                            onClick = { viewModel.toggleDeepSeekSpeech() },
+                            modifier = Modifier
+                                .background(
+                                    if (isListening) DangerRed.copy(alpha = 0.25f) else DarkSurfaceVariant,
+                                    CircleShape
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isListening) DangerRed else DarkSurfaceElevated,
+                                    CircleShape
+                                )
+                        ) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = "Einsprechen",
+                                tint = if (isListening) DangerRed else TextSecondary
+                            )
+                        }
+
+                        // Send Button
+                        Button(
+                            onClick = { viewModel.askDeepSeek() },
+                            enabled = !isAskingDeepSeek && deepSeekPrompt.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CyberViolet,
+                                contentColor = DarkBackground
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (isAskingDeepSeek) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = DarkBackground,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Agent antwortet...", fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Generieren & Fragen", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Loading State Banner
+                    if (isAskingDeepSeek) {
+                        Surface(
+                            color = DarkSurfaceVariant,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                CircularProgressIndicator(color = CyberViolet, modifier = Modifier.size(20.dp))
+                                Text(
+                                    text = "${activeAgent.title} generiert auf metal-dgear (CPU, ca. 5–25 Sek.)...",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+
+                    // Agent Response Card
+                    deepSeekResponse?.let { resp ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = DarkSurfaceElevated),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Antwort von ${resp.model ?: activeAgent.name}",
+                                        fontWeight = FontWeight.Bold,
+                                        color = NeonGreen,
+                                        fontSize = 13.sp
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        IconButton(
+                                            onClick = {
+                                                clipboardManager.setText(AnnotatedString(resp.response))
+                                                Toast.makeText(context, "Text in Zwischenablage kopiert", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = "Kopieren", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                        }
+                                        IconButton(
+                                            onClick = { viewModel.clearDeepSeekResponse() },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = "Schließen", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+
+                                if (resp.savedToDrafts) {
+                                    Text(
+                                        text = "💾 Gespeichert in: projects/catlord/docs/ai-drafts/${resp.fileName ?: ""}",
+                                        fontSize = 11.sp,
+                                        color = AmberGold
+                                    )
+                                } else if (resp.savedToFindings) {
+                                    Text(
+                                        text = "💾 Gespeichert in: projects/catlord/rea-findings/${resp.fileName ?: ""}",
+                                        fontSize = 11.sp,
+                                        color = AmberGold
+                                    )
+                                }
+
+                                HorizontalDivider(color = DarkSurface)
+
+                                Text(
+                                    text = resp.response,
+                                    color = TextPrimary,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    lineHeight = 18.sp
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // 3. Section: Catlord Assets & Lore Quick Access
+        // 3. Catlord Lore Quick Access
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = DarkSurface),
@@ -411,347 +693,146 @@ fun ReaMediaScreen(viewModel: MainViewModel) {
             }
         }
 
-        // 4. Section: Story- & Game-Assistent (DeepSeek AI Co-Writer)
+        // 4. Section: Datasets & Media (Elliot & Cash / Loco)
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, CyberViolet.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+            Text(
+                text = "🐾 Datasets & Media (Elliot & Cash / Loco)",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
+        }
+
+        if (isLoading && mediaStats == null) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    CircularProgressIndicator(color = NeonCyan)
+                }
+            }
+        } else {
+            val stats = mediaStats
+            val totals = stats?.totals
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Elliot Card
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = CyberViolet)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.Pets, contentDescription = null, tint = AmberGold, modifier = Modifier.size(20.dp))
+                                Text("Elliot (Tank)", fontWeight = FontWeight.Bold, color = AmberGold, fontSize = 14.sp)
+                            }
                             Text(
-                                text = "Story- & Game-Assistent",
+                                text = "${totals?.elliotImages ?: 0} Bilder",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary
                             )
-                        }
-                        Surface(
-                            color = CyberViolet.copy(alpha = 0.2f),
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
                             Text(
-                                text = "DEEPSEEK CO-WRITER",
-                                color = CyberViolet,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                text = "${totals?.elliotVideos ?: 0} Videos",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = stats?.details?.get("elliot")?.sizeFormatted ?: "",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextDisabled
                             )
                         }
                     }
 
-                    Text(
-                        text = "Spiellogik, Dialoge (Elliot & Käch), Quests & Spielcode für Catlord generieren:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-
-                    // Topic Chips
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(packageChipScrollState),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    // Cash / Loco Card
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        availablePackages.forEach { pkg ->
-                            val isSelected = pkg.equals(selectedPackage, ignoreCase = true)
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { viewModel.selectPackage(pkg) },
-                                label = { Text(pkg, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = CyberViolet,
-                                    selectedLabelColor = DarkBackground,
-                                    containerColor = DarkSurfaceVariant,
-                                    labelColor = TextPrimary
-                                ),
-                                border = FilterChipDefaults.filterChipBorder(
-                                    enabled = true,
-                                    selected = isSelected,
-                                    borderColor = if (isSelected) CyberViolet else DarkSurfaceElevated
-                                )
-                            )
-                        }
-                    }
-
-                    // Prompt Vorlagen (Templates)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(templateScrollState),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        SuggestionChip(
-                            onClick = {
-                                viewModel.setDeepSeekPrompt("Schreibe einen Dialog zwischen dem faulen, zynischen Kater Elliot und der agilen Ninja-Katze Käch über ")
-                            },
-                            label = { Text("💬 Elliot & Käch Dialog", fontSize = 11.sp) },
-                            colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = DarkSurfaceVariant,
-                                labelColor = TextPrimary
-                            )
-                        )
-                        SuggestionChip(
-                            onClick = {
-                                viewModel.setDeepSeekPrompt("Entwirf eine Quest im Katzenklo-Dungeon mit skurrilen Gegnern, Bosskampf und Loot: ")
-                            },
-                            label = { Text("⚔️ Katzenklo Quest", fontSize = 11.sp) },
-                            colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = DarkSurfaceVariant,
-                                labelColor = TextPrimary
-                            )
-                        )
-                        SuggestionChip(
-                            onClick = {
-                                viewModel.setDeepSeekPrompt("Beschreibe eine neue Charakter-Evolution von Elliot mit Lichtgeschwindigkeits-Fähigkeit: ")
-                            },
-                            label = { Text("🐾 Evolution", fontSize = 11.sp) },
-                            colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = DarkSurfaceVariant,
-                                labelColor = TextPrimary
-                            )
-                        )
-                        SuggestionChip(
-                            onClick = {
-                                viewModel.setDeepSeekPrompt("Schreibe Python-Code für die Catlord Idle-Worker Mechanik und Score-Berechnung: ")
-                            },
-                            label = { Text("🐍 Game Code", fontSize = 11.sp) },
-                            colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = DarkSurfaceVariant,
-                                labelColor = TextPrimary
-                            )
-                        )
-                    }
-
-                    // Input Field
-                    OutlinedTextField(
-                        value = deepSeekPrompt,
-                        onValueChange = { viewModel.setDeepSeekPrompt(it) },
-                        label = { Text("Story-Prompt / Dialog- oder Code-Frage") },
-                        placeholder = { Text("z.B. Wie reagiert Elliot, wenn Käch sein Trockenfutter stiehlt?") },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 2,
-                        maxLines = 5,
-                        trailingIcon = {
-                            if (deepSeekPrompt.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.setDeepSeekPrompt("") }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Leeren", tint = TextSecondary)
-                                }
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CyberViolet,
-                            unfocusedBorderColor = DarkSurfaceElevated,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                            focusedLabelColor = CyberViolet,
-                            unfocusedLabelColor = TextSecondary
-                        )
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val isListening = speechState is SpeechState.Listening
-
-                        // Speech Input Button
-                        IconButton(
-                            onClick = { viewModel.toggleDeepSeekSpeech() },
-                            modifier = Modifier
-                                .background(
-                                    if (isListening) NeonGreen.copy(alpha = 0.2f) else DarkSurfaceVariant,
-                                    CircleShape
-                                )
-                                .border(
-                                    1.dp,
-                                    if (isListening) NeonGreen else DarkSurfaceElevated,
-                                    CircleShape
-                                )
-                        ) {
-                            Icon(
-                                Icons.Default.Mic,
-                                contentDescription = "Einsprechen",
-                                tint = if (isListening) NeonGreen else TextSecondary
-                            )
-                        }
-
-                        // Send Button
-                        Button(
-                            onClick = { viewModel.askDeepSeek() },
-                            enabled = !isAskingDeepSeek && deepSeekPrompt.isNotBlank(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = CyberViolet,
-                                contentColor = DarkBackground
-                            ),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            if (isAskingDeepSeek) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    color = DarkBackground,
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("DeepSeek dichtet...", fontWeight = FontWeight.Bold)
-                            } else {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Generieren & Fragen", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    // Loading State
-                    if (isAskingDeepSeek) {
-                        Surface(
-                            color = DarkSurfaceVariant,
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth()
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                CircularProgressIndicator(color = CyberViolet, modifier = Modifier.size(20.dp))
-                                Text(
-                                    text = "DeepSeek generiert auf metal-dgear (CPU, ca. 20–60 Sek.)...",
-                                    fontSize = 12.sp,
-                                    color = TextSecondary
-                                )
+                                Icon(Icons.Default.SportsMartialArts, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(20.dp))
+                                Text("Cash / Loco", fontWeight = FontWeight.Bold, color = NeonCyan, fontSize = 14.sp)
                             }
-                        }
-                    }
-
-                    // DeepSeek Response Card
-                    deepSeekResponse?.let { resp ->
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = DarkSurfaceElevated),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "Antwort vom Story-Assistenten",
-                                        fontWeight = FontWeight.Bold,
-                                        color = NeonGreen,
-                                        fontSize = 13.sp
-                                    )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        IconButton(
-                                            onClick = {
-                                                clipboardManager.setText(AnnotatedString(resp.response))
-                                                Toast.makeText(context, "Text in Zwischenablage kopiert", Toast.LENGTH_SHORT).show()
-                                            },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(Icons.Default.ContentCopy, contentDescription = "Kopieren", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                                        }
-                                        IconButton(
-                                            onClick = { viewModel.clearDeepSeekResponse() },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(Icons.Default.Close, contentDescription = "Schließen", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                                        }
-                                    }
-                                }
-
-                                if (resp.savedToFindings) {
-                                    Text(
-                                        text = "💾 Gespeichert in: projects/catlord/rea-findings/${resp.fileName ?: ""}",
-                                        fontSize = 11.sp,
-                                        color = AmberGold
-                                    )
-                                }
-
-                                HorizontalDivider(color = DarkSurface)
-
-                                Text(
-                                    text = resp.response,
-                                    color = TextPrimary,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp,
-                                    lineHeight = 18.sp
-                                )
-                            }
+                            Text(
+                                text = "${totals?.kaechImages ?: 0} Bilder",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "${totals?.kaechVideos ?: 0} Videos",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = stats?.details?.get("kaech")?.sizeFormatted ?: "",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextDisabled
+                            )
                         }
                     }
                 }
             }
-        }
 
-        // 5. Section: Findings & Story Notizen Viewer
-        item {
-            findings?.let { f ->
+            // Raw Footage & Gesamtarchiv
+            item {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                    colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Column {
+                            Text("Gesamtes Catlord-Archiv", fontWeight = FontWeight.Bold, color = TextPrimary)
                             Text(
-                                text = f.filename ?: "llm_findings.md",
-                                fontWeight = FontWeight.Bold,
-                                color = AmberGold
-                            )
-                            Text(
-                                text = f.pkg ?: selectedPackage,
-                                color = CyberViolet,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
+                                text = "NFS: /mnt/storage-beta/projects/catlord-media/",
+                                color = TextSecondary,
+                                fontSize = 11.sp
                             )
                         }
-
-                        if (!f.modifiedAt.isNullOrBlank()) {
+                        Column(horizontalAlignment = Alignment.End) {
                             Text(
-                                text = "Zuletzt geändert: ${f.modifiedAt.take(19).replace('T', ' ')}",
+                                text = "${totals?.totalImages ?: 0} Fotos • ${totals?.totalVideos ?: 0} Videos",
+                                fontWeight = FontWeight.Bold,
+                                color = NeonGreen
+                            )
+                            Text(
+                                text = stats?.details?.get("raw_footage")?.sizeFormatted ?: "",
                                 color = TextDisabled,
                                 fontSize = 11.sp
                             )
                         }
-
-                        HorizontalDivider(color = DarkSurfaceElevated)
-
-                        Text(
-                            text = f.content ?: "Kein Inhalt vorhanden.",
-                            color = TextPrimary,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp
-                        )
                     }
                 }
             }

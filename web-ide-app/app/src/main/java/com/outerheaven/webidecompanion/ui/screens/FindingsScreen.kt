@@ -88,7 +88,7 @@ fun FindingsScreen(
                         border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.6f))
                     ) {
                         Text(
-                            text = "v1.0.5",
+                            text = "v1.0.6",
                             color = AccentCyan,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
@@ -97,7 +97,7 @@ fun FindingsScreen(
                     }
                 }
                 Text(
-                    text = "Auswertungen durch DeepSeek 6.7b",
+                    text = "Code-Auswertungen durch metal-coder:latest (DeepSeek 6.7B)",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
