@@ -191,6 +191,7 @@ try:
         load_hermes_tools_config,
         save_hermes_tools_config,
         build_megan_system_prompt,
+        reload_megan_in_memory_state,
         get_comfyui_queue_status,
         purge_comfyui_gpu,
         set_image_finished_callback,
@@ -275,6 +276,8 @@ except ImportError:
         return True
     def build_megan_system_prompt(lore=None):
         return "Du bist Megan, die persönliche Assistentin von Big Boss."
+    def reload_megan_in_memory_state():
+        pass
     def get_comfyui_queue_status(comfy_url=None):
         return {"online": True, "busy": False, "queue_total": 0, "running_count": 0, "pending_count": 0}
     def purge_comfyui_gpu(comfy_url=None):
@@ -1459,17 +1462,87 @@ async def handle_bot_config_get(request: web.Request) -> web.Response:
     if BOT_CONFIG_FILE.is_file():
         try:
             cfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return web.json_response(cfg)
+        except Exception as e:
+            logger.warning(f"Error reading {BOT_CONFIG_FILE}: {e}")
+    return web.json_response({
+        "status": "ok",
+        "synced": True,
+        "success": True,
+        "config": cfg,
+        **cfg
+    })
 
 async def handle_bot_config_post(request: web.Request) -> web.Response:
     try:
         data = await request.json()
-        atomic_write_file(BOT_CONFIG_FILE, json.dumps(data, indent=2, ensure_ascii=False))
-        return web.json_response({"success": True, "config": data})
+        payload = data.get("config", data) if isinstance(data, dict) else {}
+        if not isinstance(payload, dict):
+            payload = data
+
+        current_cfg = {}
+        if BOT_CONFIG_FILE.is_file():
+            try:
+                current_cfg = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
+            except Exception as re:
+                logger.warning(f"Fehler beim Lesen der bestehenden bot_config.json: {re}")
+
+        # Deep merge incoming sections (personality, haptic, appearance, etc.)
+        for key, val in payload.items():
+            if key in ["config", "status", "synced", "success"]:
+                continue
+            if isinstance(val, dict) and isinstance(current_cfg.get(key), dict):
+                current_cfg[key].update(val)
+            else:
+                current_cfg[key] = val
+
+        # Persist bot_config.json atomar
+        atomic_write_file(BOT_CONFIG_FILE, json.dumps(current_cfg, indent=2, ensure_ascii=False))
+
+        # Appearance Presets synchronisieren falls appearance vorhanden
+        app_data = payload.get("appearance") or current_cfg.get("appearance")
+        if isinstance(app_data, dict):
+            try:
+                APPEARANCE_DIR.mkdir(parents=True, exist_ok=True)
+                active_look_file = APPEARANCE_DIR / "megan_active_appearance.json"
+                active_look_content = {
+                    "id": "megan_active_appearance",
+                    "title": f"Megan Active Look ({app_data.get('outfit', 'current')})",
+                    "name": f"Megan Active Look ({app_data.get('outfit', 'current')})",
+                    "hair_color": app_data.get("hair_color", ""),
+                    "hair_style": app_data.get("hair_style", ""),
+                    "outfit": app_data.get("outfit", ""),
+                    "prompt_tags": app_data.get("prompt_tags", ""),
+                    "timestamp": int(time.time() * 1000)
+                }
+                atomic_write_file(active_look_file, json.dumps(active_look_content, indent=2, ensure_ascii=False))
+            except Exception as ape:
+                logger.warning(f"Fehler beim Speichern von megan_active_appearance.json: {ape}")
+
+        # Hot-Reload in-memory state sofort im laufenden Betrieb
+        try:
+            reload_megan_in_memory_state()
+        except Exception as he:
+            logger.warning(f"In-Memory Hot-Reload fehlgeschlagen: {he}")
+
+        # Broadcast WebSocket Event an alle verbundenen Clients
+        try:
+            await broadcast_ws({
+                "type": "config_updated",
+                "synced": True,
+                "config": current_cfg
+            })
+        except Exception as be:
+            logger.warning(f"Broadcast WebSocket Fehler: {be}")
+
+        return web.json_response({
+            "status": "ok",
+            "synced": True,
+            "success": True,
+            "config": current_cfg
+        })
     except Exception as e:
-        return web.json_response({"success": False, "error": str(e)}, status=400)
+        logger.error(f"Fehler in handle_bot_config_post: {e}", exc_info=True)
+        return web.json_response({"status": "error", "success": False, "error": str(e)}, status=400)
 
 async def handle_bot_lore_get(request: web.Request) -> web.Response:
     prompt = get_active_megan_prompt()
@@ -2775,9 +2848,10 @@ def create_app() -> web.Application:
     app.router.add_post("/api/megan/tools/execute", handle_megan_tools_execute)
     app.router.add_post("/api/tools/execute", handle_megan_tools_execute)
 
-    # Character & Lore
-    app.router.add_get("/api/bot/config", handle_bot_config_get)
-    app.router.add_post("/api/bot/config", handle_bot_config_post)
+    # Character & Lore & Config (inkl. Aliase für Android & Web)
+    for conf_p in ["/api/bot/config", "/api/config", "/api/settings", "/api/parameters"]:
+        app.router.add_get(conf_p, handle_bot_config_get)
+        app.router.add_post(conf_p, handle_bot_config_post)
     app.router.add_get("/api/bot/lore", handle_bot_lore_get)
     app.router.add_post("/api/bot/lore", handle_bot_lore_post)
     app.router.add_get("/api/bot/characters", handle_bot_characters_list)

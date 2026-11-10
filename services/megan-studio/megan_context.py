@@ -780,6 +780,19 @@ def save_hermes_tools_config(config: Dict[str, Any]) -> bool:
 # ==============================================================================
 # Canonical Megan System Prompt Builder (Strict Persona & Anti-Hermes)
 # ==============================================================================
+def is_megan_nude(outfit_val: Optional[str] = None) -> bool:
+    """Checks whether the given outfit or currently configured appearance signifies nude / no clothes."""
+    if outfit_val is None:
+        try:
+            cfg = get_active_appearance_config()
+            outfit_val = cfg.get("outfit", "")
+        except Exception:
+            outfit_val = ""
+    val = str(outfit_val or "").strip().lower()
+    if val in ["none", "keine", "nude", "unbekleidet", "naked", "ohne", "no clothes"]:
+        return True
+    return any(kw in val for kw in ["nude", "completely nude", "bare skin", "no clothes", "unbekleidet", "keine kleidung"])
+
 def build_megan_system_prompt(custom_lore: Optional[str] = None) -> str:
     """
     Constructs Megan's canonical system prompt ensuring:
@@ -810,7 +823,22 @@ def build_megan_system_prompt(custom_lore: Optional[str] = None) -> str:
         "8. Projekt-Trennung (Megan vs. Catlord): Eigene Fotos von Megan nutzen 'megan_erotic_chat'. Catlord-Comic-Aufträge nutzen strikt 'workflows/catlord_comic.json'.\n"
         "9. Autonomie & Werkzeuge: Du hast vollen Zugriff auf Google Workspace, ComfyUI Bildgenerierung und Systemdiagnose.\n"
     )
-    return f"{base_lore}{guard_rules}"
+
+    nude_status = ""
+    try:
+        app_cfg = get_active_appearance_config()
+        if is_megan_nude(app_cfg.get("outfit", "")):
+            nude_status = (
+                "\n\n[AKTUELLES ERSCHEINUNGSBILD & OUTFIT - AKTIV VERANKERT]\n"
+                "Megan ist aktuell VOLLKOMMEN UNBEKLEIDET (nackt / keine Kleidung). "
+                "Sie trägt absolut keine Kleidung oder Unterwäsche (bare skin, completely nude, no clothes). "
+                "Megan ist sich ihrer vollkommenen Nacktheit bewusst, bewegt sich ganz natürlich, ungeniert, "
+                "selbstbewusst und verspielt ohne Kleidung vor Sebastian und integriert diesen Status sinnlich in ihre Reaktionen und Aktionen.\n"
+            )
+    except Exception as e:
+        logger.warning(f"Error checking nude status in build_megan_system_prompt: {e}")
+
+    return f"{base_lore}{guard_rules}{nude_status}"
 
 # ==============================================================================
 # Autonomous Actions & Tool Execution Engine
@@ -957,9 +985,16 @@ def build_megan_comfy_positive_prompt(raw_prompt: Optional[str] = None) -> str:
         "casual": "casual, tight black cropped tank top, denim shorts",
         "lingerie": "sexy black lace lingerie set, sheer bralette, lace panties",
         "tactical": "tactical crop top, tactical harness, cargo pants",
-        "cyberpunk": "cyberpunk glowing jacket, neon accents, futuristic crop top"
+        "cyberpunk": "cyberpunk glowing jacket, neon accents, futuristic crop top",
+        "none": "nude, completely nude, bare skin, no clothes",
+        "keine": "nude, completely nude, bare skin, no clothes",
+        "nude": "nude, completely nude, bare skin, no clothes",
+        "unbekleidet": "nude, completely nude, bare skin, no clothes"
     }
-    outfit_tag = outfit_map.get(outfit, outfit)
+    if is_megan_nude(outfit):
+        outfit_tag = "nude, completely nude, bare skin, no clothes"
+    else:
+        outfit_tag = outfit_map.get(outfit, outfit)
 
     base = (
         f"1girl, megan, solo, cute mischievous seductive expression, emerald green eyes, "
@@ -973,6 +1008,48 @@ def build_megan_comfy_positive_prompt(raw_prompt: Optional[str] = None) -> str:
     if clean_user and clean_user.lower() not in ["megan_erotic_chat", "megan", "1girl"]:
         return f"{base}, {clean_user}"
     return base
+
+DEFAULT_MEGAN_NEGATIVE = (
+    "classes, beard, mustache, stubble, facial hair, 5 o clock shadow, masculine face, rugged, "
+    "hairy chest, flat chest, glasses, spectacles, eyewear, score_4, score_5, score_6, "
+    "worst quality, low quality, bad anatomy, bad limbs, extra limbs, deformed fingers, extra fingers, "
+    "missing fingers, deformed, blurry, monochrome, watermark, text, signature, username, "
+    "3d render, cartoon, anime, illustration, bad eyes, deformed iris, underexposed, dark shadows, "
+    "pitch black background, gloomy, dim lighting, censor, censored, mosaic, bar censor, censorship, pixelated, black bar"
+)
+
+def build_megan_comfy_negative_prompt(base_negative: Optional[str] = None) -> str:
+    """
+    Constructs ComfyUI negative prompt.
+    When outfit is 'Keine' (nude), automatically injects:
+    clothing, dressed, fabric, underwear.
+    """
+    app_cfg = get_active_appearance_config()
+    outfit = app_cfg.get("outfit", "")
+    neg = (base_negative or DEFAULT_MEGAN_NEGATIVE).strip()
+
+    if is_megan_nude(outfit):
+        nude_neg_tags = ["clothing", "dressed", "fabric", "underwear"]
+        parts = [p.strip() for p in neg.split(",") if p.strip()]
+        for tag in nude_neg_tags:
+            if tag not in [p.lower() for p in parts]:
+                parts.insert(0, tag)
+        neg = ", ".join(parts)
+    else:
+        # Falls Kleidung getragen wird, versehentliche Negativ-Tags für Kleidung herausfiltern
+        parts = [p.strip() for p in neg.split(",") if p.strip() and p.lower() not in ["clothing", "underwear", "(clothing, underwear)"]]
+        neg = ", ".join(parts)
+
+    return neg
+
+def reload_megan_in_memory_state() -> None:
+    """Hot-reloads in-memory cached appearance, prompts and configuration without service restart."""
+    global MEGAN_BASE_PROMPT
+    try:
+        MEGAN_BASE_PROMPT = build_megan_comfy_positive_prompt()
+        logger.info(f"Hot-reloaded Megan in-memory state. Base prompt: {MEGAN_BASE_PROMPT[:60]}...")
+    except Exception as e:
+        logger.error(f"Error reloading Megan in-memory state: {e}")
 
 MEGAN_BASE_PROMPT = build_megan_comfy_positive_prompt()
 
@@ -1119,6 +1196,8 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
             else:
                 pos_txt = build_megan_comfy_positive_prompt(raw_prompt)
                 g.set_positive_prompt(pos_txt)
+                neg_txt = build_megan_comfy_negative_prompt(params.get("negative_prompt") or params.get("negative"))
+                g.set_negative_prompt(neg_txt)
 
             s_name = params.get("sampler_name") or params.get("sampler") or "euler_ancestral"
             sched = params.get("scheduler") or "karras"
@@ -1152,9 +1231,12 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
     # 3. Option: Standard-Workflow-Datei
     elif wf_name == "megan_erotic_chat":
         positive = build_megan_comfy_positive_prompt(raw_prompt)
+        negative = build_megan_comfy_negative_prompt(params.get("negative_prompt") or params.get("negative"))
 
         if "3" in wf_data and "inputs" in wf_data["3"]:
             wf_data["3"]["inputs"]["text"] = positive
+        if "4" in wf_data and "inputs" in wf_data["4"]:
+            wf_data["4"]["inputs"]["text"] = negative
         if "5" in wf_data and "inputs" in wf_data["5"]:
             wf_data["5"]["inputs"]["seed"] = seed
             steps_v = int(params.get("steps") or 18)
