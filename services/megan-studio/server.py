@@ -180,6 +180,17 @@ def clear_chat_messages() -> int:
     logger.info(f"Chat-Historie geleert ({deleted} Nachrichten gelöscht).")
     return deleted
 
+def is_system_telemetry_message(text: str) -> bool:
+    """Filters out raw telemetry, system status banners, and debug JSON from LLM conversation history."""
+    if not text:
+        return False
+    t = text.strip()
+    if t.startswith("{") and t.endswith("}"):
+        return True
+    if t.startswith("[TELEMETRIE") or t.startswith("[DIAGNOSE") or t.startswith("[SYSTEM") or t.startswith("[AUTONOM"):
+        return True
+    return False
+
 # Context Engine Import
 try:
     from megan_context import (
