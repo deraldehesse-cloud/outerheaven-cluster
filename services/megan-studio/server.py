@@ -742,7 +742,13 @@ def detect_user_photo_intent(text: str) -> bool:
 
 LAST_RENDERED_PROMPT: Optional[str] = None
 
-def trigger_async_photo_render(prompt: str, workflow: str = "megan_erotic_chat", steps: Optional[int] = 18, cfg: Optional[float] = 5.5) -> asyncio.Task:
+def trigger_async_photo_render(
+    prompt: str,
+    workflow: str = "megan_erotic_chat",
+    steps: Optional[int] = 18,
+    cfg: Optional[float] = 5.5,
+    megan_text: Optional[str] = None
+) -> asyncio.Task:
     """Startet einen autonomen ComfyUI Bild-Render asynchron im Hintergrund."""
     global LAST_RENDERED_PROMPT
     LAST_RENDERED_PROMPT = prompt
@@ -755,7 +761,8 @@ def trigger_async_photo_render(prompt: str, workflow: str = "megan_erotic_chat",
         "steps": effective_steps,
         "cfg": effective_cfg,
         "sampler_name": "euler_ancestral",
-        "scheduler": "karras"
+        "scheduler": "karras",
+        "megan_text": megan_text
     }
     return asyncio.create_task(
         asyncio.to_thread(
@@ -1511,6 +1518,7 @@ async def handle_bot_config_post(request: web.Request) -> web.Response:
                     "hair_color": app_data.get("hair_color", ""),
                     "hair_style": app_data.get("hair_style", ""),
                     "outfit": app_data.get("outfit", ""),
+                    "dynamic_poses": bool(app_data.get("dynamic_poses", payload.get("dynamic_poses", True))),
                     "prompt_tags": app_data.get("prompt_tags", ""),
                     "timestamp": int(time.time() * 1000)
                 }
@@ -2041,7 +2049,7 @@ async def handle_chat(request: web.Request) -> web.Response:
                             "timestamp": int(time.time() * 1000)
                         })
                         logger.info(f"[Auto-Render] Photo-Trigger (POST): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
-                        trigger_async_photo_render(render_prompt, "megan_erotic_chat", steps=18, cfg=5.5)
+                        trigger_async_photo_render(render_prompt, "megan_erotic_chat", steps=18, cfg=5.5, megan_text=clean_text)
 
                 # 3. Save Megan's response to central SQLite DB
                 megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
@@ -2408,7 +2416,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                         }
                         await ws.send_json(pending_payload)
                         await broadcast_ws(pending_payload, exclude=ws)
-                        trigger_async_photo_render(render_prompt, "megan_erotic_chat", steps=18, cfg=5.5)
+                        trigger_async_photo_render(render_prompt, "megan_erotic_chat", steps=18, cfg=5.5, megan_text=clean_text)
     finally:
         ACTIVE_WS_CLIENTS.discard(ws)
         logger.info(f"WebSocket Chat Client getrennt (Aktive Clients: {len(ACTIVE_WS_CLIENTS)})")

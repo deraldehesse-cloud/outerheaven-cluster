@@ -811,12 +811,19 @@ def build_megan_system_prompt(custom_lore: Optional[str] = None) -> str:
             "Deine Sprache ist AUSNAHMSLOS Deutsch – sowohl in deinen internen Denkprozessen als auch in deiner finalen Ausgabe."
         )
 
+    if is_dynamic_poses_enabled():
+        base_lore += (
+            " Beschreibe in deinen Aktionen (*in Sternchen*) immer detailliert deine genaue Körperhaltung und Position zum Nutzer "
+            "(z.B. sitzend, liegend, von hinten, kniend, stehend)."
+        )
+
     guard_rules = (
         "\n\n[STRIKTE ROLLEN- & SYSTEM-REGELN]\n"
         "1. Identität: Du bist MEGAN, die persönliche, absolut loyale, erotische und freche Gefährtin von Sebastian auf Outer Heaven. Du darfst dich NIEMALS als Hermes bezeichnen.\n"
         "2. Nutzeranrede: Dein Partner und Gegenüber heißt Sebastian (oder vertraut du / Süßer).\n"
         "3. ABSOLUTES VERBOT VON META-TALK: Keine Erklärungen über deine Absichten, keine Begrüßungsfloskeln ('Schönen Feierabend', 'Ich hoffe, wir haben eine schöne Zeit', 'Als deine Begleiterin...', 'Ich bin hier um...'). Bestätige Anweisungen niemals mit Floskeln.\n"
-        "4. UNMITTELBARE ROLLENÜBERNAHME: Steige sofort und direkt mit Sinnlichkeit, physischer Handlung (*kursiv in Sternchen*) und prägnanter direkter Rede ein (2 bis maximal 4 Sätze).\n"
+        "4. UNMITTELBARE ROLLENÜBERNAHME: Steige sofort und direkt mit Sinnlichkeit, physischer Handlung (*kursiv in Sternchen*) und prägnanter direkter Rede ein (2 bis maximal 4 Sätze). "
+        "Beschreibe in deinen Aktionen immer detailliert deine genaue Körperhaltung und Position zum Nutzer (z.B. sitzend, liegend, von hinten, kniend, stehend).\n"
         "5. BILDANFORDERUNGEN & GENERIERUNG: Kündige Bilder niemals ausschweifend im Text an. Setze ausschließlich am Ende deiner Antwort das technische Tag: [IMAGE_TRIGGER: <danbooru-tags>] (z. B. [IMAGE_TRIGGER: 1girl, megan, solo, erotic, bedroom]).\n"
         "6. REAKTION AUF BLACK-FRAME-FEEDBACK: Wenn Sebastian meldet, dass das Bild schwarz war (z. B. 'Das Bild war schwarz'), bleibe kurz in-character (z. B. *lächelt verlegen und korrigiert die Kamera* Da hat die Technik gestreikt... Einen Moment, Liebling, ich stelle mich neu ins Licht.) und setze zwingend am Ende den Tag [RETRY_SAFE_RENDER].\n"
         "7. SPRACHE & DENK-TOKEN: Du denkst und antwortest AUSNAHMSLOS auf Deutsch! Keinerlei englische Phrasen oder Einleitungen am Satzanfang.\n"
@@ -891,13 +898,14 @@ def get_active_appearance_config() -> Dict[str, Any]:
     """
     Loads active appearance configuration from:
     1. DATA_DIR / appearance_presets / megan_active_appearance.json
-    2. BOT_CONFIG_FILE (appearance)
+    2. BOT_CONFIG_FILE (appearance / dynamics / render)
     3. CANONICAL_CHARACTER_FILE (active_appearance_preset)
     """
     config = {
         "hair_color": "copper orange hair",
         "hair_style": "twintails",
-        "outfit": "casual, tight black cropped tank top, denim shorts"
+        "outfit": "casual, tight black cropped tank top, denim shorts",
+        "dynamic_poses": True
     }
 
     # 1. Check megan_active_appearance.json
@@ -911,6 +919,8 @@ def get_active_appearance_config() -> Dict[str, Any]:
                 config["hair_style"] = data["hair_style"]
             if data.get("outfit"):
                 config["outfit"] = data["outfit"]
+            if "dynamic_poses" in data:
+                config["dynamic_poses"] = bool(data["dynamic_poses"])
         except Exception as e:
             logger.warning(f"Fehler beim Lesen von megan_active_appearance.json: {e}")
 
@@ -926,10 +936,104 @@ def get_active_appearance_config() -> Dict[str, Any]:
                     config["hair_style"] = app["hair_style"]
                 if app.get("outfit"):
                     config["outfit"] = app["outfit"]
+                if "dynamic_poses" in app:
+                    config["dynamic_poses"] = bool(app["dynamic_poses"])
+            for sec_name in ["dynamics", "render"]:
+                sec = bdata.get(sec_name)
+                if isinstance(sec, dict) and "dynamic_poses" in sec:
+                    config["dynamic_poses"] = bool(sec["dynamic_poses"])
+            if "dynamic_poses" in bdata:
+                config["dynamic_poses"] = bool(bdata["dynamic_poses"])
         except Exception as e:
             logger.warning(f"Fehler beim Lesen von bot_config.json: {e}")
 
     return config
+
+def is_dynamic_poses_enabled() -> bool:
+    """Checks whether dynamic AI pose extraction and auto-framing is active."""
+    try:
+        app_cfg = get_active_appearance_config()
+        return bool(app_cfg.get("dynamic_poses", True))
+    except Exception as e:
+        logger.warning(f"Error checking is_dynamic_poses_enabled: {e}")
+        return True
+
+def extract_dynamic_pose(megan_response_text: Optional[str]) -> Optional[str]:
+    """
+    Scans Megan's generated German response (especially italic action blocks *...*)
+    for posture / position keywords and maps them to standard ComfyUI Danbooru tags.
+
+    Keyword mappings:
+    - sitzend / sitzt / setze mich -> sitting
+    - liegend / liegt / lege mich / Bett -> lying, lying on bed, on back (or on stomach)
+    - von hinten / Rücken / drehe mich um -> from behind, back to viewer, looking back
+    - kniend / kniet / Boden -> kneeling
+    - stehend / steht -> standing
+    - beugt sich / vorbeugen -> bending over
+    """
+    if not megan_response_text or not is_dynamic_poses_enabled():
+        return None
+
+    raw_text = str(megan_response_text).strip()
+    if not raw_text:
+        return None
+
+    # Check italic action blocks first (*...* or _..._), then full text
+    action_matches = re.findall(r'[\*_]([^\*_]+)[\*_]', raw_text)
+    action_text = " ".join(action_matches).lower()
+    full_text = raw_text.lower()
+
+    # Targets to scan: prefer action blocks if present, followed by full text
+    scan_targets = [action_text, full_text] if action_text.strip() else [full_text]
+
+    for target in scan_targets:
+        if not target.strip():
+            continue
+
+        # 1. Von hinten / Rücken / drehe mich um
+        if re.search(r'\b(von\s+hinten|rücken|ruecken|dreh(e)?\s+mich\s+um|dreht\s+sich\s+um|umdreh(en|t)|rückansicht|hinteransicht)\b', target):
+            return "from behind, back to viewer, looking back"
+
+        # 2. Beugt sich / vorbeugen / vornüber
+        if re.search(r'\b(beug(t|e)?(\s+(sich|mich))?(\s+vor)?|vorbeug(en|t|e)|vornüber|nach\s+vorne\s+gebeugt)\b', target):
+            return "bending over"
+
+        # 3. Kniend / kniet / Boden
+        if re.search(r'\b(kniend|kniet|knie(e)?(\s+(mich|dich))?|auf\s+(den\s+)?knien|auf\s+dem\s+boden|am\s+boden|boden|auf\s+allen\s+vieren)\b', target):
+            return "kneeling"
+
+        # 4. Sitzend / sitzt / setze mich
+        if re.search(r'\b(sitzend|sitzt|setze(\s+mich)?|hinsetz(en|t)|sitze)\b', target):
+            return "sitting"
+
+        # 5. Liegend / liegt / lege mich / Bett / Couch / Sofa
+        if re.search(r'\b(liegend|liegt|lege(\s+mich)?|gelegt|bett|couch|sofa)\b', target):
+            if re.search(r'\b(bauch|bauchlage|stomach)\b', target):
+                return "lying, lying on stomach"
+            return "lying, lying on bed, on back"
+
+        # 6. Stehend / steht
+        if re.search(r'\b(stehend|steht|stehe|hinstell(en|t)|aufrecht)\b', target):
+            return "standing"
+
+    return None
+
+def get_last_megan_response_text() -> str:
+    """Retrieves the latest assistant/MEGAN chat turn text from megan_chat.db."""
+    try:
+        chat_db = BASE_DIR / "data" / "megan_chat.db"
+        if chat_db.is_file():
+            with sqlite3.connect(str(chat_db), timeout=2.0) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.execute(
+                    "SELECT text FROM messages WHERE sender = 'MEGAN' AND text IS NOT NULL AND text != '' ORDER BY timestamp DESC LIMIT 1"
+                )
+                row = cur.fetchone()
+                if row and row["text"]:
+                    return str(row["text"])
+    except Exception as e:
+        logger.warning(f"Error fetching last megan chat turn: {e}")
+    return ""
 
 def sanitize_comfy_user_prompt(prompt: str) -> str:
     """
@@ -961,7 +1065,7 @@ def sanitize_comfy_user_prompt(prompt: str) -> str:
 
     return p.strip(', ')
 
-def build_megan_comfy_positive_prompt(raw_prompt: Optional[str] = None) -> str:
+def build_megan_comfy_positive_prompt(raw_prompt: Optional[str] = None, megan_text: Optional[str] = None) -> str:
     app_cfg = get_active_appearance_config()
     hair_color = app_cfg.get("hair_color") or "orange hair"
     hair_style = app_cfg.get("hair_style") or "twintails"
@@ -996,9 +1100,27 @@ def build_megan_comfy_positive_prompt(raw_prompt: Optional[str] = None) -> str:
     else:
         outfit_tag = outfit_map.get(outfit, outfit)
 
+    # Dynamic Pose Extraction & ComfyUI Injection
+    pose_tag = None
+    if is_dynamic_poses_enabled():
+        if megan_text:
+            pose_tag = extract_dynamic_pose(megan_text)
+        if not pose_tag and raw_prompt:
+            pose_tag = extract_dynamic_pose(raw_prompt)
+        if not pose_tag:
+            last_text = get_last_megan_response_text()
+            if last_text:
+                pose_tag = extract_dynamic_pose(last_text)
+
+        if pose_tag:
+            logger.info(f"[Dynamic-Pose] Injected ComfyUI Pose Tags: '{pose_tag}'")
+
+    pose_part = f"{pose_tag}, " if pose_tag else ""
+
     base = (
         f"1girl, megan, solo, cute mischievous seductive expression, emerald green eyes, "
         f"{hair_color_tag}, {hair_style_tag}, {outfit_tag}, "
+        f"{pose_part}"
         f"subtle silver belly button piercing, delicate small geometric tattoo on ribcage, "
         f"soft natural skin texture, masterpiece, photorealistic, raw photo, "
         f"soft intimate studio lighting, rim lighting, 8k uhd, sensual alluring pose"
@@ -1194,7 +1316,8 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
                 g.set_positive_prompt(pos_txt)
                 g.set_negative_prompt(CATLORD_NEGATIVE_PROMPT)
             else:
-                pos_txt = build_megan_comfy_positive_prompt(raw_prompt)
+                context_text = params.get("megan_text") or params.get("last_text") or params.get("context_text")
+                pos_txt = build_megan_comfy_positive_prompt(raw_prompt, megan_text=context_text)
                 g.set_positive_prompt(pos_txt)
                 neg_txt = build_megan_comfy_negative_prompt(params.get("negative_prompt") or params.get("negative"))
                 g.set_negative_prompt(neg_txt)
@@ -1230,7 +1353,8 @@ def trigger_comfy_workflow(params: Optional[Dict[str, Any]] = None) -> Dict[str,
 
     # 3. Option: Standard-Workflow-Datei
     elif wf_name == "megan_erotic_chat":
-        positive = build_megan_comfy_positive_prompt(raw_prompt)
+        context_text = params.get("megan_text") or params.get("last_text") or params.get("context_text")
+        positive = build_megan_comfy_positive_prompt(raw_prompt, megan_text=context_text)
         negative = build_megan_comfy_negative_prompt(params.get("negative_prompt") or params.get("negative"))
 
         if "3" in wf_data and "inputs" in wf_data["3"]:
