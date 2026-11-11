@@ -44,6 +44,7 @@ credentials/
 !character_canonical.json
 !lebensplan.json
 !services/megan-studio/config/*.json
+!services/megan-studio/bot_config.json
 !workflows/*.json
 !workflows/templates/*.json
 !workflows/archetypes/*.json

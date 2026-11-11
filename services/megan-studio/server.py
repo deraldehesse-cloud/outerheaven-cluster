@@ -50,7 +50,8 @@ PORT = int(os.environ.get("PORT", 8080))
 LOCAL_TS_IP = os.environ.get("OUTERHEAVEN_TS_IP", "100.116.38.29")
 COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")
 LOCAL_OLLAMA_URL = os.environ.get("LOCAL_OLLAMA_URL", "http://127.0.0.1:11434")
-MEGAN_MODEL = os.environ.get("MEGAN_MODEL", "megan:latest")
+METAL_DGEAR_OLLAMA_URL = os.environ.get("METAL_DGEAR_OLLAMA_URL", "http://100.96.88.84:11434")
+MEGAN_MODEL = os.environ.get("MEGAN_MODEL", "darkidol-gemma")
 
 LOVENSE_IP = os.environ.get("LOVENSE_IP", "192.168.188.34").strip().strip('"').strip("'")
 LOVENSE_PORT = int(os.environ.get("LOVENSE_PORT", 20010))
@@ -196,6 +197,8 @@ try:
     from megan_context import (
         megan_context_engine,
         sanitize_megan_response,
+        sanitize_gemma_output,
+        get_llm_cluster_config,
         get_gdrive_base_path,
         resolve_gdrive_project_path,
         execute_autonomous_tool,
@@ -207,6 +210,8 @@ try:
         purge_comfyui_gpu,
         set_image_finished_callback,
         KANBAN_DB,
+        HERMES_KANBAN_DB,
+        MEMORY_DB_PATH,
         VALID_TASK_PROJECTS,
         VALID_TASK_TYPES,
         init_mission_tasks_db,
@@ -217,6 +222,15 @@ try:
         update_mission_task_result,
         delete_mission_task,
         CUSTOM_TOOLS_DIR,
+        hermes_evaluate_intent_and_state,
+        update_hermes_task,
+        get_memory_prompt_block,
+        extract_visual_context_from_chat,
+        build_megan_comfy_positive_prompt,
+        save_active_appearance_config,
+        load_active_appearance_config,
+        fetch_fox_visual_trends,
+        GEMMA_STOP_TOKENS,
     )
 except ImportError:
     megan_context_engine = None
@@ -347,13 +361,7 @@ def on_image_finished_broadcast(data: Dict[str, Any]) -> None:
         "filename": data.get("filename"),
         "workflow": data.get("workflow")
     })
-    # 2. image event for backward compatibility
-    broadcast_ws_sync({
-        "type": "image",
-        "url": data.get("url"),
-        "prompt": data.get("prompt", "")
-    })
-    # 3. render_completed event to reset isRendering
+    # 2. render_completed event to reset isRendering
     broadcast_ws_sync({
         "type": "render_completed",
         "render_id": data.get("id"),
@@ -366,6 +374,13 @@ def on_image_finished_broadcast(data: Dict[str, Any]) -> None:
     broadcast_ws_sync({
         "type": "idle"
     })
+    try:
+        if HERMES_KANBAN_DB.exists():
+            with sqlite3.connect(str(HERMES_KANBAN_DB), timeout=3.0) as conn:
+                conn.execute("UPDATE tasks SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE status = 'rendering' OR status = 'in_progress'")
+                conn.commit()
+    except Exception:
+        pass
 
 # GPU Render Lock Import
 try:
@@ -1257,7 +1272,9 @@ async def run_task_worker(task: Dict[str, Any]):
         # Fall 2: Code / Skripting (Hermes generiert Code, ast.parse Prüfung & Speicherung in ~/.hermes/custom_tools/)
         elif "code" in task_type or "skript" in task_type or "script" in task_type:
             logger.info(f"[Kanban-Execute] Generiere Python-Code für Task #{task_id} mit Hermes LLM...")
-            model = MEGAN_MODEL
+            cluster_cfg = get_llm_cluster_config()
+            chat_node = cluster_cfg.get("chat_node_url", METAL_DGEAR_OLLAMA_URL)
+            model = cluster_cfg.get("primary_model", "darkidol-gemma")
             if BOT_CONFIG_FILE.is_file():
                 try:
                     with open(BOT_CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -1280,7 +1297,7 @@ async def run_task_worker(task: Dict[str, Any]):
             )
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"{LOCAL_OLLAMA_URL}/api/generate",
+                    f"{chat_node}/api/generate",
                     json={"model": model, "prompt": prompt_content, "stream": False},
                     timeout=aiohttp.ClientTimeout(total=90.0)
                 ) as resp:
@@ -1423,11 +1440,13 @@ async def run_task_worker(task: Dict[str, Any]):
 
         # Fall 4: Standard LLM / Prompt-Optimierung / Hermes Analyse & Recherche
         else:
-            model = MEGAN_MODEL
+            cluster_cfg = get_llm_cluster_config()
+            chat_node = cluster_cfg.get("chat_node_url", METAL_DGEAR_OLLAMA_URL)
+            model = cluster_cfg.get("primary_model", "darkidol-gemma")
             prompt_content = f"Du bist Hermes, technischer Agent auf Outer Heaven. Führe diese Aufgabe aus und liefere das konkrete Ergebnis:\nAufgabe: {title}\nProjekt: {project}\nDetails: {details}"
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"{LOCAL_OLLAMA_URL}/api/generate",
+                    f"{chat_node}/api/generate",
                     json={"model": model, "prompt": prompt_content, "stream": False},
                     timeout=aiohttp.ClientTimeout(total=50.0)
                 ) as resp:
@@ -1965,9 +1984,242 @@ async def handle_chat_clear(request: web.Request) -> web.Response:
         "message": "Chat-Historie erfolgreich geleert."
     })
 
+async def analyze_image_with_llava(image_b64: str) -> str:
+    """Uses llava:latest on metal-dgear to describe image context without loading outerheaven GPU."""
+    if not image_b64:
+        return ""
+    cluster_cfg = get_llm_cluster_config()
+    chat_node = cluster_cfg.get("chat_node_url", METAL_DGEAR_OLLAMA_URL)
+    vision_model = cluster_cfg.get("vision_model", "llava:latest")
+    clean_b64 = image_b64
+    if "," in clean_b64:
+        clean_b64 = clean_b64.split(",", 1)[1]
+    payload = {
+        "model": vision_model,
+        "prompt": "Beschreibe kurz auf Deutsch in 1-2 präzisen Sätzen, was auf diesem Bild zu sehen ist.",
+        "images": [clean_b64],
+        "stream": False
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{chat_node}/api/generate", json=payload, timeout=aiohttp.ClientTimeout(total=45)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("response", "").strip()
+                else:
+                    logger.warning(f"LLaVA HTTP {resp.status} on {chat_node}")
+    except Exception as e:
+        logger.warning(f"LLaVA Bildanalyse fehlgeschlagen: {e}")
+    return ""
+
+async def fetch_fox_trends_async(topic: str = "Megan Outfit Trends") -> str:
+    """Async wrapper to fetch trending visual tags from Fox."""
+    return await asyncio.to_thread(fetch_fox_visual_trends, topic)
+
+async def stream_from_metal_dgear(ws: web.WebSocketResponse, messages: List[Dict[str, Any]]) -> str:
+    """
+    Streams LLM chat completion from metal-dgear (primary: darkidol-gemma, fallback: llama2-uncensored).
+    Enforces 100% GPU offload on outerheaven (no local fallback).
+    Sanitizes Gemma stop tokens and reasoning tokens in real-time.
+    Returns the accumulated clean text.
+    """
+    cluster_cfg = get_llm_cluster_config()
+    chat_node = cluster_cfg.get("chat_node_url", METAL_DGEAR_OLLAMA_URL)
+    primary_model = cluster_cfg.get("primary_model", "darkidol-gemma")
+    fallback_model = cluster_cfg.get("fallback_model", "llama2-uncensored:latest")
+
+    stop_tokens = list(cluster_cfg.get("options", {}).get("stop", GEMMA_STOP_TOKENS))
+    base_options = {
+        "temperature": 0.78,
+        "top_p": 0.9,
+        "repeat_penalty": 1.12,
+        "stop": stop_tokens
+    }
+
+    models_to_try = [primary_model]
+    if fallback_model and fallback_model != primary_model:
+        models_to_try.append(fallback_model)
+
+    accumulated_text = ""
+    in_think = False
+    intro_buffer = ""
+    intro_dispatched = False
+    tag_buffer = ""
+    in_tag_bracket = False
+    tokens_sent = 0
+
+    english_intro_re = re.compile(
+        r'^(?:(?:Sure|Certainly|Okay|Ok|Alright|Hello|Hi|Of course|Here is|Here\'s|I will|Let me)[,!\.:\s]+)+',
+        re.IGNORECASE
+    )
+    english_prefix_words = ("sure", "certainly", "okay", "ok", "alright", "hello", "hi", "of course", "here is", "here's", "let me", "i will")
+
+    stream_success = False
+    for active_model in models_to_try:
+        logger.info(f"Starte Stream von metal-dgear ({chat_node}) mit Modell '{active_model}'")
+        payload = {
+            "model": active_model,
+            "messages": messages,
+            "stream": True,
+            "think": False,
+            "options": base_options
+        }
+        accumulated_text = ""
+        tokens_sent = 0
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{chat_node}/api/chat",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=240, connect=10)
+                ) as resp:
+                    if resp.status != 200:
+                        err_body = await resp.text()
+                        logger.warning(f"Modell {active_model} auf {chat_node} gab HTTP {resp.status} zurück: {err_body}")
+                        continue
+
+                    read_buffer = ""
+                    async for chunk_bytes in resp.content:
+                        read_buffer += chunk_bytes.decode("utf-8", errors="ignore")
+                        while "\n" in read_buffer:
+                            line_str, read_buffer = read_buffer.split("\n", 1)
+                            line_str = line_str.strip()
+                            if not line_str:
+                                continue
+                            try:
+                                parsed = json.loads(line_str)
+                            except Exception:
+                                continue
+
+                            token = parsed.get("message", {}).get("content", "")
+                            if not token:
+                                continue
+
+                            # Gemma Stop Token Sanitizing
+                            token = sanitize_gemma_output(token)
+                            if not token:
+                                continue
+
+                            accumulated_text += token
+
+                            # Thought filtering (<think>...</think>)
+                            if "<think>" in token or "<think>" in accumulated_text:
+                                if "</think>" not in accumulated_text:
+                                    in_think = True
+                                    continue
+                                else:
+                                    if in_think:
+                                        in_think = False
+                                        after_think = accumulated_text.split("</think>", 1)[1]
+                                        intro_buffer = after_think
+                                        continue
+
+                            if in_think:
+                                if "</think>" in token:
+                                    in_think = False
+                                continue
+
+                            # English intro filter
+                            if not intro_dispatched:
+                                intro_buffer += token
+                                buf_lower = intro_buffer.lower().lstrip()
+                                could_be_english = any(buf_lower.startswith(p[:len(buf_lower)]) for p in english_prefix_words)
+                                if not could_be_english:
+                                    if intro_buffer:
+                                        await ws.send_json({
+                                            "type": "token",
+                                            "content": intro_buffer,
+                                            "text": intro_buffer,
+                                            "token": intro_buffer
+                                        })
+                                        tokens_sent += 1
+                                    intro_dispatched = True
+                                    intro_buffer = ""
+                                else:
+                                    if any(p in intro_buffer for p in [".", ",", "!", "?", ":", "\n", " "]) or len(intro_buffer) >= 15:
+                                        cleaned_intro = english_intro_re.sub("", intro_buffer).lstrip()
+                                        if cleaned_intro:
+                                            await ws.send_json({
+                                                "type": "token",
+                                                "content": cleaned_intro,
+                                                "text": cleaned_intro,
+                                                "token": cleaned_intro
+                                            })
+                                            tokens_sent += 1
+                                            intro_dispatched = True
+                                            intro_buffer = ""
+                                        elif not any(buf_lower.startswith(p) for p in english_prefix_words):
+                                            intro_dispatched = True
+                                            intro_buffer = ""
+                            else:
+                                # Internal tag filtering during stream
+                                if "[" in token or in_tag_bracket:
+                                    in_tag_bracket = True
+                                    tag_buffer += token
+                                    if "]" in tag_buffer:
+                                        in_tag_bracket = False
+                                        if re.search(r'\[(?:IMAGE_TRIGGER|RETRY_SAFE_RENDER|image|photo|foto|bild|selfie|HAPTIC)', tag_buffer, re.I):
+                                            tag_buffer = ""
+                                        else:
+                                            await ws.send_json({
+                                                "type": "token",
+                                                "content": tag_buffer,
+                                                "text": tag_buffer,
+                                                "token": tag_buffer
+                                            })
+                                            tokens_sent += 1
+                                            tag_buffer = ""
+                                else:
+                                    await ws.send_json({
+                                        "type": "token",
+                                        "content": token,
+                                        "text": token,
+                                        "token": token
+                                    })
+                                    tokens_sent += 1
+
+                    stream_success = True
+                    break
+        except Exception as conn_err:
+            logger.warning(f"Verbindungsfehler zu {chat_node} mit Modell {active_model}: {conn_err}")
+            continue
+
+    if not stream_success:
+        logger.error(f"Alle konfigurierten Chat-Modelle auf {chat_node} fehlgeschlagen. Keine outerheaven Fallback-Ausführung!")
+        await ws.send_json({"type": "error", "message": "Cluster Chat-Knoten metal-dgear nicht erreichbar", "text": "Cluster Chat-Knoten metal-dgear nicht erreichbar"})
+        return ""
+
+    if intro_buffer:
+        cleaned_intro = english_intro_re.sub("", intro_buffer).lstrip()
+        send_rest = cleaned_intro if cleaned_intro else intro_buffer
+        if send_rest:
+            await ws.send_json({
+                "type": "token",
+                "content": send_rest,
+                "text": send_rest,
+                "token": send_rest
+            })
+            tokens_sent += 1
+
+    clean_text = sanitize_gemma_output(accumulated_text)
+    clean_text = sanitize_megan_response(clean_text)
+    if not clean_text:
+        raw_fallback = re.sub(r'</?think>', '', accumulated_text).strip()
+        clean_text = raw_fallback or "Alles klar, Boss! Ich bin bereit."
+
+    if tokens_sent == 0 and clean_text:
+        await ws.send_json({
+            "type": "token",
+            "content": clean_text,
+            "text": clean_text,
+            "token": clean_text
+        })
+
+    return clean_text
+
 async def handle_chat(request: web.Request) -> web.Response:
     """
-    POST /api/chat - REST Chat with Megan using local Ollama (megan:latest).
+    POST /api/chat - REST Chat with Megan using cluster Ollama on metal-dgear.
     Reads & writes to central SQLite database (data/megan_chat.db).
     """
     if request.method == "GET":
@@ -1982,6 +2234,14 @@ async def handle_chat(request: web.Request) -> web.Response:
     if not user_msg:
         return web.json_response({"error": "Message required"}, status=400)
 
+    borrow_prompt = str(body.get("borrow_prompt") or "").strip()
+    hair_color = str(body.get("hair_color") or "").strip()
+    hair_style = str(body.get("hair_style") or "").strip()
+    outfit = str(body.get("outfit") or "").strip()
+    pose = str(body.get("pose") or "").strip()
+    trigger_render = bool(body.get("trigger_render", False))
+    image_base64 = body.get("image_base64")
+
     # 1. Save user message to central SQLite DB
     user_msg_id = body.get("client_id") or body.get("id") or f"user_{int(time.time()*1000)}_{secrets.token_hex(3)}"
     user_ts = int(time.time() * 1000)
@@ -1993,13 +2253,51 @@ async def handle_chat(request: web.Request) -> web.Response:
         timestamp=user_ts
     )
 
+    # Optional Vision Analysis via LLaVA on metal-dgear
+    vision_context = ""
+    if image_base64:
+        vision_context = await analyze_image_with_llava(image_base64)
+
+    # Save active appearance if provided
+    if hair_color or hair_style or outfit:
+        try:
+            app_cfg = load_active_appearance_config()
+            if hair_color: app_cfg["hair_color"] = hair_color
+            if hair_style: app_cfg["hair_style"] = hair_style
+            if outfit: app_cfg["outfit"] = outfit
+            save_active_appearance_config(app_cfg)
+        except Exception as e:
+            logger.warning(f"Konnte Appearance nicht speichern: {e}")
+
+    recent_msgs = load_chat_messages(limit=10)
+    last_assistant_question = ""
+    for m in reversed(recent_msgs):
+        if m.get("sender") == "MEGAN":
+            t = str(m.get("text", "")).strip()
+            if "?" in t:
+                last_assistant_question = t
+                break
+
+    hermes_res = hermes_evaluate_intent_and_state(
+        user_message=user_msg,
+        last_assistant_question=last_assistant_question,
+        borrow_prompt=borrow_prompt,
+        explicit_trigger=trigger_render
+    )
+    hermes_memory_block = hermes_res.get("prompt_block", "")
+    hermes_should_render = hermes_res.get("should_render", False)
+    hermes_task_id = hermes_res.get("task_id")
+
     system_instruction = get_active_megan_prompt()
+    if hermes_memory_block:
+        system_instruction += f"\n\n{hermes_memory_block}"
+    if vision_context:
+        system_instruction += f"\n\n[BILD-ANALYSE VOM USER (LLaVA)]:\n{vision_context}"
+
     intent_context = await asyncio.to_thread(check_autonomous_intent, user_msg)
     if intent_context:
         system_instruction += f"\n\n{intent_context}"
 
-    # Load recent context from central SQLite and build clean message sequence
-    recent_msgs = load_chat_messages(limit=10)
     messages = [{"role": "system", "content": system_instruction + '\n\n[SPRACHREGEL]: Du denkst und antwortest ausnahmslos auf direktem, lebendigem Deutsch als Megan. Keinerlei englische Phrasen!'}]
 
     for m in recent_msgs:
@@ -2010,83 +2308,104 @@ async def handle_chat(request: web.Request) -> web.Response:
         if c and not is_system_telemetry_message(c):
             messages.append({"role": r, "content": c})
 
-    # The current user message MUST be the last message in the list
     messages.append({"role": "user", "content": user_msg})
 
-    payload = {
-        "model": MEGAN_MODEL,
-        "messages": messages,
-        "stream": False,
-        "options": {
-            "temperature": 0.75,
-            "num_ctx": 4096
-        }
-    }
+    cluster_cfg = get_llm_cluster_config()
+    chat_node = cluster_cfg.get("chat_node_url", METAL_DGEAR_OLLAMA_URL)
+    primary_model = cluster_cfg.get("primary_model", "darkidol-gemma")
+    fallback_model = cluster_cfg.get("fallback_model", "llama2-uncensored:latest")
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"{LOCAL_OLLAMA_URL}/api/chat", json=payload, timeout=aiohttp.ClientTimeout(total=180)) as resp:
-                if resp.status != 200:
-                    err_txt = await resp.text()
-                    return web.json_response({"error": f"Ollama error: {err_txt}"}, status=502)
-                data = await resp.json()
-                raw_text = data.get("message", {}).get("content", "")
-                clean_text = sanitize_megan_response(raw_text)
-                if not clean_text:
-                    clean_text = re.sub(r'</?think>', '', raw_text).strip() or "Alles klar, Boss! Ich bin bereit."
+    options = dict(cluster_cfg.get("options", {}))
+    if "stop" not in options:
+        options["stop"] = GEMMA_STOP_TOKENS
 
-                # 2. Extract image prompt & strip [IMAGE_TRIGGER: ...] and [RETRY_SAFE_RENDER] from clean_text
-                extracted_prompt, has_retry_tag, clean_text = extract_megan_image_prompt(clean_text)
+    models_to_try = [primary_model]
+    if fallback_model and fallback_model != primary_model:
+        models_to_try.append(fallback_model)
 
-                # Piper TTS Audio Generation (nur gesprochene Dialogworte)
-                audio_id = await generate_piper_tts(clean_text)
-                audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
+    raw_text = ""
+    used_model = primary_model
+    for mname in models_to_try:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{chat_node}/api/chat",
+                    json={"model": mname, "messages": messages, "stream": False, "think": False, "options": options},
+                    timeout=aiohttp.ClientTimeout(total=180)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        raw_text = data.get("message", {}).get("content", "")
+                        used_model = mname
+                        break
+                    else:
+                        logger.warning(f"REST Chat HTTP {resp.status} mit {mname} auf {chat_node}")
+        except Exception as conn_err:
+            logger.warning(f"REST Chat Verbindungsfehler zu {chat_node} mit {mname}: {conn_err}")
 
-                # 2b. Black-Frame Auto-Recovery vs. Normal Photo Trigger (VRAM Schutz: erst nach LLM-Ende)
-                user_reported_black_frame = detect_black_frame_feedback(user_msg)
-                is_recovery = has_retry_tag or user_reported_black_frame
-                if is_recovery:
-                    logger.info(f"[Auto-Recovery] Black-Frame Recovery ausgelöst (POST - Feedback: {user_reported_black_frame}, Tag: {has_retry_tag})")
-                    trigger_safe_recovery_render(extracted_prompt)
-                else:
-                    user_wants_photo = detect_user_photo_intent(user_msg)
-                    megan_claims_photo = detect_megan_photo_claim(clean_text)
-                    if extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
-                        render_prompt = extracted_prompt or (clean_text if megan_claims_photo else user_msg)
-                        broadcast_ws_sync({
-                            "type": "image_pending",
-                            "workflow": "megan_erotic_chat",
-                            "prompt": render_prompt,
-                            "timestamp": int(time.time() * 1000)
-                        })
-                        logger.info(f"[Auto-Render] Photo-Trigger (POST): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
-                        trigger_async_photo_render(render_prompt, "megan_erotic_chat", steps=18, cfg=5.5, megan_text=clean_text)
+    clean_text = sanitize_gemma_output(raw_text)
+    clean_text = sanitize_megan_response(clean_text)
+    if not clean_text:
+        clean_text = re.sub(r'</?think>', '', raw_text).strip() or "Alles klar, Boss! Ich bin bereit."
 
-                # 3. Save Megan's response to central SQLite DB
-                megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
-                megan_ts = int(time.time() * 1000)
-                save_chat_message(
-                    msg_id=megan_msg_id,
-                    sender="MEGAN",
-                    text=clean_text,
-                    msg_type="TEXT",
-                    audio_url=audio_url,
-                    timestamp=megan_ts
-                )
+    extracted_prompt, has_retry_tag, clean_text = extract_megan_image_prompt(clean_text)
 
-                return web.json_response({
-                    "success": True,
-                    "id": megan_msg_id,
-                    "response": clean_text,
-                    "message": clean_text,
-                    "text": clean_text,
-                    "audio_url": audio_url,
-                    "model": MEGAN_MODEL,
-                    "timestamp": megan_ts
-                })
-    except Exception as e:
-        logger.error(f"Chat request failed: {e}", exc_info=True)
-        return web.json_response({"error": str(e)}, status=500)
+    # Piper TTS Audio Generation
+    audio_id = await generate_piper_tts(clean_text)
+    audio_url = f"/api/audio/{audio_id}.wav" if audio_id else None
+
+    user_reported_black_frame = detect_black_frame_feedback(user_msg)
+    is_recovery = has_retry_tag or user_reported_black_frame
+    if is_recovery:
+        logger.info(f"[Auto-Recovery] Black-Frame Recovery ausgelöst (POST - Feedback: {user_reported_black_frame}, Tag: {has_retry_tag})")
+        trigger_safe_recovery_render(extracted_prompt)
+    else:
+        user_wants_photo = detect_user_photo_intent(user_msg)
+        megan_claims_photo = detect_megan_photo_claim(clean_text)
+        if hermes_should_render or extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
+            raw_scene = extracted_prompt or (clean_text if megan_claims_photo else user_msg)
+            render_prompt = build_megan_comfy_positive_prompt(
+                borrow_prompt=borrow_prompt,
+                hair_color_override=hair_color or None,
+                hair_style_override=hair_style or None,
+                outfit_override=outfit or None,
+                pose_override=pose or None,
+                scene_tags=raw_scene
+            )
+            broadcast_ws_sync({
+                "type": "image_pending",
+                "workflow": "megan_erotic_chat",
+                "prompt": render_prompt,
+                "timestamp": int(time.time() * 1000)
+            })
+            if hermes_task_id:
+                try:
+                    update_hermes_task(hermes_task_id, "rendering")
+                except Exception:
+                    pass
+            trigger_async_photo_render(render_prompt, "megan_erotic_chat", steps=18, cfg=5.5, megan_text=clean_text)
+
+    megan_msg_id = f"megan_{int(time.time()*1000)}_{secrets.token_hex(3)}"
+    megan_ts = int(time.time() * 1000)
+    save_chat_message(
+        msg_id=megan_msg_id,
+        sender="MEGAN",
+        text=clean_text,
+        msg_type="TEXT",
+        audio_url=audio_url,
+        timestamp=megan_ts
+    )
+
+    return web.json_response({
+        "success": True,
+        "id": megan_msg_id,
+        "response": clean_text,
+        "message": clean_text,
+        "text": clean_text,
+        "audio_url": audio_url,
+        "model": used_model,
+        "timestamp": megan_ts
+    })
 
 async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse()
@@ -2101,10 +2420,8 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 try:
                     data = json.loads(msg.data)
                 except Exception:
-                    # Fallback für Clients, die Plaintext senden
                     data = {"text": msg.data}
 
-                # Robuste Extraktion der Nachricht aus verschiedenen Payload-Formaten
                 user_text = ""
                 if isinstance(data.get("message"), str):
                     user_text = data.get("message")
@@ -2120,7 +2437,15 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     logger.warning("WebSocket Nachricht ohne Textinhalt empfangen.")
                     continue
 
-                logger.info(f"WebSocket verarbeitet Chat-Nachricht: '{user_text}'")
+                borrow_prompt = str(data.get("borrow_prompt") or "").strip()
+                hair_color = str(data.get("hair_color") or "").strip()
+                hair_style = str(data.get("hair_style") or "").strip()
+                outfit = str(data.get("outfit") or "").strip()
+                pose = str(data.get("pose") or "").strip()
+                trigger_render = bool(data.get("trigger_render", False))
+                image_base64 = data.get("image_base64")
+
+                logger.info(f"WebSocket verarbeitet Chat-Nachricht: '{user_text}' (borrow_prompt='{borrow_prompt}', hair_color='{hair_color}')")
 
                 user_msg_id = data.get("client_id") or data.get("id") or f"user_{int(time.time()*1000)}_{secrets.token_hex(3)}"
                 user_ts = int(time.time() * 1000)
@@ -2135,16 +2460,69 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 except Exception as save_err:
                     logger.warning(f"Konnte User-Nachricht nicht in DB speichern: {save_err}")
 
-                # Send typing and start events to client
-                await ws.send_json({"type": "typing"})
-                await ws.send_json({"type": "start", "node": "outerheaven", "model": MEGAN_MODEL})
+                # Optional Vision Analysis via LLaVA on metal-dgear
+                vision_analysis = ""
+                if image_base64:
+                    vision_analysis = await analyze_image_with_llava(image_base64)
+                    if vision_analysis:
+                        logger.info(f"LLaVA Bildanalyse abgeschlossen: {vision_analysis}")
 
-                # Robuster System-Prompt & Intent-Check ohne Absturzrisiko
+                # Save active appearance if provided
+                if hair_color or hair_style or outfit:
+                    try:
+                        active_app = load_active_appearance_config()
+                        if hair_color:
+                            active_app["hair_color"] = hair_color
+                        if hair_style:
+                            active_app["hair_style"] = hair_style
+                        if outfit:
+                            active_app["outfit"] = outfit
+                        save_active_appearance_config(active_app)
+                    except Exception as app_err:
+                        logger.warning(f"Konnte Appearance nicht aktualisieren: {app_err}")
+
+                recent_msgs = []
+                try:
+                    recent_msgs = load_chat_messages(limit=10)
+                except Exception as me:
+                    logger.warning(f"Konnte Chat-Historie nicht laden: {me}")
+
+                last_assistant_question = ""
+                for m in reversed(recent_msgs):
+                    if m.get("sender") == "MEGAN":
+                        t = str(m.get("text", "")).strip()
+                        if "?" in t:
+                            last_assistant_question = t
+                            break
+
+                # Hermes Agent Controller: evaluate intent & state
+                hermes_res = hermes_evaluate_intent_and_state(
+                    user_message=user_text,
+                    last_assistant_question=last_assistant_question,
+                    borrow_prompt=borrow_prompt,
+                    explicit_trigger=trigger_render
+                )
+                hermes_memory_block = hermes_res.get("prompt_block", "")
+                hermes_should_render = hermes_res.get("should_render", False)
+                hermes_task_id = hermes_res.get("task_id")
+
+                cluster_cfg = get_llm_cluster_config()
+                primary_model = cluster_cfg.get("primary_model", "darkidol-gemma")
+
+                # Send typing and start events to client (metal-dgear)
+                await ws.send_json({"type": "typing"})
+                await ws.send_json({"type": "start", "node": "metal-dgear", "model": primary_model})
+
                 try:
                     system_prompt = get_active_megan_prompt()
                 except Exception as pe:
                     logger.error(f"Fehler beim Laden des System-Prompts: {pe}", exc_info=True)
                     system_prompt = "Du bist Megan, die charmante, freche und loyale persönliche Assistentin von Big Boss im Outer Heaven Cluster."
+
+                if hermes_memory_block:
+                    system_prompt += f"\n\n{hermes_memory_block}"
+                if vision_analysis:
+                    system_prompt += f"\n\n[BILD-ANALYSE VOM USER (LLaVA)]:\n{vision_analysis}"
 
                 intent_context = None
                 try:
@@ -2154,13 +2532,6 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 except Exception as ie:
                     logger.warning(f"Intent-Prüfung fehlgeschlagen: {ie}")
 
-                recent_msgs = []
-                try:
-                    recent_msgs = load_chat_messages(limit=10)
-                except Exception as me:
-                    logger.warning(f"Konnte Chat-Historie nicht laden: {me}")
-
-                # Strikter System-Prompt an Position 0, gefolgt von Dialogverlauf
                 messages = [{"role": "system", "content": system_prompt + '\n\n[SPRACHREGEL]: Du denkst und antwortest ausnahmslos auf direktem, lebendigem Deutsch als Megan. Keinerlei englische Phrasen!'}]
 
                 for m in recent_msgs:
@@ -2171,194 +2542,16 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                     if c and not is_system_telemetry_message(c):
                         messages.append({"role": r, "content": c})
 
-                # Die aktuelle User-Nachricht MUSS die letzte Nachricht im Array sein
                 messages.append({"role": "user", "content": user_text})
 
-                payload = {
-                    "model": MEGAN_MODEL,
-                    "messages": messages,
-                    "stream": True,
-                    "options": {
-                        "temperature": 0.75,
-                        "repeat_penalty": 1.15,
-                        "num_ctx": 4096
-                    }
-                }
-
-                accumulated_text = ""
-                in_think = False
-                intro_buffer = ""
-                intro_dispatched = False
-                tag_buffer = ""
-                in_tag_bracket = False
-                english_intro_re = re.compile(
-                    r'^(?:(?:Sure|Certainly|Okay|Ok|Alright|Hello|Hi|Of course|Here is|Here\'s|I will|Let me)[,!\.:\s]+)+',
-                    re.IGNORECASE
-                )
-                english_prefix_words = ("sure", "certainly", "okay", "ok", "alright", "hello", "hi", "of course", "here is", "here's", "let me", "i will")
-
-                tokens_sent = 0
-
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(
-                            f"{LOCAL_OLLAMA_URL}/api/chat",
-                            json=payload,
-                            timeout=aiohttp.ClientTimeout(total=180, connect=10)
-                        ) as resp:
-                            if resp.status != 200:
-                                err_body = await resp.text()
-                                logger.error(f"Ollama returned HTTP {resp.status}: {err_body}")
-                                await ws.send_json({"type": "error", "message": f"Ollama HTTP {resp.status}", "text": f"Ollama HTTP {resp.status}"})
-                                await ws.send_json({"type": "idle"})
-                                continue
-
-                            # Zeilenweises Lesen für einwandfreies NDJSON-Streaming
-                            async for line_bytes in resp.content:
-                                line_str = line_bytes.decode("utf-8", errors="ignore").strip()
-                                if not line_str:
-                                    continue
-
-                                # Zeile kann mehrere JSON-Objekte enthalten, falls Chunks zusammengefügt wurden
-                                for json_chunk in line_str.split("\n"):
-                                    json_chunk = json_chunk.strip()
-                                    if not json_chunk:
-                                        continue
-                                    try:
-                                        parsed = json.loads(json_chunk)
-                                    except Exception:
-                                        continue
-
-                                    token = parsed.get("message", {}).get("content", "")
-                                    if not token:
-                                        continue
-
-                                    accumulated_text += token
-
-                                    # 1. Thought-Blöcke (<think>...</think>) sauber filtern
-                                    if "<think>" in token or "<think>" in accumulated_text:
-                                        if "</think>" not in accumulated_text:
-                                            in_think = True
-                                            continue
-                                        else:
-                                            if in_think:
-                                                in_think = False
-                                                after_think = accumulated_text.split("</think>", 1)[1]
-                                                intro_buffer = after_think
-                                                continue
-
-                                    if in_think:
-                                        if "</think>" in token:
-                                            in_think = False
-                                        continue
-
-                                    # 2. Englische Einleitungs-Tokens abfangen ohne deutsche Wörter zu blockieren
-                                    if not intro_dispatched:
-                                        intro_buffer += token
-                                        buf_lower = intro_buffer.lower().lstrip()
-
-                                        # Prüfen, ob der Puffer überhaupt mit einem englischen Intro-Präfix beginnen könnte
-                                        could_be_english = any(buf_lower.startswith(p[:len(buf_lower)]) for p in english_prefix_words)
-
-                                        if not could_be_english:
-                                            # Es beginnt direkt mit Deutsch (z.B. "Ja", "Hallo Boss", "Klar", "Ich") -> SOFORT senden!
-                                            if intro_buffer:
-                                                await ws.send_json({
-                                                    "type": "token",
-                                                    "content": intro_buffer,
-                                                    "text": intro_buffer,
-                                                    "token": intro_buffer
-                                                })
-                                                tokens_sent += 1
-                                            intro_dispatched = True
-                                            intro_buffer = ""
-                                        else:
-                                            # Könnte Englisch sein -> warten bis Satzzeichen oder Leerzeichen das Wort abschließt
-                                            if any(p in intro_buffer for p in [".", ",", "!", "?", ":", "\n", " "]) or len(intro_buffer) >= 15:
-                                                cleaned_intro = english_intro_re.sub("", intro_buffer).lstrip()
-                                                if cleaned_intro:
-                                                    await ws.send_json({
-                                                        "type": "token",
-                                                        "content": cleaned_intro,
-                                                        "text": cleaned_intro,
-                                                        "token": cleaned_intro
-                                                    })
-                                                    tokens_sent += 1
-                                                    intro_dispatched = True
-                                                    intro_buffer = ""
-                                                elif not any(buf_lower.startswith(p) for p in english_prefix_words):
-                                                    # Intro war bereinigt, Puffer ist jetzt leer
-                                                    intro_dispatched = True
-                                                    intro_buffer = ""
-                                    else:
-                                        # Tag-Filterung während des Streams: Tags wie [IMAGE_TRIGGER: ...] oder [RETRY_SAFE_RENDER] abfangen
-                                        if "[" in token or in_tag_bracket:
-                                            in_tag_bracket = True
-                                            tag_buffer += token
-                                            if "]" in tag_buffer:
-                                                in_tag_bracket = False
-                                                # Prüfen, ob es sich um ein internes Tag handelt
-                                                if re.search(r'\[(?:IMAGE_TRIGGER|RETRY_SAFE_RENDER|image|photo|foto|bild|selfie|HAPTIC)', tag_buffer, re.I):
-                                                    tag_buffer = ""  # Restlos verwerfen, nicht an App streamen
-                                                else:
-                                                    await ws.send_json({
-                                                        "type": "token",
-                                                        "content": tag_buffer,
-                                                        "text": tag_buffer,
-                                                        "token": tag_buffer
-                                                    })
-                                                    tokens_sent += 1
-                                                    tag_buffer = ""
-                                        else:
-                                            await ws.send_json({
-                                                "type": "token",
-                                                "content": token,
-                                                "text": token,
-                                                "token": token
-                                            })
-                                            tokens_sent += 1
-
-                except Exception as e:
-                    logger.error(f"Ollama Stream unterbrochen oder fehlgeschlagen: {e}", exc_info=True)
-                    await ws.send_json({"type": "error", "message": f"Ollama Stream unterbrochen: {e}", "text": "Ollama Stream unterbrochen"})
+                # Stream from metal-dgear
+                clean_text = await stream_from_metal_dgear(ws, messages)
+                if not clean_text:
                     await ws.send_json({"type": "idle"})
                     continue
 
-                # Eventuellen Rest-Buffer nach kurzem Stream senden
-                if intro_buffer:
-                    cleaned_intro = english_intro_re.sub("", intro_buffer).lstrip()
-                    send_rest = cleaned_intro if cleaned_intro else intro_buffer
-                    if send_rest:
-                        await ws.send_json({
-                            "type": "token",
-                            "content": send_rest,
-                            "text": send_rest,
-                            "token": send_rest
-                        })
-                        tokens_sent += 1
-                    intro_buffer = ""
-
-                # Bereinigung der Gesamtnachricht
-                clean_text = sanitize_megan_response(accumulated_text)
-
-                # Fallback, falls Sanitizer den gesamten Text verschluckt hat oder Modell sehr kurz war
-                if not clean_text:
-                    raw_fallback = re.sub(r'</?think>', '', accumulated_text).strip()
-                    clean_text = raw_fallback or "Alles klar, Boss! Ich bin bereit."
-
-                # Falls noch gar keine Tokens gestreamt wurden (z.B. bei sehr kurzer oder bereinigter Antwort):
-                if tokens_sent == 0 and clean_text:
-                    await ws.send_json({
-                        "type": "token",
-                        "content": clean_text,
-                        "text": clean_text,
-                        "token": clean_text
-                    })
-
-                # 3. Extract image prompt & strip [IMAGE_TRIGGER: ...] and [RETRY_SAFE_RENDER] from clean_text
                 extracted_prompt, has_retry_tag, clean_text = extract_megan_image_prompt(clean_text)
 
-                # Piper TTS Audio Generation
                 audio_id = None
                 try:
                     audio_id = await generate_piper_tts(clean_text)
@@ -2407,7 +2600,7 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 await broadcast_ws(done_payload, exclude=ws)
                 await ws.send_json({"type": "idle"})
 
-                # 4. Photo Trigger (VRAM-Schutz: Chat-Stream & Token-Übertragung ist 100% abgeschlossen)
+                # Photo Trigger (VRAM-Schutz: Chat-Stream & Token-Übertragung ist 100% abgeschlossen)
                 user_reported_black_frame = detect_black_frame_feedback(user_text)
                 is_recovery = has_retry_tag or user_reported_black_frame
                 if is_recovery:
@@ -2416,9 +2609,18 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                 else:
                     user_wants_photo = detect_user_photo_intent(user_text)
                     megan_claims_photo = detect_megan_photo_claim(clean_text)
-                    if extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context):
-                        render_prompt = extracted_prompt or (clean_text if megan_claims_photo else user_text)
-                        logger.info(f"[Auto-Render] Photo-Trigger (WS): user_intent={user_wants_photo}, megan_claim={megan_claims_photo} -> Prompt: '{render_prompt[:60]}...'")
+                    should_render_final = hermes_should_render or extracted_prompt or user_wants_photo or megan_claims_photo or (intent_context and "[AUTONOMER COMFYUI-RENDER" in intent_context)
+                    if should_render_final:
+                        raw_scene = extracted_prompt or (clean_text if megan_claims_photo else user_text)
+                        render_prompt = build_megan_comfy_positive_prompt(
+                            borrow_prompt=borrow_prompt,
+                            hair_color_override=hair_color or None,
+                            hair_style_override=hair_style or None,
+                            outfit_override=outfit or None,
+                            pose_override=pose or None,
+                            scene_tags=raw_scene
+                        )
+                        logger.info(f"[Auto-Render] Photo-Trigger (WS): should_render={hermes_should_render}, user_intent={user_wants_photo} -> Prompt: '{render_prompt[:60]}...'")
                         pending_payload = {
                             "type": "image_pending",
                             "workflow": "megan_erotic_chat",
@@ -2427,6 +2629,11 @@ async def handle_chat_ws(request: web.Request) -> web.WebSocketResponse:
                         }
                         await ws.send_json(pending_payload)
                         await broadcast_ws(pending_payload, exclude=ws)
+                        if hermes_task_id:
+                            try:
+                                update_hermes_task(hermes_task_id, "rendering")
+                            except Exception:
+                                pass
                         trigger_async_photo_render(render_prompt, "megan_erotic_chat", steps=18, cfg=5.5, megan_text=clean_text)
     finally:
         ACTIVE_WS_CLIENTS.discard(ws)
@@ -2633,22 +2840,157 @@ async def handle_comfy_graph_submit(request: web.Request) -> web.Response:
         logger.error(f"Fehler bei dynamischem Graph-Submit: {e}", exc_info=True)
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
+async def handle_render_direct(request: web.Request) -> web.Response:
+    """
+    POST /api/render/direct
+    Accepts direct render parameters:
+    - prompt (optional scene tags / base prompt)
+    - borrow_prompt (visual tags to adopt/borrow)
+    - hair_color (optional override, e.g. 'black hair', 'copper orange hair')
+    - hair_style (optional override, e.g. 'twintails', 'ponytail')
+    - outfit (optional override, e.g. 'off-shoulder sweater')
+    - pose (optional override)
+    - workflow (default: 'megan_erotic_chat')
+    - steps (default: 18)
+    - cfg (default: 5.5)
+
+    Persists active appearance if overrides are supplied.
+    Synthesizes positive prompt via build_megan_comfy_positive_prompt.
+    Dispatches asynchronously to ComfyUI and returns queued status immediately (non-blocking).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    prompt_text = (body.get("prompt") or "").strip()
+    borrow_prompt = (body.get("borrow_prompt") or "").strip()
+    hair_color = body.get("hair_color")
+    hair_style = body.get("hair_style")
+    outfit = body.get("outfit")
+    pose = body.get("pose")
+    workflow = body.get("workflow", "megan_erotic_chat")
+    try:
+        steps = int(body.get("steps", 18))
+    except (ValueError, TypeError):
+        steps = 18
+    try:
+        cfg = float(body.get("cfg", 5.5))
+    except (ValueError, TypeError):
+        cfg = 5.5
+
+    # Persist active appearance if specified
+    if hair_color or hair_style or outfit:
+        try:
+            app_cfg = load_active_appearance_config()
+            if hair_color:
+                app_cfg["hair_color"] = str(hair_color).strip()
+            if hair_style:
+                app_cfg["hair_style"] = str(hair_style).strip()
+            if outfit:
+                app_cfg["outfit"] = str(outfit).strip()
+            save_active_appearance_config(app_cfg)
+            logger.info(f"Appearance über /api/render/direct aktualisiert: {app_cfg.get('hair_color')}")
+        except Exception as e:
+            logger.warning(f"Konnte Appearance in handle_render_direct nicht speichern: {e}")
+
+    synthesized_prompt = build_megan_comfy_positive_prompt(
+        borrow_prompt=borrow_prompt,
+        hair_color_override=hair_color,
+        hair_style_override=hair_style,
+        outfit_override=outfit,
+        pose_override=pose,
+        scene_tags=prompt_text
+    )
+
+    # Inform WebSocket clients
+    await broadcast_ws({
+        "type": "image_pending",
+        "workflow": workflow,
+        "prompt": synthesized_prompt,
+        "timestamp": int(time.time() * 1000)
+    })
+
+    # Trigger ComfyUI workflow decoupled in background thread
+    trigger_async_photo_render(synthesized_prompt, workflow=workflow, steps=steps, cfg=cfg)
+
+    return web.json_response({
+        "status": "queued",
+        "success": True,
+        "prompt": synthesized_prompt,
+        "workflow": workflow,
+        "in_queue": True
+    })
+
 async def handle_gallery_list(request: web.Request) -> web.Response:
+    try:
+        limit = int(request.query.get("limit", 60))
+    except (ValueError, TypeError):
+        limit = 60
+
     images = []
     exts = [".png", ".jpg", ".jpeg", ".webp", ".mp4"]
-    if COMFYUI_OUTPUT_DIR.is_dir():
-        for f in COMFYUI_OUTPUT_DIR.glob("*"):
-            if f.is_file() and f.suffix.lower() in exts:
-                try:
-                    images.append({
-                        "filename": f.name,
-                        "url": f"/api/gallery/{urllib.parse.quote(f.name)}",
-                        "mtime": f.stat().st_mtime
-                    })
-                except Exception:
-                    pass
+    search_dirs = [COMFYUI_OUTPUT_DIR, MEGAN_IMAGES_DIR, STATIC_IMAGES_DIR]
+    seen_names = set()
+    for sdir in search_dirs:
+        if sdir.is_dir():
+            for f in sdir.glob("*"):
+                if f.is_file() and f.suffix.lower() in exts and f.name not in seen_names:
+                    try:
+                        seen_names.add(f.name)
+                        images.append({
+                            "filename": f.name,
+                            "url": f"/api/gallery/{urllib.parse.quote(f.name)}",
+                            "mtime": f.stat().st_mtime
+                        })
+                    except Exception:
+                        pass
     images.sort(key=lambda x: x["mtime"], reverse=True)
-    return web.json_response({"images": images[:60]})
+    selected = images[:limit]
+    return web.json_response({
+        "status": "ok",
+        "count": len(selected),
+        "total": len(images),
+        "images": selected
+    })
+
+async def handle_hermes_health(request: web.Request) -> web.Response:
+    """
+    GET /api/hermes/health
+    Returns health status of Hermes controller, SQLite databases, and Ollama cluster node (metal-dgear).
+    """
+    cluster_cfg = get_llm_cluster_config()
+    chat_node = cluster_cfg.get("chat_node_url", METAL_DGEAR_OLLAMA_URL)
+
+    metal_online = False
+    models_on_metal = []
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{chat_node}/api/tags", timeout=aiohttp.ClientTimeout(total=4)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    models_on_metal = [m.get("name") for m in data.get("models", [])]
+                    metal_online = True
+    except Exception as e:
+        logger.warning(f"Hermes Health Check: metal-dgear nicht erreichbar: {e}")
+
+    memory_db_ok = MEMORY_DB_PATH.exists()
+    kanban_db_ok = HERMES_KANBAN_DB.exists()
+
+    return web.json_response({
+        "status": "healthy" if metal_online else "degraded",
+        "controller": "hermes_agent",
+        "chat_node": chat_node,
+        "metal_dgear_online": metal_online,
+        "primary_model": cluster_cfg.get("primary_model"),
+        "fallback_model": cluster_cfg.get("fallback_model"),
+        "models_available": models_on_metal,
+        "outerheaven_llm_fallback_allowed": cluster_cfg.get("allow_outerheaven_llm_fallback", False),
+        "memory_db": str(MEMORY_DB_PATH),
+        "memory_db_ok": memory_db_ok,
+        "kanban_db": str(HERMES_KANBAN_DB),
+        "kanban_db_ok": kanban_db_ok
+    })
 
 def _find_image_file(filename: str) -> Optional[Path]:
     """Finds an image file across ComfyUI output, megan-assets, static dirs and sexchat assets."""
@@ -2903,7 +3245,8 @@ def create_app() -> web.Application:
 
     # ComfyUI Render & Gallery & Autarkic Assets
     app.router.add_post("/api/render", handle_render)
-    app.router.add_post("/api/render/direct", handle_render)
+    app.router.add_post("/api/render/direct", handle_render_direct)
+    app.router.add_get("/api/hermes/health", handle_hermes_health)
     app.router.add_post("/api/comfy/graph/validate", handle_comfy_graph_validate)
     app.router.add_post("/api/comfy/graph/submit", handle_comfy_graph_submit)
     app.router.add_get("/api/gallery", handle_gallery_list)

@@ -49,9 +49,11 @@ if ! ./gradlew assembleDebug; then
 fi
 
 echo "Installiere Megan App via ADB..."
-cp -f app/build/outputs/apk/debug/app-debug.apk /home/bigboss/Desktop/APKs/megan-app.apk 2>/dev/null || true
-cp -f app/build/outputs/apk/debug/app-debug.apk /home/bigboss/outerheaven-cluster-repo/mission-control/static/megan.apk 2>/dev/null || true
-adb install -r -g app/build/outputs/apk/debug/app-debug.apk
+MEGAN_APK="$(pwd)/app/build/outputs/apk/debug/app-debug.apk"
+ln -sf "$MEGAN_APK" /home/bigboss/Desktop/APKs/megan-app.apk 2>/dev/null || true
+ln -sf /home/bigboss/Desktop/APKs/megan-app.apk /home/bigboss/Desktop/megan-app.apk 2>/dev/null || true
+cp -f "$MEGAN_APK" /home/bigboss/outerheaven-cluster-repo/mission-control/static/megan.apk 2>/dev/null || true
+adb install -r -d -g "$MEGAN_APK"
 
 echo "=========================================="
 echo "✅ Erfolgreich auf dem Smartphone installiert!"

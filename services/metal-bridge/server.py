@@ -16,8 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Header, Response
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Header, Response, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psutil
@@ -34,6 +34,12 @@ PIPELINE_LOG = OUTPUT_BASE_DIR / "pipeline.log"
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 DEFAULT_OLLAMA_MODEL = "deepseek-coder:6.7b-instruct-q4_K_M"
 DOCKER_CONTAINER_NAME = "rea-sandbox"
+ 
+# Engine Pfade (Headless Sandbox)
+ENGINES_DIR = Path("/mnt/storage-fast/rea-sandbox/engines")
+GODOT_BIN = ENGINES_DIR / "godot" / "godot"
+BLENDER_BIN = ENGINES_DIR / "blender" / "blender"
+RENPY_BIN = ENGINES_DIR / "renpy" / "renpy.sh"
 
 # Catlord Pfade
 CATLORD_REPO_DIR = Path("/mnt/storage-fast/outerheaven-cluster-repo/projects/catlord")
@@ -88,6 +94,21 @@ class SandboxAnalyzeRequest(BaseModel):
     package: str
     keyword: Optional[str] = None
     custom_prompt: Optional[str] = None
+
+
+class GodotRunRequest(BaseModel):
+    script_path: Optional[str] = None
+    project_path: Optional[str] = None
+
+
+class BlenderRunRequest(BaseModel):
+    script_path: Optional[str] = None
+    blend_file: Optional[str] = None
+
+
+class RenpyRunRequest(BaseModel):
+    project_dir: Optional[str] = None
+    command: Optional[str] = "lint"
 
 
 # Spezialisierte Ollama-Agenten auf metal-dgear
@@ -359,6 +380,9 @@ def root():
             "/api/sandbox/outputs",
             "/api/sandbox/analyze",
             "/api/sandbox/container/restart",
+            "/api/sandbox/run-godot",
+            "/api/sandbox/run-blender",
+            "/api/sandbox/run-renpy",
             "/api/catlord/ask-deepseek",
             "/api/catlord/ask-agent",
             "/api/catlord/voice-note",
@@ -1600,6 +1624,95 @@ Liefere eine präzise technische Analyse auf Deutsch:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# API Endpoints: Sandbox Engines (Headless)
+# ==========================================
+
+@app.post("/api/sandbox/run-godot")
+async def run_godot(request: Request):
+    data = {}
+    try:
+        body = await request.body()
+        if body:
+            data = json.loads(body)
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    script_path = data.get("script_path")
+    project_path = data.get("project_path")
+    
+    cmd = [str(GODOT_BIN), "--headless"]
+    if project_path:
+        cmd.extend(["--path", project_path])
+    if script_path:
+        cmd.extend(["-s", script_path])
+        
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        return {"status": "success", "returncode": res.returncode, "stdout": res.stdout, "stderr": res.stderr}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
+@app.post("/api/sandbox/run-blender")
+async def run_blender(request: Request):
+    data = {}
+    try:
+        body = await request.body()
+        if body:
+            data = json.loads(body)
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    script_path = data.get("script_path")
+    blend_file = data.get("blend_file")
+    
+    if not script_path and not blend_file:
+        return JSONResponse(status_code=400, content={"status": "error", "message": "script_path oder blend_file erforderlich"})
+        
+    cmd = [str(BLENDER_BIN), "-b"]
+    if blend_file:
+        cmd.append(blend_file)
+    if script_path:
+        cmd.extend(["-P", script_path])
+        
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        return {"status": "success", "returncode": res.returncode, "stdout": res.stdout, "stderr": res.stderr}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
+@app.post("/api/sandbox/run-renpy")
+async def run_renpy(request: Request):
+    data = {}
+    try:
+        body = await request.body()
+        if body:
+            data = json.loads(body)
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    project_dir = data.get("project_dir")
+    command = data.get("command") or "lint"
+    
+    if not project_dir:
+        return JSONResponse(status_code=400, content={"status": "error", "message": "project_dir erforderlich"})
+        
+    cmd = [str(RENPY_BIN), project_dir, command]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        return {"status": "success", "returncode": res.returncode, "stdout": res.stdout, "stderr": res.stderr}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 
 # ==========================================

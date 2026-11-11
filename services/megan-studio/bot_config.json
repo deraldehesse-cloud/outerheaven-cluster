@@ -1,0 +1,30 @@
+{
+  "llm_cluster": {
+    "chat_node_url": "http://100.96.88.84:11434",
+    "chat_node_hostname_fallback": "http://metaldgear-thinkcentre-m910q:11434",
+    "primary_model": "darkidol-gemma",
+    "fallback_model": "llama2-uncensored:latest",
+    "vision_model": "llava:latest",
+    "allow_outerheaven_llm_fallback": false,
+    "options": {
+      "temperature": 0.78,
+      "top_p": 0.9,
+      "repeat_penalty": 1.12,
+      "stop": [
+        "<start_of_turn>",
+        "<end_of_turn>",
+        "<|eot_id|>",
+        "<eos>",
+        "User:",
+        "Nutzer:"
+      ]
+    }
+  },
+  "appearance": {
+    "appearance_id": "preset_megan_signature",
+    "hair_color": "copper orange hair",
+    "hair_style": "long wavy hair",
+    "outfit": "casual chic outfit",
+    "pose": "dynamic playful pose"
+  }
+}

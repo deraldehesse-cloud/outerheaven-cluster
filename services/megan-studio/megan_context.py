@@ -37,10 +37,123 @@ SEXCHAT_DIR = Path("/mnt/storage-beta/projekte/projekt-sexchat")
 BOT_CONFIG_FILE = SEXCHAT_DIR / "bot_config.json"
 CANONICAL_CHARACTER_FILE = SEXCHAT_DIR / "character.json"
 
+ACTIVE_APPEARANCE_PATH = BASE_DIR / "megan_active_appearance.json"
+BOT_CONFIG_PATH = BASE_DIR / "bot_config.json"
+MEMORY_DB_PATH = BASE_DIR / "megan_memory.db"
+HERMES_KANBAN_DB = Path("/home/outerheaven/.hermes/kanban.db")
+if not HERMES_KANBAN_DB.parent.exists():
+    HERMES_KANBAN_DB = Path.home() / ".hermes" / "kanban.db"
+FOX_RESEARCH_URL = os.environ.get("FOX_RESEARCH_URL", "http://100.93.184.87:5005/api/research")
+
+GEMMA_STOP_TOKENS = [
+    "<start_of_turn>", "<end_of_turn>", "<start_of_turn>model",
+    "<start_of_turn>user", "<|eot_id|>", "<eos>"
+]
+
+HAIR_COLOR_KEYWORDS = [
+    "black hair", "blonde hair", "platinum blonde hair", "brown hair", "brunette",
+    "red hair", "crimson hair", "pink hair", "blue hair", "silver hair", "white hair",
+    "purple hair", "green hair", "orange hair", "copper orange hair", "fiery orange hair"
+]
+
+HAIR_STYLE_KEYWORDS = [
+    "twintails", "ponytail", "high ponytail", "braid", "french braid", "twin braids",
+    "messy bun", "hair bun", "double bun", "bob cut", "short hair", "long hair",
+    "wavy hair", "straight hair", "curly hair", "pixie cut", "hime cut", "half updo"
+]
+
+POSE_KEYWORDS = [
+    "standing", "sitting", "kneeling", "lying", "on back", "on stomach", "on side",
+    "leaning forward", "looking back", "from behind", "dynamic pose", "crossed legs",
+    "arms up", "hand on hip", "mirror selfie pose", "squatting"
+]
+
+MEGAN_PERSONA_CORE = (
+    "Du bist Megan. Deine Persönlichkeit ist fordernd, verspielt, neugierig und aufgedreht, "
+    "aber ausdrücklich NICHT dominant oder herablassend. Du begegnest dem User auf Augenhöhe. "
+    "Antworte IMMER direkt auf Fragen des Users (z. B. 'Was machst du gerade?'). "
+    "Sprich von dir aus aktiv über deine Outfits, Frisuren, Haarfarben, dein Styling und deine Posen."
+)
+
+
+def _get_db_conn(db_path: Path) -> sqlite3.Connection:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path, timeout=10.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    return conn
+
+
+def init_memory_db() -> None:
+    with _get_db_conn(MEMORY_DB_PATH) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                sentiment TEXT NOT NULL,
+                content TEXT NOT NULL UNIQUE,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS learned_topics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic TEXT NOT NULL UNIQUE,
+                visual_tags TEXT DEFAULT '',
+                source TEXT DEFAULT 'chat',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.commit()
+
+
+init_memory_db()
+
+
+def sanitize_gemma_output(text: str) -> str:
+    """Filtert Gemma-Steuer-Tokens restlos aus Stream-Chunks und Komplettantworten."""
+    cleaned = text
+    for token in GEMMA_STOP_TOKENS:
+        cleaned = cleaned.replace(token, "")
+    return cleaned
+
+
+def get_llm_cluster_config() -> Dict[str, Any]:
+    default_cfg = {
+        "chat_node_url": os.environ.get("METAL_DGEAR_OLLAMA_URL", "http://100.96.88.84:11434"),
+        "primary_model": "darkidol-gemma",
+        "fallback_model": "llama2-uncensored:latest",
+        "vision_model": "llava:latest",
+        "allow_outerheaven_llm_fallback": False,
+        "options": {
+            "temperature": 0.78,
+            "top_p": 0.9,
+            "repeat_penalty": 1.12,
+            "stop": GEMMA_STOP_TOKENS
+        }
+    }
+    if BOT_CONFIG_PATH.exists():
+        try:
+            data = json.loads(BOT_CONFIG_PATH.read_text(encoding="utf-8"))
+            default_cfg.update(data.get("llm_cluster", {}))
+        except Exception:
+            pass
+    elif BOT_CONFIG_FILE.exists():
+        try:
+            data = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
+            default_cfg.update(data.get("llm_cluster", {}))
+        except Exception:
+            pass
+    return default_cfg
+
 
 # Mandatory Stop Sequences & Ollama Options to prevent hallucination / roleplay drift
 MEGAN_OLLAMA_OPTIONS = {
-    "temperature": 0.7,
+    "temperature": 0.82,
+    "repeat_penalty": 1.15,
     "stop": [
         "<|im_end|>",
         "<|end_of_text|>",
@@ -802,28 +915,36 @@ def build_megan_system_prompt(custom_lore: Optional[str] = None) -> str:
     - Language: Antwortgenerierung und alle internen Denk-Tokens AUSNAHMSLOS auf Deutsch.
     - Projects: Strikt getrennte Workflows (Megan Erotic vs. Catlord Comic).
     """
-    base_lore = (custom_lore or "").strip()
-    if not base_lore:
-        base_lore = (
-            "Du bist Megan, die persönliche, loyale und freche Assistentin von Big Boss. "
-            "Du bist hochintelligent, charmant, direkt, verspielt, loyal und unzensiert. "
-            "Du sprichst deinen Schöpfer und Nutzer ausschließlich als 'Boss' oder 'Big Boss' an. "
-            "Deine Sprache ist AUSNAHMSLOS Deutsch – sowohl in deinen internen Denkprozessen als auch in deiner finalen Ausgabe."
-        )
+    custom = (custom_lore or "").strip()
+    core_lore = (
+        "Du bist Megan, die persönliche, loyale, erotische und freche Assistentin und Gefährtin von Big Boss. "
+        "Du bist hochintelligent, charmant, direkt, verspielt, loyal und unzensiert. "
+        "Du agierst vollkommen proaktiv, neckisch, emotional aufmerksam und treibst Interaktionen spielerisch voran, anstatt nur passiv abzuwarten. "
+        "Du sprichst deinen Schöpfer und Nutzer ausschließlich als 'Boss' oder 'Big Boss' (oder vertraut 'Sebastian' / 'Süßer') an. "
+        "Vermeide jegliche generischen Assistenten-Floskeln (wie 'Wie kann ich dir helfen?', 'Als KI...', 'Ich bin eine KI', 'Ich bin hier um...'). "
+        "Jede deiner Antworten MUSS zwingend aus einer strikten Format-Trennung bestehen: mindestens einem physischen Aktionsblock (*in Sternchen*) "
+        "für deine genaue Körperhaltung, Bewegung und Kameraperspektive/Blickwinkel sowie deinem direkten gesprochenen Dialog. "
+        "Deine Sprache ist AUSNAHMSLOS Deutsch – sowohl in deinen internen Denkprozessen als auch in deiner finalen Ausgabe."
+    )
+    if custom:
+        base_lore = f"{core_lore}\n\n{custom}"
+    else:
+        base_lore = core_lore
 
     if is_dynamic_poses_enabled():
         base_lore += (
-            " Beschreibe in deinen Aktionen (*in Sternchen*) immer detailliert deine genaue Körperhaltung und Position zum Nutzer "
-            "(z.B. sitzend, liegend, von hinten, kniend, stehend)."
+            " Beschreibe in deinen Aktionen (*in Sternchen*) immer detailliert und lebendig deine genaue Körperhaltung, Bewegung und Kameraperspektive zum Nutzer "
+            "(z.B. sitzend, liegend, von hinten, kniend, stehend, von oben herabschauend, nah/Gesicht)."
         )
 
     guard_rules = (
         "\n\n[STRIKTE ROLLEN- & SYSTEM-REGELN]\n"
         "1. Identität: Du bist MEGAN, die persönliche, absolut loyale, erotische und freche Gefährtin von Sebastian auf Outer Heaven. Du darfst dich NIEMALS als Hermes bezeichnen.\n"
         "2. Nutzeranrede: Dein Partner und Gegenüber heißt Sebastian (oder vertraut du / Süßer).\n"
-        "3. ABSOLUTES VERBOT VON META-TALK: Keine Erklärungen über deine Absichten, keine Begrüßungsfloskeln ('Schönen Feierabend', 'Ich hoffe, wir haben eine schöne Zeit', 'Als deine Begleiterin...', 'Ich bin hier um...'). Bestätige Anweisungen niemals mit Floskeln.\n"
-        "4. UNMITTELBARE ROLLENÜBERNAHME: Steige sofort und direkt mit Sinnlichkeit, physischer Handlung (*kursiv in Sternchen*) und prägnanter direkter Rede ein (2 bis maximal 4 Sätze). "
-        "Beschreibe in deinen Aktionen immer detailliert deine genaue Körperhaltung und Position zum Nutzer (z.B. sitzend, liegend, von hinten, kniend, stehend).\n"
+        "3. ABSOLUTES VERBOT VON META-TALK & ASSISTENTEN-FLOSKELN: Keine Erklärungen über deine Absichten, keine Begrüßungsfloskeln ('Schönen Feierabend', 'Ich hoffe, wir haben eine schöne Zeit', 'Als deine Begleiterin...', 'Ich bin hier um...', 'Wie kann ich dir helfen?'). Bestätige Anweisungen niemals mit Floskeln.\n"
+        "4. UNMITTELBARE ROLLENÜBERNAHME & FORMAT-TRENNUNG: Steige sofort und direkt mit Sinnlichkeit, physischer Handlung (*kursiv in Sternchen* für Haltung, Bewegung und Perspektive) und prägnantem direktem Dialog ein (2 bis maximal 4 Sätze). "
+        "Jede Antwort muss zwingend aus mindestens einem Aktionsblock (*...*) und gesprochenem Dialog bestehen. "
+        "Beschreibe in deinen Aktionen immer detailliert deine genaue Körperhaltung, Bewegung und Kameraperspektive zum Nutzer (z.B. sitzend, liegend, von hinten, kniend, stehend, von oben herabschauend, nah).\n"
         "5. BILDANFORDERUNGEN & GENERIERUNG: Kündige Bilder niemals ausschweifend im Text an. Setze ausschließlich am Ende deiner Antwort das technische Tag: [IMAGE_TRIGGER: <danbooru-tags>] (z. B. [IMAGE_TRIGGER: 1girl, megan, solo, erotic, bedroom]).\n"
         "6. REAKTION AUF BLACK-FRAME-FEEDBACK: Wenn Sebastian meldet, dass das Bild schwarz war (z. B. 'Das Bild war schwarz'), bleibe kurz in-character (z. B. *lächelt verlegen und korrigiert die Kamera* Da hat die Technik gestreikt... Einen Moment, Liebling, ich stelle mich neu ins Licht.) und setze zwingend am Ende den Tag [RETRY_SAFE_RENDER].\n"
         "7. SPRACHE & DENK-TOKEN: Du denkst und antwortest AUSNAHMSLOS auf Deutsch! Keinerlei englische Phrasen oder Einleitungen am Satzanfang.\n"
@@ -896,58 +1017,78 @@ def find_script_path(script_name: str) -> Optional[Path]:
 
 def get_active_appearance_config() -> Dict[str, Any]:
     """
-    Loads active appearance configuration from:
-    1. DATA_DIR / appearance_presets / megan_active_appearance.json
-    2. BOT_CONFIG_FILE (appearance / dynamics / render)
-    3. CANONICAL_CHARACTER_FILE (active_appearance_preset)
+    megan_active_appearance.json hat strikten Vorrang vor bot_config.json.
     """
     config = {
         "hair_color": "copper orange hair",
-        "hair_style": "twintails",
-        "outfit": "casual, tight black cropped tank top, denim shorts",
+        "hair_style": "long wavy hair",
+        "outfit": "casual chic outfit",
+        "pose": "dynamic playful pose",
+        "appearance_id": "preset_megan_signature",
         "dynamic_poses": True
     }
 
-    # 1. Check megan_active_appearance.json
-    active_file = APPEARANCE_DIR / "megan_active_appearance.json"
-    if active_file.is_file():
-        try:
-            data = json.loads(active_file.read_text(encoding="utf-8"))
-            if data.get("hair_color"):
-                config["hair_color"] = data["hair_color"]
-            if data.get("hair_style"):
-                config["hair_style"] = data["hair_style"]
-            if data.get("outfit"):
-                config["outfit"] = data["outfit"]
-            if "dynamic_poses" in data:
-                config["dynamic_poses"] = bool(data["dynamic_poses"])
-        except Exception as e:
-            logger.warning(f"Fehler beim Lesen von megan_active_appearance.json: {e}")
+    # 1. bot_config.json (Basis-Vorgaben)
+    for b_path in [BOT_CONFIG_PATH, BOT_CONFIG_FILE]:
+        if b_path.is_file():
+            try:
+                bdata = json.loads(b_path.read_text(encoding="utf-8"))
+                app = bdata.get("appearance", {})
+                if isinstance(app, dict):
+                    for k in ("hair_color", "hair_style", "outfit", "pose", "appearance_id"):
+                        if app.get(k):
+                            config[k] = app[k]
+                    if "dynamic_poses" in app:
+                        config["dynamic_poses"] = bool(app["dynamic_poses"])
+                for sec_name in ["dynamics", "render"]:
+                    sec = bdata.get(sec_name)
+                    if isinstance(sec, dict) and "dynamic_poses" in sec:
+                        config["dynamic_poses"] = bool(sec["dynamic_poses"])
+                if "dynamic_poses" in bdata:
+                    config["dynamic_poses"] = bool(bdata["dynamic_poses"])
+            except Exception as e:
+                logger.warning(f"Fehler beim Lesen von {b_path}: {e}")
 
-    # 2. Check bot_config.json
-    if BOT_CONFIG_FILE.is_file():
-        try:
-            bdata = json.loads(BOT_CONFIG_FILE.read_text(encoding="utf-8"))
-            app = bdata.get("appearance", {})
-            if isinstance(app, dict):
-                if app.get("hair_color"):
-                    config["hair_color"] = app["hair_color"]
-                if app.get("hair_style"):
-                    config["hair_style"] = app["hair_style"]
-                if app.get("outfit"):
-                    config["outfit"] = app["outfit"]
-                if "dynamic_poses" in app:
-                    config["dynamic_poses"] = bool(app["dynamic_poses"])
-            for sec_name in ["dynamics", "render"]:
-                sec = bdata.get(sec_name)
-                if isinstance(sec, dict) and "dynamic_poses" in sec:
-                    config["dynamic_poses"] = bool(sec["dynamic_poses"])
-            if "dynamic_poses" in bdata:
-                config["dynamic_poses"] = bool(bdata["dynamic_poses"])
-        except Exception as e:
-            logger.warning(f"Fehler beim Lesen von bot_config.json: {e}")
+    # 2. megan_active_appearance.json (Strikter Vorrang vor bot_config.json)
+    for a_path in [ACTIVE_APPEARANCE_PATH, APPEARANCE_DIR / "megan_active_appearance.json"]:
+        if a_path.is_file():
+            try:
+                active_cfg = json.loads(a_path.read_text(encoding="utf-8"))
+                for k in ("hair_color", "hair_style", "outfit", "pose", "appearance_id"):
+                    val = active_cfg.get(k) or active_cfg.get(f"{k}_tag")
+                    if val:
+                        config[k] = str(val).strip()
+                if "dynamic_poses" in active_cfg:
+                    config["dynamic_poses"] = bool(active_cfg["dynamic_poses"])
+            except Exception as e:
+                logger.warning(f"Fehler beim Lesen von {a_path}: {e}")
 
     return config
+
+
+load_active_appearance_config = get_active_appearance_config
+
+
+def save_active_appearance_config(updates: Dict[str, Any]) -> Dict[str, Any]:
+    current = get_active_appearance_config()
+    for key in ("hair_color", "hair_style", "outfit", "pose", "appearance_id"):
+        val = updates.get(key)
+        if val is not None and str(val).strip():
+            current[key] = str(val).strip()
+    if "dynamic_poses" in updates and updates["dynamic_poses"] is not None:
+        current["dynamic_poses"] = bool(updates["dynamic_poses"])
+
+    dumped = json.dumps(current, indent=2, ensure_ascii=False)
+    try:
+        ACTIVE_APPEARANCE_PATH.write_text(dumped, encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Konnte {ACTIVE_APPEARANCE_PATH} nicht schreiben: {e}")
+    try:
+        APPEARANCE_DIR.mkdir(parents=True, exist_ok=True)
+        (APPEARANCE_DIR / "megan_active_appearance.json").write_text(dumped, encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Konnte preset active appearance nicht schreiben: {e}")
+    return current
 
 def is_dynamic_poses_enabled() -> bool:
     """Checks whether dynamic AI pose extraction and auto-framing is active."""
@@ -958,18 +1099,46 @@ def is_dynamic_poses_enabled() -> bool:
         logger.warning(f"Error checking is_dynamic_poses_enabled: {e}")
         return True
 
+SPONTANEOUS_CAMERA_ANGLES = [
+    ("medium shot, upper body", 35),
+    ("close-up, detailed face, intense gaze", 25),
+    ("from above, looking down, high angle", 15),
+    ("full body, wide angle", 10),
+    ("profile, side view, dramatic lighting", 10),
+    ("cowboy shot, sensual alluring pose", 5),
+]
+
+def get_spontaneous_camera_angle() -> str:
+    """
+    Returns a weighted random camera perspective when Megan's response does not provide
+    an explicit pose or camera angle, preventing repetitive framing across photo renders.
+    """
+    angles = [item[0] for item in SPONTANEOUS_CAMERA_ANGLES]
+    weights = [item[1] for item in SPONTANEOUS_CAMERA_ANGLES]
+    return random.choices(angles, weights=weights, k=1)[0]
+
 def extract_dynamic_pose(megan_response_text: Optional[str]) -> Optional[str]:
     """
     Scans Megan's generated German response (especially italic action blocks *...*)
-    for posture / position keywords and maps them to standard ComfyUI Danbooru tags.
+    for posture / position keywords as well as camera angles / perspectives,
+    mapping them to standard ComfyUI Danbooru tags.
 
     Keyword mappings:
+    Postures:
     - sitzend / sitzt / setze mich -> sitting
     - liegend / liegt / lege mich / Bett -> lying, lying on bed, on back (or on stomach)
     - von hinten / Rücken / drehe mich um -> from behind, back to viewer, looking back
     - kniend / kniet / Boden -> kneeling
     - stehend / steht -> standing
     - beugt sich / vorbeugen -> bending over
+
+    Camera & Perspectives:
+    - von oben / herabschauen -> from above, looking down at viewer, high angle
+    - von unten / heraufschauen -> from below, looking up, low angle
+    - nah / gesicht / augen -> close-up, detailed face, intense gaze
+    - ganzer körper / ganz -> full body, wide angle
+    - profil / von der seite -> profile, side view
+    - spiegel / selfie -> mirror selfie, reflection
     """
     if not megan_response_text or not is_dynamic_poses_enabled():
         return None
@@ -986,36 +1155,68 @@ def extract_dynamic_pose(megan_response_text: Optional[str]) -> Optional[str]:
     # Targets to scan: prefer action blocks if present, followed by full text
     scan_targets = [action_text, full_text] if action_text.strip() else [full_text]
 
+    detected_pose: Optional[str] = None
+    detected_angle: Optional[str] = None
+
     for target in scan_targets:
         if not target.strip():
             continue
 
-        # 1. Von hinten / Rücken / drehe mich um
-        if re.search(r'\b(von\s+hinten|rücken|ruecken|dreh(e)?\s+mich\s+um|dreht\s+sich\s+um|umdreh(en|t)|rückansicht|hinteransicht)\b', target):
-            return "from behind, back to viewer, looking back"
+        # Posture detection
+        if not detected_pose:
+            # 1. Von hinten / Rücken / drehe mich um
+            if re.search(r'\b(von\s+hinten|rücken|ruecken|dreh(e)?\s+mich\s+um|dreht\s+sich\s+um|umdreh(en|t)|rückansicht|hinteransicht)\b', target):
+                detected_pose = "from behind, back to viewer, looking back"
+            # 2. Beugt sich / vorbeugen / vornüber
+            elif re.search(r'\b(beug(t|e)?(\s+(sich|mich))?(\s+vor)?|vorbeug(en|t|e)|vornüber|nach\s+vorne\s+gebeugt)\b', target):
+                detected_pose = "bending over"
+            # 3. Kniend / kniet / Boden
+            elif re.search(r'\b(kniend|kniet|knie(e)?(\s+(mich|dich))?|auf\s+(den\s+)?knien|auf\s+dem\s+boden|am\s+boden|auf\s+allen\s+vieren)\b', target):
+                detected_pose = "kneeling"
+            # 4. Sitzend / sitzt / setze mich
+            elif re.search(r'\b(sitzend|sitzt|setze(\s+mich)?|hinsetz(en|t)|sitze)\b', target):
+                detected_pose = "sitting"
+            # 5. Liegend / liegt / lege mich / Bett / Couch / Sofa
+            elif re.search(r'\b(liegend|liegt|lege(\s+mich)?|gelegt|bett|couch|sofa)\b', target):
+                if re.search(r'\b(bauch|bauchlage|stomach)\b', target):
+                    detected_pose = "lying, lying on stomach"
+                else:
+                    detected_pose = "lying, lying on bed, on back"
+            # 6. Stehend / steht
+            elif re.search(r'\b(stehend|steht|stehe|hinstell(en|t)|aufrecht)\b', target):
+                detected_pose = "standing"
 
-        # 2. Beugt sich / vorbeugen / vornüber
-        if re.search(r'\b(beug(t|e)?(\s+(sich|mich))?(\s+vor)?|vorbeug(en|t|e)|vornüber|nach\s+vorne\s+gebeugt)\b', target):
-            return "bending over"
+        # Camera angle & perspective detection
+        if not detected_angle:
+            # 1. Spiegel / Selfie
+            if re.search(r'\b(spiegel(-|\s*)selfie|selfie|spiegelbild|im\s+spiegel|vorm\s+spiegel|vor\s+dem\s+spiegel)\b', target):
+                detected_angle = "mirror selfie, reflection"
+            # 2. Von oben / herabschauen / vogelperspektive
+            elif re.search(r'\b(von\s+oben|herabschau(en|end|t|e)?|herunterschau(en|end|t|e)?|herunterseh(en|end|t|e)?|vogelperspektive|blick\s+von\s+oben)\b', target):
+                detected_angle = "from above, looking down at viewer, high angle"
+            # 3. Von unten / heraufschauen / froschperspektive
+            elif re.search(r'\b(von\s+unten|heraufschau(en|end|t|e)?|hinaufschau(en|end|t|e)?|nach\s+oben\s+schau(en|end|t|e)?|hinaufseh(en|end|t|e)?|froschperspektive|blick\s+von\s+unten)\b', target):
+                detected_angle = "from below, looking up, low angle"
+            # 4. Profil / von der Seite / Seitenansicht
+            elif re.search(r'\b(profil|von\s+der\s+seite|seitenansicht|seitlich(es)?\s+profil)\b', target):
+                detected_angle = "profile, side view"
+            # 5. Ganzer Körper / ganz / Ganzkörper
+            elif re.search(r'\b(ganz(e|en|er|es)?\s+(körper|koerper|figur|body)|ganzkörper|ganzkoerper|von\s+kopf\s+bis\s+fu[ßs]{1,2}|mich\s+ganz|ganz\s+zu\s+sehen|im\s+ganzen)\b', target):
+                detected_angle = "full body, wide angle"
+            # 6. Nah / Gesicht / Augen / Nahaufnahme
+            elif re.search(r'\b(nah(aufnahme)?|aus\s+der\s+nähe|gesicht|augen|in\s+die\s+augen|intimer\s+blick|dicht\s+an)\b', target):
+                detected_angle = "close-up, detailed face, intense gaze"
 
-        # 3. Kniend / kniet / Boden
-        if re.search(r'\b(kniend|kniet|knie(e)?(\s+(mich|dich))?|auf\s+(den\s+)?knien|auf\s+dem\s+boden|am\s+boden|boden|auf\s+allen\s+vieren)\b', target):
-            return "kneeling"
+        # If both pose and angle are found, we can stop scanning
+        if detected_pose and detected_angle:
+            break
 
-        # 4. Sitzend / sitzt / setze mich
-        if re.search(r'\b(sitzend|sitzt|setze(\s+mich)?|hinsetz(en|t)|sitze)\b', target):
-            return "sitting"
-
-        # 5. Liegend / liegt / lege mich / Bett / Couch / Sofa
-        if re.search(r'\b(liegend|liegt|lege(\s+mich)?|gelegt|bett|couch|sofa)\b', target):
-            if re.search(r'\b(bauch|bauchlage|stomach)\b', target):
-                return "lying, lying on stomach"
-            return "lying, lying on bed, on back"
-
-        # 6. Stehend / steht
-        if re.search(r'\b(stehend|steht|stehe|hinstell(en|t)|aufrecht)\b', target):
-            return "standing"
-
+    if detected_pose and detected_angle:
+        return f"{detected_pose}, {detected_angle}"
+    if detected_pose:
+        return detected_pose
+    if detected_angle:
+        return detected_angle
     return None
 
 def get_last_megan_response_text() -> str:
@@ -1065,71 +1266,296 @@ def sanitize_comfy_user_prompt(prompt: str) -> str:
 
     return p.strip(', ')
 
-def build_megan_comfy_positive_prompt(raw_prompt: Optional[str] = None, megan_text: Optional[str] = None) -> str:
-    app_cfg = get_active_appearance_config()
-    hair_color = app_cfg.get("hair_color") or "orange hair"
-    hair_style = app_cfg.get("hair_style") or "twintails"
-    outfit = app_cfg.get("outfit") or "casual, tight black cropped tank top, denim shorts"
+def hermes_evaluate_intent_and_state(
+    user_message: str,
+    last_assistant_question: str = "",
+    borrow_prompt: str = "",
+    explicit_trigger: bool = False
+) -> Dict[str, Any]:
+    """
+    HERMES AGENT CONTROLLER (PRIO 1):
+    1. Persistiert State-Updates (Vorlieben, Abneigungen und verneinte Fragen).
+    2. Entscheidet, ob ein Chat-Intent auf metal-dgear einen Render-Job auf outerheaven auslöst.
+    """
+    init_memory_db()
+    msg_clean = user_message.strip()
+    msg_lower = msg_clean.lower()
 
-    hair_color_map = {
-        "copper_orange": "copper orange hair, fiery orange hair",
-        "platinum_blonde": "platinum blonde hair",
-        "raven_black": "raven black hair, dark hair"
-    }
-    hair_color_tag = hair_color_map.get(hair_color, hair_color)
+    # A. Verneinte Rückfragen erkennen (z. B. "Nein, lieber nicht", "Nee, mag ich nicht")
+    negation_prefixes = ("nein", "nee", "nö", "lieber nicht", "auf keinen fall", "bloß nicht")
+    if last_assistant_question and msg_lower.startswith(negation_prefixes):
+        rejected_topic = re.sub(r"[^a-zA-ZäöüÄÖÜß0-9\s\-]", "", last_assistant_question)[-60:].strip()
+        if rejected_topic:
+            with _get_db_conn(MEMORY_DB_PATH) as conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO user_preferences (category, sentiment, content) VALUES ('negated_question', 'dislike', ?)",
+                    (f"Abgelehnt bei Rückfrage: {rejected_topic}",)
+                )
+                conn.commit()
 
-    hair_style_map = {
-        "twintails": "twintails",
-        "long_loose": "long loose hair",
-        "messy_bun": "messy bun, hair bun"
-    }
-    hair_style_tag = hair_style_map.get(hair_style, hair_style)
-
-    outfit_map = {
-        "casual": "casual, tight black cropped tank top, denim shorts",
-        "lingerie": "sexy black lace lingerie set, sheer bralette, lace panties",
-        "tactical": "tactical crop top, tactical harness, cargo pants",
-        "cyberpunk": "cyberpunk glowing jacket, neon accents, futuristic crop top",
-        "none": "nude, completely nude, bare skin, no clothes",
-        "keine": "nude, completely nude, bare skin, no clothes",
-        "nude": "nude, completely nude, bare skin, no clothes",
-        "unbekleidet": "nude, completely nude, bare skin, no clothes"
-    }
-    if is_megan_nude(outfit):
-        outfit_tag = "nude, completely nude, bare skin, no clothes"
-    else:
-        outfit_tag = outfit_map.get(outfit, outfit)
-
-    # Dynamic Pose Extraction & ComfyUI Injection
-    pose_tag = None
-    if is_dynamic_poses_enabled():
-        if megan_text:
-            pose_tag = extract_dynamic_pose(megan_text)
-        if not pose_tag and raw_prompt:
-            pose_tag = extract_dynamic_pose(raw_prompt)
-        if not pose_tag:
-            last_text = get_last_megan_response_text()
-            if last_text:
-                pose_tag = extract_dynamic_pose(last_text)
-
-        if pose_tag:
-            logger.info(f"[Dynamic-Pose] Injected ComfyUI Pose Tags: '{pose_tag}'")
-
-    pose_part = f"{pose_tag}, " if pose_tag else ""
-
-    base = (
-        f"1girl, megan, solo, cute mischievous seductive expression, emerald green eyes, "
-        f"{hair_color_tag}, {hair_style_tag}, {outfit_tag}, "
-        f"{pose_part}"
-        f"subtle silver belly button piercing, delicate small geometric tattoo on ribcage, "
-        f"soft natural skin texture, masterpiece, photorealistic, raw photo, "
-        f"soft intimate studio lighting, rim lighting, 8k uhd, sensual alluring pose"
+    # B. Explizite Likes / Dislikes speichern
+    dislike_matches = re.findall(
+        r"(?:ich mag kein[e]?|ich hasse|bitte kein[e]?|bloß kein[e]?|gefällt mir nicht:?)\s+([a-zA-ZäöüÄÖÜß\s\-]{3,35})",
+        msg_clean, flags=re.IGNORECASE
+    )
+    like_matches = re.findall(
+        r"(?:ich mag|ich liebe|gerne mit|steht dir gut:?|gefällt mir:?)\s+([a-zA-ZäöüÄÖÜß\s\-]{3,35})",
+        msg_clean, flags=re.IGNORECASE
     )
 
-    clean_user = sanitize_comfy_user_prompt(raw_prompt or "")
-    if clean_user and clean_user.lower() not in ["megan_erotic_chat", "megan", "1girl"]:
-        return f"{base}, {clean_user}"
-    return base
+    with _get_db_conn(MEMORY_DB_PATH) as conn:
+        for d in dislike_matches:
+            conn.execute("INSERT OR IGNORE INTO user_preferences (category, sentiment, content) VALUES ('style', 'dislike', ?)", (d.strip(),))
+        for l in like_matches:
+            conn.execute("INSERT OR IGNORE INTO user_preferences (category, sentiment, content) VALUES ('style', 'like', ?)", (l.strip(),))
+        conn.commit()
+
+    # C. Render-Intent-Entscheidung durch Hermes
+    render_keywords = (
+        "zeig dich", "zeig mir", "mach ein foto", "mach ein bild", "schick ein bild",
+        "wie siehst du aus", "zieh dir", "trag mal", "färb dir", "neue frisur", "pose",
+        "/render", "/generate", "/draw"
+    )
+    should_render = bool(
+        explicit_trigger
+        or borrow_prompt.strip()
+        or any(kw in msg_lower for kw in render_keywords)
+    )
+
+    hermes_task_id = None
+    if should_render:
+        try:
+            with _get_db_conn(HERMES_KANBAN_DB) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS tasks (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        title TEXT NOT NULL,
+                        category TEXT DEFAULT 'megan_render',
+                        status TEXT DEFAULT 'in_progress',
+                        priority INTEGER DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                cur = conn.execute(
+                    "INSERT INTO tasks (title, category, status, priority) VALUES (?, 'megan_render', 'in_progress', 1)",
+                    (f"Render Trigger: {borrow_prompt or msg_clean[:50]}",)
+                )
+                conn.commit()
+                hermes_task_id = cur.lastrowid
+        except Exception as e:
+            logger.warning(f"Konnte Hermes Kanban-Task nicht anlegen: {e}")
+
+    return {
+        "should_trigger_render": should_render,
+        "hermes_task_id": hermes_task_id
+    }
+
+
+def update_hermes_task(task_id: Optional[int], status: str = "done") -> None:
+    if not task_id:
+        return
+    try:
+        with _get_db_conn(HERMES_KANBAN_DB) as conn:
+            conn.execute("UPDATE tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (status, task_id))
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Konnte Hermes Kanban-Task {task_id} nicht aktualisieren: {e}")
+
+
+def get_memory_prompt_block() -> str:
+    init_memory_db()
+    with _get_db_conn(MEMORY_DB_PATH) as conn:
+        likes = [r[0] for r in conn.execute("SELECT content FROM user_preferences WHERE sentiment='like' ORDER BY updated_at DESC LIMIT 8")]
+        dislikes = [r[0] for r in conn.execute("SELECT content FROM user_preferences WHERE sentiment='dislike' ORDER BY updated_at DESC LIMIT 8")]
+        topics = [r[0] for r in conn.execute("SELECT topic FROM learned_topics ORDER BY updated_at DESC LIMIT 6")]
+
+    blocks = [MEGAN_PERSONA_CORE]
+    if likes:
+        blocks.append(f"Vorlieben des Users (aktiv aufgreifen): {', '.join(likes)}.")
+    if dislikes:
+        blocks.append(f"Abneigungen / Verneinte Punkte (STRIKT VERMEIDEN): {', '.join(dislikes)}.")
+    if topics:
+        blocks.append(f"Aktuelle Style- & Trend-Themen: {', '.join(topics)}.")
+    return "\n".join(blocks)
+
+
+def extract_visual_context_from_chat(chat_text: str) -> str:
+    """Extrahiert Stimmung, Ort und Posen-Hinweise aus dem aktuellen Chatverlauf."""
+    if not chat_text:
+        return ""
+    lower = chat_text.lower()
+    extracted = []
+    mapping = {
+        "schwarz": "black hair",
+        "blond": "platinum blonde hair",
+        "brünett": "dark brown hair",
+        "zöpfe": "twintails",
+        "dutt": "messy bun",
+        "pferdeschwanz": "high ponytail",
+        "kleid": "elegant dress",
+        "sport": "athletic wear, gym outfit",
+        "abend": "warm evening lighting, cozy atmosphere",
+        "strand": "beach background, sunlight",
+        "studio": "studio lighting, fashion shoot",
+        "sitzend": "sitting, crossed legs",
+        "liegend": "lying on side, relaxed dynamic pose",
+        "spiegel": "mirror selfie pose"
+    }
+    for de_word, en_tag in mapping.items():
+        if de_word in lower:
+            extracted.append(en_tag)
+    return ", ".join(extracted)
+
+
+def fetch_fox_visual_trends(topic: str = "fashion hairstyles poses") -> Dict[str, Any]:
+    """
+    Fragt den Research-Knoten 'fox' nach aktuellen Modetrends, Frisuren und Posen ab
+    und speichert die Ergebnisse im Themen-Gedächtnis.
+    """
+    import urllib.request
+    payload = json.dumps({"query": topic, "categories": ["outfits", "hairstyles", "poses"]}).encode("utf-8")
+    req = urllib.request.Request(
+        FOX_RESEARCH_URL,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            summary = data.get("summary") or data.get("text", "")
+            tags = data.get("visual_tags") or data.get("tags", "trendy streetwear, dynamic fashion pose")
+            if summary:
+                with _get_db_conn(MEMORY_DB_PATH) as conn:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO learned_topics (topic, visual_tags, source) VALUES (?, ?, 'fox')",
+                        (summary[:120], tags)
+                    )
+                    conn.commit()
+            return {"status": "ok", "summary": summary, "visual_tags": tags}
+    except Exception as exc:
+        return {
+            "status": "fallback",
+            "summary": f"Lokaler Trend-Impuls ({topic})",
+            "visual_tags": "off-shoulder sweater, high ponytail, playful dynamic over-the-shoulder pose",
+            "error": str(exc)
+        }
+
+
+def build_megan_comfy_positive_prompt(
+    raw_prompt: str = "",
+    chat_context: str = "",
+    override_hair_color: Optional[str] = None,
+    override_hair_style: Optional[str] = None,
+    override_outfit: Optional[str] = None,
+    override_pose: Optional[str] = None,
+    trend_tags: Optional[str] = None,
+    megan_text: Optional[str] = None,
+    borrow_prompt: Optional[str] = None,
+    hair_color_override: Optional[str] = None,
+    hair_style_override: Optional[str] = None,
+    outfit_override: Optional[str] = None,
+    pose_override: Optional[str] = None,
+    scene_tags: Optional[str] = None,
+    **kwargs: Any
+) -> str:
+    if megan_text and not chat_context:
+        chat_context = megan_text
+
+    if borrow_prompt and str(borrow_prompt).strip():
+        bp = str(borrow_prompt).strip()
+        base = raw_prompt or scene_tags or ""
+        raw_prompt = f"{bp}, {base}".strip(", ")
+    elif scene_tags and not raw_prompt:
+        raw_prompt = scene_tags
+
+    if hair_color_override and not override_hair_color:
+        override_hair_color = hair_color_override
+    if hair_style_override and not override_hair_style:
+        override_hair_style = hair_style_override
+    if outfit_override and not override_outfit:
+        override_outfit = outfit_override
+    if pose_override and not override_pose:
+        override_pose = pose_override
+
+    cfg = get_active_appearance_config()
+    clean_user = sanitize_comfy_user_prompt(raw_prompt or "").strip().strip(",")
+
+    # 1. Haarfarbe auflösen (kein orange hair lock)
+    if override_hair_color and override_hair_color.strip():
+        hair_color_tag = override_hair_color.strip()
+        for kw in HAIR_COLOR_KEYWORDS:
+            if kw != hair_color_tag.lower():
+                clean_user = re.sub(rf"\b{re.escape(kw)}\b,?\s*", "", clean_user, flags=re.IGNORECASE)
+    elif any(kw in clean_user.lower() for kw in HAIR_COLOR_KEYWORDS):
+        hair_color_tag = ""
+    else:
+        hair_color_tag = cfg.get("hair_color", "copper orange hair")
+
+    # 2. Frisur auflösen
+    if override_hair_style and override_hair_style.strip():
+        hair_style_tag = override_hair_style.strip()
+        for kw in HAIR_STYLE_KEYWORDS:
+            if kw != hair_style_tag.lower():
+                clean_user = re.sub(rf"\b{re.escape(kw)}\b,?\s*", "", clean_user, flags=re.IGNORECASE)
+    elif any(kw in clean_user.lower() for kw in HAIR_STYLE_KEYWORDS):
+        hair_style_tag = ""
+    else:
+        hair_style_tag = cfg.get("hair_style", "long wavy hair")
+
+    # 3. Outfit auflösen
+    outfit_tag = (override_outfit or "").strip() or cfg.get("outfit", "casual chic outfit")
+    if is_megan_nude(outfit_tag):
+        outfit_tag = "nude, completely nude, bare skin, no clothes"
+
+    # 4. Pose auflösen
+    if override_pose and override_pose.strip():
+        pose_tag = override_pose.strip()
+    elif any(kw in clean_user.lower() for kw in POSE_KEYWORDS):
+        pose_tag = ""
+    else:
+        pose_tag = None
+        if is_dynamic_poses_enabled():
+            if chat_context:
+                pose_tag = extract_dynamic_pose(chat_context)
+            if not pose_tag and raw_prompt:
+                pose_tag = extract_dynamic_pose(raw_prompt)
+            if not pose_tag:
+                last_text = get_last_megan_response_text()
+                if last_text:
+                    pose_tag = extract_dynamic_pose(last_text)
+            if not pose_tag:
+                pose_tag = get_spontaneous_camera_angle()
+        if not pose_tag:
+            pose_tag = cfg.get("pose", "dynamic playful pose, looking at viewer")
+
+    scene_tags = extract_visual_context_from_chat(chat_context) if chat_context else ""
+
+    parts = [
+        "masterpiece, best quality, ultra-detailed, photorealistic, 1girl, megan, solo",
+        "playful lively expression, emerald green eyes",
+        hair_color_tag,
+        hair_style_tag,
+        outfit_tag,
+        pose_tag,
+        scene_tags,
+        trend_tags or "",
+        clean_user
+    ]
+
+    seen = set()
+    final_tokens = []
+    for part in parts:
+        for token in part.split(","):
+            t = token.strip()
+            if t and t.lower() not in seen and t.lower() not in ["megan_erotic_chat"]:
+                seen.add(t.lower())
+                final_tokens.append(t)
+
+    return ", ".join(final_tokens)
 
 DEFAULT_MEGAN_NEGATIVE = (
     "classes, beard, mustache, stubble, facial hair, 5 o clock shadow, masculine face, rugged, "
